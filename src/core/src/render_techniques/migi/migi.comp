@@ -1,0 +1,1430 @@
+// Correct some behaviors within `light_sampler_bounds.hlsl`
+// Okay it crashes the DXC compiler, so I'm going to remove it.
+// #define FIX_LIGHT_SAMPLER_BOUNDS
+
+// Shared structs among CPU and GPU
+#include "../../gpu_shared.h"
+
+// Parameters & Globals & Helper functions
+#include "migi_inc.hlsl"
+
+// Library for MIGI
+#include "migi_lib.hlsl"
+
+// Hash grid cache library
+#include "hash_grid_cache.hlsl"
+// World space ReSTIR library
+#include "world_space_restir.hlsl"
+
+#define MAX_HIT_DISTANCE 1e9f
+
+struct ScreenCacheUpdatePayload
+{
+    float3 sky_sample;
+    float hit_dist;
+};
+
+struct PopulateCellsPayload
+{
+    uint      query_index;
+    float3    world;
+    float3    normal;
+    float3    lighting;
+    Reservoir reservoir;
+};
+
+struct TraceReflectionsPayload
+{
+    int2   full_pos;
+    float3 radiance;
+    float2 s;
+    float  hit_distance;
+};
+
+
+// A naive kernel for generating dispatch commands
+[numthreads(1, 1, 1)]
+void GenerateDispatch()
+{
+    DispatchCommand dispatch_command;
+    dispatch_command.num_groups_x = (g_CountBuffer[0] + g_GroupSize - 1) / g_GroupSize;
+    dispatch_command.num_groups_y = 1;
+    dispatch_command.num_groups_z = 1;
+    dispatch_command.padding = 0;
+    g_RWDispatchCommandBuffer[0] = dispatch_command;
+}
+
+[numthreads(64, 1, 1)]
+void PurgeTiles(in uint did : SV_DispatchThreadID)
+{
+    if (did >= g_HashGridCache_PreviousPackedTileCountBuffer[0])
+    {
+        return; // out of bounds
+    }
+
+    // We opt for calculating the decay of each tile from the
+    // current frame index, as it saves many writes per frame
+    // and is quite a bit faster than having to decrement all
+    // cell's decay values.
+    uint tile_index = g_HashGridCache_PreviousPackedTileIndexBuffer[did];
+    uint tile_decay = g_HashGridCache_DecayTileBuffer[tile_index];
+
+    if (g_FrameIndex < tile_decay)   // account for integer wraparound case
+    {
+        tile_decay = ((0xFFFFFFFFu - tile_decay) + g_FrameIndex + 1);
+    }
+    else
+    {
+        tile_decay = (g_FrameIndex - tile_decay);
+    }
+
+    if (tile_decay >= kHashGridCache_TileDecay)
+    {
+        g_HashGridCache_HashBuffer[tile_index] = 0;
+
+#ifdef DEBUG_HASH_CELLS
+        // Clear all mipmaps
+        for (int cell_offset = 0; cell_offset < g_HashGridCacheConstants.num_cells_per_tile; ++cell_offset)
+        {
+            uint cell_index = HashGridCache_CellIndex(cell_offset, tile_index);
+            g_HashGridCache_DecayCellBuffer[cell_index] = 0xFFFFFFFFu;
+        }
+#endif // DEBUG_HASH_CELLS
+
+        return; // kill the tile
+    }
+
+    uint packed_tile_index;
+    InterlockedAdd(g_HashGridCache_PackedTileCountBuffer[0], 1, packed_tile_index);
+    g_HashGridCache_PackedTileIndexBuffer[packed_tile_index] = tile_index;
+}
+
+[numthreads(1, 1, 1)]
+void ClearCounters()
+{
+    g_Reservoir_HashListCountBuffer[0] = 0; // reset counters
+
+    g_HashGridCache_PackedTileCountBuffer[0]    = 0;
+    g_HashGridCache_UpdateTileCountBuffer[0]    = 0;
+    g_HashGridCache_VisibilityCountBuffer[0]    = 0;
+    g_HashGridCache_VisibilityRayCountBuffer[0] = 0;
+    
+}
+
+void ScreenCacheUpdateHandleHit(uint2 DispatchID, inout ScreenCacheUpdatePayload payload, RayDesc ray, HitInfo hit_info)
+{
+    HashGridCache_Data data;
+    data.eye_position = g_CameraPosition;
+    data.hit_position = ray.Origin + payload.hit_dist * ray.Direction;
+    data.direction    = ray.Direction;
+    data.hit_distance = payload.hit_dist;
+
+    uint tile_index;
+    bool is_new_tile;
+    uint cell_index = HashGridCache_InsertCell(data, tile_index, is_new_tile);
+
+    if (cell_index != kGI10_InvalidId)
+    {
+        // Bump the cell's decay to the max. now that it's been 'touched'
+        uint previous_tile_decay;
+        InterlockedExchange(g_HashGridCache_DecayTileBuffer[tile_index], g_FrameIndex, previous_tile_decay);
+
+        HashGridCache_Visibility visibility;
+        visibility.is_front_face   = hit_info.frontFace;
+        visibility.instance_index  = hit_info.instanceIndex;
+        visibility.geometry_index  = hit_info.geometryIndex;
+        visibility.primitive_index = hit_info.primitiveIndex;
+        visibility.barycentrics    = hit_info.barycentrics;
+
+        // We update the cell index for later passes
+        uint visibility_index;
+        InterlockedAdd(g_HashGridCache_VisibilityCountBuffer[0], 1, visibility_index);
+        g_HashGridCache_VisibilityBuffer[visibility_index]      = HashGridCache_PackVisibility(visibility);
+        g_HashGridCache_VisibilityCellBuffer[visibility_index]  = cell_index;
+        g_HashGridCache_VisibilityQueryBuffer[visibility_index] = DispatchID.x + DispatchID.y * g_OutputDimensions.x;
+
+        // Write out bounds of visibility
+        requestLightSampleLocation(data.hit_position);
+
+        // If this cell is inside a new tile, we need to add the tile to the packed storage and clear its cells.
+        if (is_new_tile)
+        {
+            uint packed_tile_index;
+            InterlockedAdd(g_HashGridCache_PackedTileCountBuffer[0], 1, packed_tile_index);
+            g_HashGridCache_PackedTileIndexBuffer[packed_tile_index] = tile_index;
+
+            // Clear mip0 cells (others will be reset anyways by UpdateTiles)
+            for (int cell_offset = 0; cell_offset < g_HashGridCacheConstants.num_cells_per_tile_mip0; ++cell_offset)
+            {
+                uint cell_index = HashGridCache_CellIndex(cell_offset, tile_index);
+                g_HashGridCache_ValueBuffer[cell_index] = uint2(0, 0);
+            }
+        }
+
+        // If we're the 1st invocation touching this cell (this frame), we want to clear the
+        // scratch storage that'll be used for atomically updating the radiance.
+        // The accumulation will be resolved in the 'UpdateTiles()' kernel to
+        // avoid integer overflow.
+        if (is_new_tile || previous_tile_decay != g_FrameIndex)
+        {
+            uint update_tile_index;
+            InterlockedAdd(g_HashGridCache_UpdateTileCountBuffer[0], 1, update_tile_index);
+            g_HashGridCache_UpdateTileBuffer[update_tile_index] = tile_index;
+        }
+
+#ifdef DEBUG_HASH_CELLS
+        // For debugging purposes, we need to be able to retrieve the position
+        // & orientation of cells as we iterate the content of the cache.
+        // So, write the packed cell descriptor out to memory in this case.
+        if (is_new_tile)
+        {
+            // Clear debug cells (all mips)
+            for (int cell_offset = 0; cell_offset < g_HashGridCacheConstants.num_cells_per_tile; ++cell_offset)
+            {
+                uint cell_index = HashGridCache_CellIndex(cell_offset, tile_index);
+                g_HashGridCache_DebugCellBuffer[cell_index] = HashGridCache_ClearDebugCell();
+            }
+        }
+
+        float4 packed_debug_cell;
+        uint debug_cell_index = HashGridCache_PackDebugCell(data, tile_index, packed_debug_cell);
+
+        // BE CAREFUL: writing to g_HashGridCache_DebugCellBuffer isn't atomic and several writings could occur
+        uint previous_cell_decay;
+        InterlockedExchange(g_HashGridCache_DecayCellBuffer[debug_cell_index], g_FrameIndex, previous_cell_decay);
+        if (previous_cell_decay != g_FrameIndex)
+        {
+            g_HashGridCache_DebugCellBuffer[debug_cell_index] = packed_debug_cell;
+        }
+#endif // DEBUG_HASH_CELLS
+    }
+}
+
+void ScreenCacheUpdateHandleMiss(inout ScreenCacheUpdatePayload payload, RayDesc ray)
+{
+    payload.sky_sample = g_EnvironmentBuffer.SampleLevel(g_TextureSampler, ray.Direction, 0.0f).xyz;
+}
+
+void ScreenCacheUpdateTraceRayInline(uint did, inout ScreenCacheUpdatePayload payload, RayDesc ray)
+{
+    ClosestRayQuery ray_query = TraceRay<ClosestRayQuery>(ray);
+
+    // If we hit some geometry, we append a new world-space hash-grid cache query
+    if (ray_query.CommittedStatus() == COMMITTED_NOTHING)
+    {
+        payload.hit_dist = ray_query.CommittedRayT();
+        ScreenCacheUpdateHandleMiss(payload, ray);
+    }
+    else
+    {
+        payload.hit_dist = ray_query.CommittedRayT();
+        ScreenCacheUpdateHandleHit(did, payload, ray, GetHitInfoRtInlineCommitted(ray_query));
+    }
+}
+
+void ScreenCacheUpdateTraceRayRt(uint did, inout ScreenCacheUpdatePayload payload, RayDesc ray)
+{
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFFu, 0, 0, 0, ray, payload);
+}
+
+void ScreenCacheUpdateTraceRay(uint did, inout ScreenCacheUpdatePayload payload, RayDesc ray)
+{
+#if USE_INLINE_RT
+    ScreenCacheUpdateTraceRayInline(did, payload, ray);
+#else
+    ScreenCacheUpdateTraceRayRt(did, payload, ray);
+#endif
+}
+
+
+// Trace visibility rays to generate intersections for secondary vertices
+void TraceUpdateRays (uint2 DispatchID) {
+    if(DispatchID.x >= g_OutputDimensions.x || DispatchID.y >= g_OutputDimensions.y) return ;
+    
+    float2 UV = (DispatchID + 0.5f) / float2(g_OutputDimensions);
+    float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+    float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
+    float3 GeometryNormal = normalize(2.0f * g_NormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+    float3 ShadingNormal  = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+
+    float3 RayOrigin = offsetPosition(WorldPixelPosition, GeometryNormal);
+    float2 u_b = BlueNoise_Sample2D(DispatchID, g_FrameIndex);
+    float3 RayDirection;
+    [branch]
+    if(g_NoImportanceSampling == 1) 
+    {
+        RayDirection = CosineWeightedSampleHemisphere(u_b);
+        // float RayDirectionPDF = CosineWeightedSampleHemispherePDF(RayDirection, ShadingNormal);
+        
+        float3 PixelTangent, PixelBitangent;
+        TangentVectors(ShadingNormal, PixelTangent, PixelBitangent);
+        RayDirection = normalize(RayDirection.x * PixelTangent + RayDirection.y * PixelBitangent + RayDirection.z * ShadingNormal);
+    } else {
+        float PDF;
+        SGData SG;
+        WData WD;
+        FetchBasisData(DispatchID, SG, WD);
+        RayDirection = SampleSG(u_b, SG.Lambda, PDF);
+        float3 SGTangent, SGBitangent;
+        TangentVectors(SG.Direction, SGTangent, SGBitangent);
+        RayDirection = normalize(RayDirection.x * SGTangent + RayDirection.y * SGBitangent + RayDirection.z * SG.Direction);
+    }
+    // Record trace ray direction for later hit position recovery
+    g_RWRayDirectionTexture[DispatchID.xy] = float4(RayDirection * 0.5f + 0.5f, 0);
+
+    
+
+#ifdef BYPASS_WORLD_RADIANCE_CACHE
+    // Trace and evaluate direct illumination using Monte-Carlo ray tracing on secondary vertex directly.
+    float3 RayRadiance = TraceAndCalculateDirectIllumination(RayOrigin, RayDirection, DispatchID.x + DispatchID.y * g_OutputDimensions.x, g_FrameIndex);
+    g_RWRayRadianceTexture[DispatchID.xy] = float4(RayRadiance, 0.f);
+#else               
+    // Clear ray radiance for later accumulation.
+    g_RWRayRadianceTexture[DispatchID.xy] = 0.f.xxxx;
+    // Trace a visibility ray only.
+    RayDesc VisibilityRayDesc;
+    VisibilityRayDesc.Origin = RayOrigin;
+    VisibilityRayDesc.Direction = RayDirection;
+    VisibilityRayDesc.TMin = 0.f;
+    VisibilityRayDesc.TMax = MAX_HIT_DISTANCE;
+
+    ScreenCacheUpdatePayload payload;
+    payload.sky_sample = float3(0.0f, 0.0f, 0.0f);
+    ScreenCacheUpdateTraceRay(
+        DispatchID.y * g_OutputDimensions.x + DispatchID.x,
+        payload, VisibilityRayDesc
+    );
+#endif // BYPASS_WORLD_RADIANCE_CACHE
+
+}
+
+[numthreads(4, 4, 1)]
+void TraceUpdateRaysMain (uint2 DispatchID : SV_DispatchThreadID) {
+    TraceUpdateRays(DispatchID);
+}
+
+[numthreads(32, 1, 1)]
+void ClearReservoirs(in uint did : SV_DispatchThreadID)
+{
+    g_Reservoir_HashBuffer[did]      = 0;
+    g_Reservoir_HashCountBuffer[did] = 0;
+}
+
+
+[numthreads(32, 1, 1)]
+void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
+{
+    if (DispatchID >= g_HashGridCache_VisibilityCountBuffer[0])
+    {
+        return; // out of bounds
+    }
+
+    // Load our visibility sample
+    float4                   packed_visibility = g_HashGridCache_VisibilityBuffer[DispatchID];
+    HashGridCache_Visibility visibility        = HashGridCache_UnpackVisibility(packed_visibility);
+
+    // Reconstruct world-space position and normal
+    Instance instance  = g_InstanceBuffer[visibility.instance_index];
+    Mesh     mesh      = g_MeshBuffer[instance.mesh_index + visibility.geometry_index];
+    float4x4 transform = FetchTransform(instance.transform_index);
+
+    TriangleNormUV vertices = fetchVerticesNormUV(mesh, visibility.primitive_index);
+
+    vertices.v0 = transformPoint(vertices.v0, transform);
+    vertices.v1 = transformPoint(vertices.v1, transform);
+    vertices.v2 = transformPoint(vertices.v2, transform);
+
+    vertices.n0 = transformNormal(vertices.n0, transform);
+    vertices.n1 = transformNormal(vertices.n1, transform);
+    vertices.n2 = transformNormal(vertices.n2, transform);
+
+    float3   world    =                                                       interpolate(v0.position.xyz, v1.position.xyz, v2.position.xyz, visibility.barycentrics);
+    float3   normal   = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(v0.normal.xyz,   v1.normal.xyz,   v2.normal.xyz,   visibility.barycentrics));
+    Material material = g_MaterialBuffer[instance.material_index];
+
+    // Recover the ray origin
+    uint query_index = g_HashGridCache_VisibilityQueryBuffer[DispatchID];
+    // Queries are indexed with pixel coordinates (currently).
+    int2 pixel_coords = int2(query_index % g_OutputDimensions.x, query_index / g_OutputDimensions.x);
+    float depth = g_DepthTexture.Load(int3(pixel_coords, 0)).x;
+    float2 uv = (pixel_coords + 0.5f) / g_OutputDimensions;
+    float3 origin = InverseProject(g_CameraProjViewInv, uv, depth);
+    float2 mesh_uv = interpolate(v0.uv.xy, v1.uv.xy, v2.uv.xy, visibility.barycentrics);
+
+    // Patch the screen space cache with some emissivity information:
+    // We bypass the hash-grid cache entirely here, as adding emissive information to the cells
+    // effectively enlarges the area light (due to the spatial nature of the grid) and leads to
+    // light leaks and generally poorer visuals.
+    if (visibility.is_front_face && dot(material.emissivity.xyz, material.emissivity.xyz) > 0.0f)
+    {
+        MaterialEmissive emissive = MakeMaterialEmissive(material, mesh_uv);
+        g_RWRayRadianceTexture[pixel_coords] = float4(emissive.emissive, 1.f);
+
+        return; // do not continue past an emissive surface
+    }
+
+    // We can perform some temporal radiance feedback from last frame if direct lighting was
+    // evaluated.
+    // If successful, we inject the reprojected radiance into the cache so it can be re-used
+    // by neighbor vertices but bypass the filtered readback as the sample is already denoised.
+    {
+        float3 homogeneous = transformPointProjection(world, g_ViewProjection);
+
+        uv    = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
+        depth = homogeneous.z;
+
+        if (all(uv > 0.0f) && all(uv < 1.0f) && depth > 0.0f && depth < 1.0f)
+        {
+            float2 previous_uv = uv - g_VelocityBuffer.SampleLevel(g_NearestSampler, uv, 0.0f).xy;
+
+            if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
+            {
+                float3 homogeneous2 = transformPointProjection(float3(2.0f * float2(uv.x, 1.0f - uv.y) - 1.0f, depth), g_Reprojection);
+                homogeneous2.z      = GetLinearDepth(homogeneous2.z);
+
+                float  previous_depth  = GetLinearDepth(g_PreviousDepthBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
+                float3 previous_normal = normalize(2.0f * g_PreviousNormalBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
+
+                if (dot(previous_normal, normal) > 5e-1f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
+                {
+                    float3 previous_lighting = g_PrevCombinedIlluminationBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
+
+                    uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[did];
+                    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(previous_lighting);
+
+                    //ScreenProbes_AccumulateRadiance(query_index, previous_lighting);
+                    g_RWRayRadianceTexture[pixel_coords] = g_RWRayRadianceTexture[pixel_coords] + float4(previous_lighting, 0.f);
+
+                    if (dot(previous_lighting, previous_lighting) > 0.0f)
+                    {
+                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
+                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
+                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
+                    }
+                    InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
+
+                    return; // we can skip the shadow ray for this sample :)
+                }
+            }
+        }
+    }
+
+    float3 view_direction = normalize(origin - world);
+
+    // Sample new lights
+    const float solid_angle = FOUR_PI / (kReservoir_SampleCount * 1.5f);
+    MaterialEvaluated material2 = MakeMaterialEvaluated(material, mesh_uv);
+    MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
+    Random random = MakeRandom(DispatchID, g_FrameIndex);
+    LightSampler lightSampler = MakeLightSampler(random);
+    Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(random, world, normal, view_direction, solid_angle, materialBRDF);
+
+    if (!reservoir.isValid())
+    {
+        return;
+    }
+
+    // Append our resampled shadow ray, generate a ray index for later tracing and updates
+    uint ray_index;
+    InterlockedAdd(g_HashGridCache_VisibilityRayCountBuffer[0], 1, ray_index);
+
+    g_HashGridCache_VisibilityRayBuffer[ray_index] = DispatchID;   // compact the surviving shadow rays
+
+    // Here, we check that the ray has traversed at least a full hash cell
+    // before hitting something.
+    // If it hasn't, we bypass the filtering from the cache (although we
+    // still accumulate the contribution into the cell).
+    //
+    // This avoids possible light leaks in the following configuration:
+    //
+    //    bright area   +--------------+
+    //                  |    dark area |
+    //                  | |            |
+    //                  | x            |
+    //                  |/|            |
+    //                 /|\             |
+    //                / | eye          |
+    // bright radiance  +--------------+
+    //
+    // Here the point 'x' is reached after bouncing from the first vertex.
+    // (i.e., it is a 2nd vertex, the ones filtered through the hash grid)
+    // Because it is close to the wall and has a similar direction to the
+    // 'bright radiance' event, both vertices will share the same hash cell
+    // leading to a light leak on the bounced lighting from the inner wall.
+    //
+    // Such a scenario mostly occurs if the length of the ray connecting
+    // the 2nd vertex is less than the size of the hash cell being used.
+    // So, we detect this case and flag a bypass of the filtered readback.
+    float cell_size  = HashGridCache_GetCellSize(world);
+    float ray_length = distance(origin, world);
+
+    if (ray_length < cell_size)
+    {
+        g_HashGridCache_VisibilityRayBuffer[ray_index] |= 0x80000000u;
+    }
+
+    // Insert the reservoir into the hash table
+#ifdef USE_RESAMPLING
+    float3 b1, b2;
+    GetOrthoVectors(normal, b1, b2);
+    float2 jitter = 2.0f * random.rand2() - 1.0f;
+    jitter *= Reservoir_GetCellSize(world) * kReservoir_SpatialJitter;
+    Reservoir_InsertEntry(ray_index, world + jitter.x * b1 + jitter.y * b2);
+
+    g_Reservoir_IndirectSampleBuffer[ray_index]       = Reservoir_PackIndirectSample(origin, world);
+    g_Reservoir_IndirectSampleNormalBuffer[ray_index] = packNormal(normal);
+#endif // USE_RESAMPLING
+
+    // Write the results out to memory
+    g_Reservoir_IndirectSampleMaterialBuffer[ray_index]  = packMaterial(material2);  // cannot afford to re-fetch the full material each time, so we need to approximate it...
+    g_Reservoir_IndirectSampleReservoirBuffer[ray_index] = packReservoir(reservoir);
+}
+
+// 32 threads for NVIDIA hardwares (warp size)
+[numthreads(32, 1, 1)]
+void CompactReservoirs(in uint did : SV_DispatchThreadID)
+{
+    if (did >= g_Reservoir_HashListCountBuffer[0])
+    {
+        return; // out of bounds
+    }
+
+    uint4 list_element = g_Reservoir_HashListBuffer[did];
+    uint  value_index  = g_Reservoir_HashIndexBuffer[list_element.y] + list_element.z;
+
+    g_Reservoir_HashValueBuffer[value_index] = list_element.x;
+}
+
+// Temporal resampling only
+[numthreads(64, 1, 1)]
+void ResampleReservoirs(in uint did : SV_DispatchThreadID)
+{
+    if (did >= g_HashGridCache_VisibilityRayCountBuffer[0])
+    {
+        return; // out of bounds
+    }
+
+    // Load our shading information
+    float3 origin, world;
+    Reservoir_UnpackIndirectSample(g_Reservoir_IndirectSampleBuffer[did], origin, world);
+
+    float3       normal    = unpackNormal(g_Reservoir_IndirectSampleNormalBuffer[did]);
+    MaterialBRDF material  = unpackMaterial(g_Reservoir_IndirectSampleMaterialBuffer[did]);
+    Reservoir    reservoir = unpackReservoir(g_Reservoir_IndirectSampleReservoirBuffer[did]);
+
+    // Normalize the sample count M (a.k.a. confidence weight) with the initial sample count for simplicity.
+    reservoir.M = 1.0f;
+
+    Random random = MakeRandom(did, g_FrameIndex);
+
+    // Locate our hash table cell
+    float3 b1, b2;
+    GetOrthoVectors(normal, b1, b2);
+    float2 jitter = 2.0f * random.rand2() - 1.0f;
+    jitter *= Reservoir_GetCellSize(world) * kReservoir_SpatialJitter;
+    uint entry_index = Reservoir_FindPreviousEntry(world + jitter.x * b1 + jitter.y * b2);
+
+    if (entry_index == kGI10_InvalidId)
+    {
+        return; // no previous reservoir cell - temporal resampling failed :'(
+    }
+
+    uint index = g_Reservoir_PreviousHashIndexBuffer[entry_index];
+    uint count = g_Reservoir_PreviousHashCountBuffer[entry_index];
+
+    // Stochastically iterate the cell content
+    uint max_count = 4;
+    uint increment = (count + max_count - 1) / max_count;
+    uint offset    = random.randInt(increment);
+
+    // And combine the reservoirs
+    float3 view_direction = normalize(origin - world);
+    const float solid_angle = FOUR_PI / (kReservoir_SampleCount * 12000.0f);
+    ReservoirUpdater updater = MakeReservoirUpdater();
+    mergeReservoirsCone(updater, reservoir, random, material, world, normal, view_direction, solid_angle);
+    for (uint i = 0; i < count; i += increment)
+    {
+        // Load up the iterated reservoir
+        uint      reservoir_index = g_Reservoir_PreviousHashValueBuffer[index + ((i + offset) % count)];
+        Reservoir reservoir2      = unpackReservoir(g_Reservoir_PreviousIndirectSampleReservoirBuffer[reservoir_index]);
+        float3    filter_normal   = unpackNormal(g_Reservoir_PreviousIndirectSampleNormalBuffer[reservoir_index]);
+
+        if (!reservoir2.isValid())
+        {
+            continue;   // skip invalid reservoir(s)
+        }
+
+        // Bilaterally filter the neighbor reservoir
+        float bilateral_weight = max(dot(normal, filter_normal), 0.0f);
+        bilateral_weight = squared(squared(bilateral_weight)); // make it steep
+        if (bilateral_weight < kReservoir_BilateralThreshold) continue;
+
+        // And combine it with our current reservoir
+        Reservoir_ClampPrevious(reservoir2);
+        mergeReservoirsCone(updater, reservoir2, random, material, world, normal, view_direction, solid_angle);
+    }
+
+    if (!updater.reservoir.M)
+    {
+        return; // reprojection failed
+    }
+
+    // Finalize our reservoir
+    reservoir = updater.reservoir;
+
+    // And write it out to memory
+    g_Reservoir_IndirectSampleReservoirBuffer[did] = packReservoir(reservoir);
+}
+
+void PopulateCellsHandleHit(uint did, inout PopulateCellsPayload payload, RayDesc ray)
+{
+    payload.lighting    = float3(0.0f, 0.0f, 0.0f);
+
+    Reservoir reservoir = payload.reservoir;
+    // Update our reservoir cache for next frame's temporal resampling
+#ifdef USE_RESAMPLING
+    reservoir.W = 0.0f; // invalidate the reservoir
+
+    g_Reservoir_IndirectSampleReservoirBuffer[did] = packReservoir(reservoir);
+#endif // USE_RESAMPLING
+}
+
+void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayload payload, RayDesc ray)
+{
+    float3       light_radiance = payload.lighting;
+    float        light_weight   = payload.reservoir.W;
+    int2         pixel_coords   = int2(payload.query_index % g_OutputDimensions.x, payload.query_index / g_OutputDimensions.x);
+    MaterialBRDF material       = unpackMaterial(g_Reservoir_IndirectSampleMaterialBuffer[did]);
+
+    // Recover the ray origin
+    float  depth  = g_DepthTexture.Load(int3(pixel_coords, 0)).x;
+    float2 uv     = (pixel_coords + 0.5f) / g_OutputDimensions;
+    float3 origin = InverseProject(g_CameraProjViewInv, uv, depth);
+
+    // And evaluate our lighting
+    payload.lighting =
+        evaluateBRDF(material, payload.normal, normalize(origin - payload.world), ray.Direction)
+        * light_radiance * light_weight;
+}
+
+void PopulateCellsTraceRayInline(uint did, inout PopulateCellsPayload payload, RayDesc ray)
+{
+    ShadowRayQuery ray_query = TraceRay<ShadowRayQuery>(ray);
+
+    if (ray_query.CommittedStatus() == COMMITTED_NOTHING)
+    {
+        PopulateCellsHandleMiss(did, payload, ray);
+    }
+    else
+    {
+        PopulateCellsHandleHit(did, payload, ray);
+    }
+}
+
+void PopulateCellsTraceRayRt(uint did, inout PopulateCellsPayload payload, RayDesc ray)
+{
+    TraceRay(g_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFFu, 0, 0, 0, ray, payload);
+}
+
+void PopulateCellsTraceRay(uint did, inout PopulateCellsPayload payload, RayDesc ray)
+{
+#if USE_INLINE_RT
+    return PopulateCellsTraceRayInline(did, payload, ray);
+#else
+    return PopulateCellsTraceRayRt(did, payload, ray);
+#endif
+}
+
+// Light sampling completed, actually trace a shadow ray for each hash grid cache query.
+void PopulateCells(uint did)
+{
+    if (did >= g_HashGridCache_VisibilityRayCountBuffer[0])
+    {
+        return; // out of bounds
+    }
+
+    uint                     visibility_index = (g_HashGridCache_VisibilityRayBuffer[did] & ~0x80000000u);
+    HashGridCache_Visibility visibility       = HashGridCache_UnpackVisibility(g_HashGridCache_VisibilityBuffer[visibility_index]);
+
+    uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
+    int2 pixel_coords = int2(query_index % g_OutputDimensions.x, query_index / g_OutputDimensions.x);    
+
+    // Reconstruct world-space position and normal
+    Instance instance  = g_InstanceBuffer[visibility.instance_index];
+    Mesh     mesh      = g_MeshBuffer[instance.mesh_index + visibility.geometry_index];
+    float4x4 transform = FetchTransform(instance.transform_index);
+
+    Triangle vertices = fetchVertices(mesh, visibility.primitive_index);
+
+    vertices.v0 = transformPoint(vertices.v0, transform);
+    vertices.v1 = transformPoint(vertices.v1, transform);
+    vertices.v2 = transformPoint(vertices.v2, transform);
+    float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
+    float3 edge10 = vertices.v1 - vertices.v0;
+    float3 edge20 = vertices.v2 - vertices.v0;
+    float3 normal = normalize(transformNormal(cross(edge10, edge20) * (visibility.is_front_face ? 1.0f : -1.0f), transform));
+
+    // Retrieve the light sample that we should use for our shadow ray
+    Reservoir reservoir    = unpackReservoir(g_Reservoir_IndirectSampleReservoirBuffer[did]);
+
+    // Decode the light sample from our reservoir
+    float3 direction, light_position;
+    // Approximate visible light surface based on number of samples being used
+    const float solid_angle = FOUR_PI / (kReservoir_SampleCount * 12000.0f);
+    Light selected_light = getLight(reservoir.lightSample.index);
+    float3 light_radiance = evaluateLightConeSampled(selected_light, world, reservoir.lightSample.sampleParams, solid_angle, direction, light_position);
+
+    // Traverse the BVH
+    RayDesc ray_desc;
+    ray_desc.Direction = direction;
+    ray_desc.Origin    = offsetPosition(world, normal);
+    ray_desc.TMin      = 0.0f;
+    ray_desc.TMax      = hasLightPosition(selected_light) ? length(light_position - ray_desc.Origin) : FLT_MAX;
+
+    PopulateCellsPayload payload;
+    payload.query_index = query_index;
+    payload.world       = world;
+    payload.normal      = normal;
+    payload.lighting    = light_radiance;
+    payload.reservoir   = reservoir;
+    PopulateCellsTraceRay(did, payload, ray_desc);
+
+    // And update the hash-grid cell payload
+    uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[visibility_index];
+    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(payload.lighting);
+
+    if (dot(payload.lighting, payload.lighting) > 0.0f)
+    {
+        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
+        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
+        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
+    }
+    InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
+
+    // In some cases, we want to bypass the cache to avoid light leaks;
+    // so we simply patch the screen probes directly and invalidate the
+    // cache connection.
+    bool is_bypass_cache = ((g_HashGridCache_VisibilityRayBuffer[did] >> 31) != 0);
+
+    if (is_bypass_cache)
+    {
+        g_RWRayRadianceTexture[pixel_coords] = g_RWRayRadianceTexture[pixel_coords] + float4(GIDenoiser_RemoveNaNs(payload.lighting), 0.f);
+    }
+}
+
+[numthreads(32, 1, 1)]
+void PopulateCellsMain(in uint did : SV_DispatchThreadID)
+{
+    PopulateCells(did);
+}
+
+// BE CAREFUL: we assume
+//             UPDATE_TILES_NOT_SLICED_GROUP_* >= g_HashGridCacheConstants.size_tile_mip0
+//             UPDATE_TILES_NOT_SLICED_GROUP_*  % g_HashGridCacheConstants.size_tile_mip0 == 0
+//
+#define UPDATE_TILES_GROUP_X 8
+#define UPDATE_TILES_GROUP_Y 8
+#define UPDATE_TILES_GROUP_SIZE (UPDATE_TILES_GROUP_X * UPDATE_TILES_GROUP_Y)
+
+groupshared uint2 lds_UpdateTiles_ValueBuffer[UPDATE_TILES_GROUP_X][UPDATE_TILES_GROUP_Y];
+
+[numthreads(1, 1, 1)]
+void GenerateUpdateTilesDispatch()
+{
+    uint num_tiles_by_group = UPDATE_TILES_GROUP_SIZE / g_HashGridCacheConstants.num_cells_per_tile_mip0;
+
+    DispatchCommand dispatch_command;
+    dispatch_command.num_groups_x = (g_HashGridCache_UpdateTileCountBuffer[0] + num_tiles_by_group - 1) / num_tiles_by_group;
+    dispatch_command.num_groups_y = 1;
+    dispatch_command.num_groups_z = 1;
+    dispatch_command.padding = 0;
+    g_RWDispatchCommandBuffer[0] = dispatch_command;
+}
+
+[numthreads(UPDATE_TILES_GROUP_X, UPDATE_TILES_GROUP_Y, 1)]
+void UpdateTiles(in uint group_id : SV_GroupID, in uint2 group_thread_id : SV_GroupThreadID)
+{
+    // A group cover from 1 tile/subgroup (8x8) to 64 tiles/subgroups (1x1)
+    uint2 subgroup_id        = group_thread_id / g_HashGridCacheConstants.size_tile_mip0;
+    uint2 subgroup_thread_id = group_thread_id % g_HashGridCacheConstants.size_tile_mip0;
+    uint2 subgroup_size      = uint2(UPDATE_TILES_GROUP_X, UPDATE_TILES_GROUP_Y) / g_HashGridCacheConstants.size_tile_mip0;
+    uint  update_tile_index  = group_id * subgroup_size.x * subgroup_size.y +
+                               subgroup_id.y * subgroup_size.x +
+                               subgroup_id.x;
+
+    if (update_tile_index >= g_HashGridCache_UpdateTileCountBuffer[0])
+    {
+        return;
+    }
+
+    uint tile_index = g_HashGridCache_UpdateTileBuffer[update_tile_index];
+
+    // MIP 0
+    {
+        uint cell_index  = HashGridCache_CellIndex(subgroup_thread_id, tile_index, 0);
+
+        // Temporal accumulation
+        float4 radiance     = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index]);
+        float4 new_radiance = HashGridCache_RecoverRadiance(uint4(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0],
+                                                                  g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1],
+                                                                  g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2],
+                                                                  g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3]));
+
+        float sample_count = min(radiance.w + new_radiance.w, g_HashGridCacheConstants.max_sample_count);
+
+        radiance     /= max(radiance.w, 1.0f);
+        new_radiance /= max(new_radiance.w, 1.0f);
+
+        if (radiance.w <= 0.0f)
+        {
+            radiance = new_radiance;
+        }
+        else
+        {
+            radiance = lerp(radiance, new_radiance, 1.0f / sample_count);
+        }
+
+        radiance *= sample_count;   // sample count is used as a hint for picking prefiltering amount
+
+        // Pack
+        uint2 packed_radiance = HashGridCache_PackRadiance(radiance);
+        lds_UpdateTiles_ValueBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance;
+        g_HashGridCache_ValueBuffer[cell_index] = packed_radiance;
+
+        // Clear scratch
+        g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0] = 0;
+        g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1] = 0;
+        g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2] = 0;
+        g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3] = 0;
+    }
+
+    // MIP 1
+    GroupMemoryBarrierWithGroupSync();
+    [branch]
+    if(g_HashGridCacheConstants.size_tile_mip1 > 0 && all((group_thread_id % 2) == 0))
+    {
+        uint cell_index = HashGridCache_CellIndex(subgroup_thread_id, tile_index, 1);
+
+        // Box filter
+        uint2 packed_radiance00 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 0][group_thread_id.y + 0];
+        uint2 packed_radiance10 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 1][group_thread_id.y + 0];
+        uint2 packed_radiance01 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 0][group_thread_id.y + 1];
+        uint2 packed_radiance11 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 1][group_thread_id.y + 1];
+
+        float4 radiance = float4(0.f, 0.f, 0.f, 0.f);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance00);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance10);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance01);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance11);
+
+        // Pack
+        uint2 packed_radiance = HashGridCache_PackRadiance(radiance);
+        lds_UpdateTiles_ValueBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance;
+        g_HashGridCache_ValueBuffer[cell_index] = packed_radiance;
+    }
+
+    // MIP 2
+    GroupMemoryBarrierWithGroupSync();
+    [branch]
+    if(g_HashGridCacheConstants.size_tile_mip2 > 0 && all((group_thread_id % 4) == 0))
+    {
+        uint cell_index = HashGridCache_CellIndex(subgroup_thread_id, tile_index, 2);
+
+        // Box filter
+        uint2 packed_radiance00 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 0][group_thread_id.y + 0];
+        uint2 packed_radiance20 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 2][group_thread_id.y + 0];
+        uint2 packed_radiance02 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 0][group_thread_id.y + 2];
+        uint2 packed_radiance22 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 2][group_thread_id.y + 2];
+
+        float4 radiance = float4(0.f, 0.f, 0.f, 0.f);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance00);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance20);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance02);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance22);
+
+        // Pack
+        uint2 packed_radiance = HashGridCache_PackRadiance(radiance);
+        lds_UpdateTiles_ValueBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance;
+        g_HashGridCache_ValueBuffer[cell_index] = packed_radiance;
+    }
+
+    // MIP 3
+    GroupMemoryBarrierWithGroupSync();
+    [branch]
+    if(g_HashGridCacheConstants.size_tile_mip3 > 0 && all((group_thread_id % 8) == 0))
+    {
+        uint cell_index = HashGridCache_CellIndex(subgroup_thread_id, tile_index, 3);
+
+        // Box filter
+        uint2 packed_radiance00 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 0][group_thread_id.y + 0];
+        uint2 packed_radiance40 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 4][group_thread_id.y + 0];
+        uint2 packed_radiance04 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 0][group_thread_id.y + 4];
+        uint2 packed_radiance44 = lds_UpdateTiles_ValueBuffer[group_thread_id.x + 4][group_thread_id.y + 4];
+
+        float4 radiance = float4(0.f, 0.f, 0.f, 0.f);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance00);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance40);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance04);
+        radiance += HashGridCache_UnpackRadiance(packed_radiance44);
+
+        // Pack
+        g_HashGridCache_ValueBuffer[cell_index] = HashGridCache_PackRadiance(radiance);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void ResolveCells(in uint did : SV_DispatchThreadID)
+{
+    if (did >= g_HashGridCache_VisibilityRayCountBuffer[0])
+    {
+        return; // out of bounds
+    }
+
+    uint visibility_index = g_HashGridCache_VisibilityRayBuffer[did];
+
+    if ((visibility_index >> 31) != 0)
+    {
+        return; // do not use filtered radiance
+    }
+
+    uint cell_index  = g_HashGridCache_VisibilityCellBuffer[visibility_index];
+    uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
+
+    float4 radiance = HashGridCache_FilteredRadiance(cell_index, false);
+
+    int2 pixel_coords = int2(query_index % g_OutputDimensions.x, query_index / g_OutputDimensions.x);
+    g_RWRayRadianceTexture[pixel_coords] = g_RWRayRadianceTexture[pixel_coords] + float4(GIDenoiser_RemoveNaNs(radiance.xyz / max(radiance.w, 1.0f)), 0.f);
+}
+
+// The screen resolution must be dividable by 4, so we dont need to check for boundaries.
+// (4+4+4) ^ 2
+groupshared SGData LocalSGData[12][12];
+groupshared WData LocalWData[12][12];
+// X, Y, lane
+[numthreads(32, 4, 4)]
+void PrecomputeCacheUpdate (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
+    int WarpID = LocalID.y * 4 + LocalID.z; 
+    int LaneID = LocalID.x;
+    // Cooperatively load the data into shared memory
+    // First 12 lanes of first 12 warps
+    if(WarpID < 12 && LaneID < 12) {
+        int X_Real = int(GroupID.x) * 4 + LaneID - 4;
+        int Y_Real = int(GroupID.y) * 4 + WarpID - 4;
+        int X = min(max(X_Real, 0), g_ScreenCacheDimensions.x-1);
+        int Y = min(max(Y_Real, 0), g_ScreenCacheDimensions.y-1);
+        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
+            SGData SG = (SGData)0;
+            SG.Lambda = 1.f;
+            LocalSGData[WarpID][LaneID] = SG;
+            WData W = (WData)0;
+            W.Lambda = 100.f;
+            LocalWData[WarpID][LaneID] = W;
+        } else {
+            FetchBasisData(int2(X, Y), LocalSGData[WarpID][LaneID], LocalWData[WarpID][LaneID]);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Fetch ray direction and radiance
+    int2 RayCoords = int2(GroupID.x * 4 + LocalID.y, GroupID.y * 4 + LocalID.z);
+    float3 RayDirection = (g_RWRayDirectionTexture[RayCoords].xyz * 2.f - 1.f);
+    float3 RayRadiance = g_RWRayRadianceTexture[RayCoords].xyz;
+
+    // Now we can use the data
+    // 3 batches, 32 lanes per batch, 96 (80) basis
+    float3 EvaluatedRayRadiance = float3(0, 0, 0);
+    for(int batch_index = 0; batch_index < 3; batch_index ++) {
+        int index = LaneID + batch_index * 32;
+        if(index < 80) {
+            int X = index % 9 + LocalID.y;
+            int Y = index / 9 + LocalID.z;
+            float2 Delta = float2(4 - index % 9, 4 - index / 9);
+            float3 CurrentEvaluatedRadiance = EvaluateSG(LocalSGData[Y][X], RayDirection) * EvaluateW(LocalWData[Y][X], Delta);
+            EvaluatedRayRadiance += CurrentEvaluatedRadiance;
+        }
+    }
+    // Aggregate the evaluated radiance from cache
+    float3 SumEvaluatedRadiance = WaveActiveSum(EvaluatedRayRadiance);
+
+    if(LaneID == 0) {
+        // Write Back
+        g_RWRayRadianceDifferenceTexture[RayCoords] = float4(RayRadiance - SumEvaluatedRadiance, 0);
+    }
+}
+
+// The screen resolution must be dividable by 4, so we dont need to check for boundaries.
+// (4+4+4) ^ 2
+groupshared float3 LocalRayDirection[12][12];
+groupshared float3 LocalRayRadiance[12][12];
+groupshared float3 LocalRayRadianceDifference[12][12];
+
+// X, Y, lane
+[numthreads(32, 4, 4)]
+void UpdateCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
+
+    int WarpID = LocalID.y * 4 + LocalID.z;
+    int LaneID = LocalID.x;
+    // Cooperatively load the data into shared memory
+    // First 12 lanes of first 12 warps
+    if(WarpID < 12 && LaneID < 12) {
+        int X_Real = int(GroupID.x) * 4 + LaneID - 4;
+        int Y_Real = int(GroupID.y) * 4 + WarpID - 4;
+        int X = min(max(X_Real, 0), g_ScreenCacheDimensions.x-1);
+        int Y = min(max(Y_Real, 0), g_ScreenCacheDimensions.y-1);
+        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
+            LocalRayRadiance[WarpID][LaneID] = float3(0, 0, 0);
+            LocalRayDirection[WarpID][LaneID] = float3(0, 0, 1);
+            LocalRayRadianceDifference[WarpID][LaneID] = float3(0, 0, 0);
+        } else {
+            LocalRayDirection[WarpID][LaneID] = (g_RWRayDirectionTexture[int2(X, Y)].xyz * 2.f - 1.f);
+            LocalRayRadiance[WarpID][LaneID] = g_RWRayRadianceTexture[int2(X, Y)].xyz;
+            LocalRayRadianceDifference[WarpID][LaneID] = g_RWRayRadianceDifferenceTexture[int2(X, Y)].xyz;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    SGData SG;
+    WData WD;
+    int2 BasisCoords = int2(GroupID.x * 4 + LocalID.y, GroupID.y * 4 + LocalID.z);
+    FetchBasisData(BasisCoords, SG, WD);
+
+    // Now we can use the data
+    // 3 batches, 32 lanes per batch, 96 (80) basis
+    SGDifferentials Differentials = (SGDifferentials)0;
+    for(int batch_index = 0; batch_index < 3; batch_index ++) {
+        int index = LaneID + batch_index * 32;
+        if(index < 80) {
+            int X = index % 9 + LocalID.y;
+            int Y = index / 9 + LocalID.z;
+            float2 Delta = float2(index % 9 - 4, index / 9 - 4);
+            float WFactor = EvaluateW(WD, Delta);
+            float3 CurrentEvaluatedRadiance = EvaluateSG(SG, LocalRayDirection[Y][X]);
+            SGDifferentials NewDifferentials;
+            EvaluateSGDifferentials(SG, LocalRayDirection[Y][X], CurrentEvaluatedRadiance * WFactor + LocalRayRadianceDifference[Y][X], CurrentEvaluatedRadiance, NewDifferentials);
+            Differentials.dColor += NewDifferentials.dColor * WFactor;
+            Differentials.dDirection += NewDifferentials.dDirection * WFactor;
+            Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+        }
+    }
+    // Aggregate the differentials
+
+    Differentials.dColor = WaveActiveSum(Differentials.dColor);
+    Differentials.dDirection = WaveActiveSum(Differentials.dDirection);
+    Differentials.dLambda = WaveActiveSum(Differentials.dLambda);
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if(LaneID == 0) {
+        // Update
+        float3 Ortho = (Differentials.dDirection - dot(Differentials.dDirection, SG.Direction) * SG.Direction) * 5.f;
+
+        float Scale = Differentials.dLambda * Differentials.dLambda + dot(Differentials.dColor, Differentials.dColor) + dot(Ortho, Ortho);
+        float NormalizationFactor = g_CacheUpdateLearningRate / sqrt(max(Scale, 0.001f));
+
+        SG.Color = max(SG.Color - Differentials.dColor * NormalizationFactor, float3(0.001f, 0.001f, 0.001f));
+        SG.Direction = normalize(SG.Direction - Ortho * NormalizationFactor);
+        SG.Lambda = min(max(SG.Lambda - Differentials.dLambda * NormalizationFactor * 0.02f, 0.5f), 100.f);
+        
+        // SG.Color = g_OverWriteSGColor;
+        // SG.Direction = g_OverWriteSGDirection;
+        // SG.Lambda = g_OverWriteSGLambda;
+
+        // W: ignore it for now
+        // Write Back
+        g_RWBasisParameterTexture[BasisCoords] = float4(SG.Direction, SG.Lambda);
+        g_RWBasisColorTexture[BasisCoords] = float4(SG.Color, 0);
+    }   
+}
+
+[numthreads(8, 8, 1)]
+void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
+{
+    if(DispatchID.x >= g_OutputDimensions.x || DispatchID.y >= g_OutputDimensions.y)
+    {
+        return;
+    }
+
+    float2 UV = (DispatchID + 0.5f) / float2(g_OutputDimensions);
+    float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+    float2 NDC2 = float2(UV.x * 2.f - 1.f, 1.f - UV.y * 2.f);
+    if(Depth >= 1.0f) {
+        float3 ViewDirection = GetCameraRayDirection(NDC2);
+        float3 SkyColor = g_EnvironmentBuffer.SampleLevel(g_TextureSampler, ViewDirection, 0.0f).rgb;
+        g_RWDebugOutput[DispatchID] = float4(SkyColor, 1.0f);
+        return ;
+    }
+
+    float4 Visbility = g_VisibilityTexture.Load(int3(DispatchID, 0));
+    uint InstanceID = asuint(Visbility.z);
+    uint PrimitiveID = asuint(Visbility.w);
+
+    Instance InstanceData = g_InstanceBuffer[InstanceID];
+    Mesh MeshData = g_MeshBuffer[InstanceData.mesh_index];
+
+    Vertex Vertex0, Vertex1, Vertex2;
+    FetchVertices(MeshData, PrimitiveID, Vertex0, Vertex1, Vertex2);
+
+    float3 Normal = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+
+    float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
+
+    float3 ViewDirection = normalize(g_CameraPosition - WorldPixelPosition);
+    float2 MeshUV = interpolate(Vertex0.uv, Vertex1.uv, Vertex2.uv, Visbility.xy);
+    float DotNV = saturate(dot(Normal, ViewDirection));
+
+    Material MaterialData = g_MaterialBuffer[MeshData.material_index];
+    MaterialEvaluated MaterialEvaluatedData = MakeMaterialEvaluated(MaterialData, MeshUV);
+    MaterialEmissive EmissiveMaterialData = MakeMaterialEmissive(MaterialData, MeshUV);
+
+    MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvaluatedData);
+
+    // This should be alpha actually
+    float Roughness = g_OverWriteRoughness;//MaterialEvaluated.roughness;
+
+    float3 OutLighting = 0;
+
+    // Iterate over adjacent pixels and integrate using ASG approximations
+    for(int dX = -4; dX < 4; dX++)
+        for(int dY = -4; dY < 4; dY++) {
+            int X = int(DispatchID.x) + dX;
+            int Y = int(DispatchID.y) + dY;
+            int2 Coord = int2(X, Y);
+            if(X >= 0 && Y >= 0 && X < g_OutputDimensions.x && Y < g_OutputDimensions.x) {
+                SGData SG;
+                WData WD;
+                FetchBasisData(Coord, SG, WD);
+                float3 LightDirection = SG.Direction;
+                float3 ReflectionDirection = reflect(-ViewDirection, Normal);
+                float3 HalfVector = normalize(LightDirection + ViewDirection);
+                float dotNR = saturate(dot(Normal, ReflectionDirection));
+                float dotNV = saturate(dot(Normal, ViewDirection));
+                float dotHV = saturate(dot(HalfVector, ViewDirection));
+                float3 FresnelTerm = fresnel(0.04f.xxx, dotHV);
+                // Approximate \int D * Li with ASG
+                float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, Normal, Roughness, ViewDirection);
+                float VisibilityTerm = evaluateVisibilityGGX(Roughness * Roughness, dotNR, dotNV);
+                float3 GGXIntegrationApprox = FresnelTerm * GGX_D_Li_Approx / VisibilityTerm;
+
+                float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotHV);
+                float3 LambertIntegration = SGDiffuseInnerProduct(SG, Normal, MaterialEvaluatedData.albedo) * DiffuseCompensation;
+                float2 Jitter = float2(0, 0);//BlueNoise_Sample2D(Coord, g_FrameIndex, 2) * 2.f - 1.f;
+                float EvaluatedW = EvaluateW(WD, float2(-dX, -dY) + Jitter);
+                OutLighting += (GGXIntegrationApprox + LambertIntegration) * EvaluatedW;
+            }
+        }
+    
+    
+    g_RWGlobalIlluminationOutput[DispatchID.xy] = float4(OutLighting, 1.f);
+
+}
+
+// X, Y, lane
+[numthreads(32, 4, 4)]
+void PrecomputeChanneledCacheUpdate (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
+    int WarpID = LocalID.y * 4 + LocalID.z; 
+    int LaneID = LocalID.x;
+    // Cooperatively load the data into shared memory
+    // First 12 lanes of first 12 warps
+    if(WarpID < 12 && LaneID < 12) {
+        int X_Real = int(GroupID.x) * 4 + LaneID - 4;
+        int Y_Real = int(GroupID.y) * 4 + WarpID - 4;
+        int X = min(max(X_Real, 0), g_ScreenCacheDimensions.x-1);
+        int Y = min(max(Y_Real, 0), g_ScreenCacheDimensions.y-1);
+        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
+            SGData SG = (SGData)0;
+            SG.Lambda = 1.f;
+            LocalSGData[WarpID][LaneID] = SG;
+            WData W = (WData)0;
+            W.Lambda = 100.f;
+            LocalWData[WarpID][LaneID] = W;
+        } else {
+            FetchBasisData(int2(X, Y), LocalSGData[WarpID][LaneID], LocalWData[WarpID][LaneID]);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Fetch ray direction and radiance
+    int2 RayCoords = int2(GroupID.x * 4 + LocalID.y, GroupID.y * 4 + LocalID.z);
+    float3 RayDirection = (g_RWRayDirectionTexture[RayCoords].xyz * 2.f - 1.f);
+    float3 RayRadiance = g_RWRayRadianceTexture[RayCoords].xyz;
+
+    // Now we can use the data
+    // 4x4 = 16 lanes
+    float3 EvaluatedRayRadiance = float3(0, 0, 0);
+    if(LaneID < 16) {
+        int X = LaneID % 4;
+        int Y = LaneID / 4;
+        SGData SG00 = LocalSGData[1 + Y + LocalID.z][1 + X + LocalID.y];
+        SGData SG01 = LocalSGData[1 + Y + LocalID.z][1 + X + 4 + LocalID.y];
+        SGData SG10 = LocalSGData[1 + Y + 4 + LocalID.z][1 + X + LocalID.y];
+        SGData SG11 = LocalSGData[1 + Y + 4 + LocalID.z][1 + X + 4 + LocalID.y];
+        float2 UV = float2(3 - X, 3 - Y) / 4.f;
+        SGData InterpolatedSG = SGInterpolate(SG00, SG01, SG10, SG11, UV);
+        EvaluatedRayRadiance = EvaluateSG(InterpolatedSG, RayDirection);
+    }
+    // Aggregate the evaluated radiance from cache
+    float3 SumEvaluatedRadiance = WaveActiveSum(EvaluatedRayRadiance);
+
+    if(LaneID == 0) {
+        // Write Back
+        g_RWRayRadianceDifferenceTexture[RayCoords] = float4(RayRadiance - SumEvaluatedRadiance, 0);
+    }
+}
+
+// X, Y, lane
+[numthreads(32, 4, 4)]
+void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
+
+    int WarpID = LocalID.y * 4 + LocalID.z;
+    int LaneID = LocalID.x;
+    // Cooperatively load the data into shared memory
+    // First 12 lanes of first 12 warps
+    if(WarpID < 12 && LaneID < 12) {
+        int X_Real = int(GroupID.x) * 4 + LaneID - 4;
+        int Y_Real = int(GroupID.y) * 4 + WarpID - 4;
+        int X = min(max(X_Real, 0), g_ScreenCacheDimensions.x-1);
+        int Y = min(max(Y_Real, 0), g_ScreenCacheDimensions.y-1);
+        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
+            LocalRayRadiance[WarpID][LaneID] = float3(0, 0, 0);
+            LocalRayDirection[WarpID][LaneID] = float3(0, 0, 1);
+            LocalRayRadianceDifference[WarpID][LaneID] = float3(0, 0, 0);
+        } else {
+            LocalRayDirection[WarpID][LaneID] = (g_RWRayDirectionTexture[int2(X, Y)].xyz * 2.f - 1.f);
+            LocalRayRadiance[WarpID][LaneID] = g_RWRayRadianceTexture[int2(X, Y)].xyz;
+            LocalRayRadianceDifference[WarpID][LaneID] = g_RWRayRadianceDifferenceTexture[int2(X, Y)].xyz;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+
+    // Now we can use the data
+    SGDifferentials Differentials = (SGDifferentials)0;
+    // Upper left 5x5
+    int2 BasisCoords = int2(GroupID.x * 4 + LocalID.y, GroupID.y * 4 + LocalID.z);
+    SGData SG00, SG01, SG02, SG10, SG11, SG12, SG20, SG21, SG22; WData WD;
+    FetchBasisData(int2(BasisCoords.x - 4, BasisCoords.y - 4), SG00, WD);
+    FetchBasisData(int2(BasisCoords.x, BasisCoords.y - 4), SG01, WD);
+    FetchBasisData(int2(BasisCoords.x + 4, BasisCoords.y - 4), SG02, WD);
+    FetchBasisData(int2(BasisCoords.x - 4, BasisCoords.y), SG10, WD);
+    FetchBasisData(int2(BasisCoords.x, BasisCoords.y), SG11, WD);
+    FetchBasisData(int2(BasisCoords.x + 4, BasisCoords.y), SG12, WD);
+    FetchBasisData(int2(BasisCoords.x - 4, BasisCoords.y + 4), SG20, WD);
+    FetchBasisData(int2(BasisCoords.x, BasisCoords.y + 4), SG21, WD);
+    FetchBasisData(int2(BasisCoords.x + 4, BasisCoords.y + 4), SG22, WD);
+    
+    // Upper left 4x4
+    if(LaneID < 16) {
+        int X = LaneID % 4;
+        int Y = LaneID / 4;
+        float2 UV = float2(X + 1, Y + 1) / 4.f;
+        SGData InterpolatedSG = SGInterpolate(SG00, SG01, SG10, SG11, UV);
+        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[1 + Y + LocalID.z][1 + X + LocalID.y]);
+        SGDifferentials NewDifferentials;
+        EvaluateSGDifferentials(InterpolatedSG, 
+            LocalRayDirection[1 + Y + LocalID.z][1 + X + LocalID.y],
+            CurrentEvaluatedRadiance + LocalRayRadianceDifference[1 + Y + LocalID.z][1 + X + LocalID.y],
+            CurrentEvaluatedRadiance,
+            NewDifferentials);
+        float WFactor = UV.x * UV.y;
+        Differentials.dColor += NewDifferentials.dColor * WFactor;
+        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
+        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+    }
+    // Upper right 4x3
+    if(LaneID < 12) {
+        int X = LaneID % 3;
+        int Y = LaneID / 3;
+        float2 UV = float2(X + 1, Y + 1) / 4.f;
+        SGData InterpolatedSG = SGInterpolate(SG01, SG02, SG11, SG12, UV);
+        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[1 + Y + LocalID.z][5 + X + LocalID.y]);
+        SGDifferentials NewDifferentials;
+        EvaluateSGDifferentials(InterpolatedSG,
+            LocalRayDirection[1 + Y + LocalID.z][5 + X + LocalID.y],
+            CurrentEvaluatedRadiance + LocalRayRadianceDifference[1 + Y + LocalID.z][5 + X + LocalID.y],
+            CurrentEvaluatedRadiance,
+            NewDifferentials);
+        float WFactor = (1 - UV.x) * UV.y;
+        Differentials.dColor += NewDifferentials.dColor * WFactor;
+        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
+        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+    }
+    // Lower left 3x4
+    if(LaneID < 12) {
+        int X = LaneID % 4;
+        int Y = LaneID / 4;
+        float2 UV = float2(X + 1, Y + 1) / 4.f;
+        SGData InterpolatedSG = SGInterpolate(SG10, SG11, SG20, SG21, UV);
+        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[5 + Y + LocalID.z][1 + X + LocalID.y]);
+        SGDifferentials NewDifferentials;
+        EvaluateSGDifferentials(InterpolatedSG,
+            LocalRayDirection[5 + Y + LocalID.z][1 + X + LocalID.y],
+            CurrentEvaluatedRadiance + LocalRayRadianceDifference[5 + Y + LocalID.z][1 + X + LocalID.y],
+            CurrentEvaluatedRadiance,
+            NewDifferentials);
+        float WFactor = UV.x * (1 - UV.y);
+        Differentials.dColor += NewDifferentials.dColor * WFactor;
+        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
+        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+    }
+    // Lower right 3x3
+    if(LaneID < 9) {
+        int X = LaneID % 3;
+        int Y = LaneID / 3;
+        float2 UV = float2(X + 1, Y + 1) / 4.f;
+        SGData InterpolatedSG = SGInterpolate(SG11, SG12, SG21, SG22, UV);
+        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[5 + Y + LocalID.z][5 + X + LocalID.y]);
+        SGDifferentials NewDifferentials;
+        EvaluateSGDifferentials(InterpolatedSG, 
+            LocalRayDirection[5 + Y + LocalID.z][5 + X + LocalID.y], 
+            CurrentEvaluatedRadiance + LocalRayRadianceDifference[5 + Y + LocalID.z][5 + X + LocalID.y],
+            CurrentEvaluatedRadiance,
+            NewDifferentials);
+        float WFactor = (1 - UV.x) * (1 - UV.y);
+        Differentials.dColor += NewDifferentials.dColor * WFactor;
+        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
+        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+    }
+
+
+    // Aggregate the differentials
+    Differentials.dColor = WaveActiveSum(Differentials.dColor);
+    Differentials.dDirection = WaveActiveSum(Differentials.dDirection);
+    Differentials.dLambda = WaveActiveSum(Differentials.dLambda);
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if(LaneID == 0) {
+        // Write to gradient texture
+        g_RWBasisParameterGradientTexture[BasisCoords] = float4(Differentials.dDirection, Differentials.dLambda);
+        g_RWBasisColorGradientTexture[BasisCoords] = float4(Differentials.dColor, 0);
+        // Update
+        float3 Ortho = Differentials.dDirection - dot(Differentials.dDirection, SG11.Direction) * SG11.Direction;
+
+        float Scale = Differentials.dLambda * Differentials.dLambda + dot(Differentials.dColor, Differentials.dColor) + dot(Ortho, Ortho);
+        float NormalizationFactor = g_CacheUpdateLearningRate / sqrt(max(Scale, 0.001f)) 
+            * (float((((GroupID.x * 4 + LocalID.y) + (GroupID.y * 4 + LocalID.z) * g_ScreenCacheDimensions.x) * 17271 + g_FrameIndex) % 131) * (1.f / 131.f));
+
+        SG11.Color = max(SG11.Color - Differentials.dColor * NormalizationFactor, float3(0.0001f, 0.0001f, 0.0001f));
+        // SG11.Direction = normalize(SG11.Direction - Ortho * NormalizationFactor);
+        SG11.Lambda = min(max(SG11.Lambda - Differentials.dLambda * NormalizationFactor * 0.02f, 0.5f), 100.f);
+        
+        // SG.Color = g_OverWriteSGColor;
+        // SG.Direction = g_OverWriteSGDirection;
+        // SG.Lambda = g_OverWriteSGLambda;
+
+        // W: ignore it for now
+        // Write Back
+        g_RWBasisParameterTexture[BasisCoords] = float4(SG11.Direction, SG11.Lambda);
+        g_RWBasisColorTexture[BasisCoords] = float4(SG11.Color, 0);
+    }   
+}
+
+
+[numthreads(4, 4, 1)]
+void IntegrateASGWithChanneledCache(uint2 DispatchID : SV_DispatchThreadID, uint2 LocalID : SV_GroupThreadID, uint2 GroupID : SV_GroupID)
+{
+    if(DispatchID.x >= g_OutputDimensions.x || DispatchID.y >= g_OutputDimensions.y)
+    {
+        return;
+    }
+
+    WData WD;
+    for(int j = 0; j<3; j++)
+        for(int i = 0; i<3; i++) {
+            int2 P = int2(int(GroupID.x * 4 + LocalID.x * 3) - 4 + i, int(GroupID.y * 4 + LocalID.y * 3) - 4 + j);
+            if(all(P >= 0) && all(P < g_OutputDimensions)) FetchBasisData(P, LocalSGData[LocalID.y * 3 + j][LocalID.x * 3 + i], WD);
+            else {
+                SGData SG = (SGData)0;
+                SG.Lambda = 1.f;
+                LocalSGData[LocalID.y * 3 + j][LocalID.x * 3 + i] = SG;
+            }
+        }
+
+    float2 UV = (DispatchID + 0.5f) / float2(g_OutputDimensions);
+    float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+    float2 NDC2 = float2(UV.x * 2.f - 1.f, 1.f - UV.y * 2.f);
+    if(Depth >= 1.0f) {
+        float3 ViewDirection = GetCameraRayDirection(NDC2);
+        float3 SkyColor = g_EnvironmentBuffer.SampleLevel(g_TextureSampler, ViewDirection, 0.0f).rgb;
+        g_RWDebugOutput[DispatchID] = float4(SkyColor, 1.0f);
+        return ;
+    }
+
+    float4 Visbility = g_VisibilityTexture.Load(int3(DispatchID, 0));
+    uint InstanceID = asuint(Visbility.z);
+    uint PrimitiveID = asuint(Visbility.w);
+
+    Instance InstanceData = g_InstanceBuffer[InstanceID];
+    Mesh MeshData = g_MeshBuffer[InstanceData.mesh_index];
+
+    Vertex Vertex0, Vertex1, Vertex2;
+    FetchVertices(MeshData, PrimitiveID, Vertex0, Vertex1, Vertex2);
+
+    float3 Normal = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+
+    float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
+
+    float3 ViewDirection = normalize(g_CameraPosition - WorldPixelPosition);
+    float2 MeshUV = interpolate(Vertex0.uv, Vertex1.uv, Vertex2.uv, Visbility.xy);
+    float DotNV = saturate(dot(Normal, ViewDirection));
+
+    Material MaterialData = g_MaterialBuffer[MeshData.material_index];
+    MaterialEvaluated MaterialEvaluatedData = MakeMaterialEvaluated(MaterialData, MeshUV);
+    MaterialEmissive EmissiveMaterialData = MakeMaterialEmissive(MaterialData, MeshUV);
+
+    MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvaluatedData);
+
+    // This should be alpha actually
+    float Roughness = g_OverWriteRoughness;//MaterialEvaluated.roughness;
+
+    float3 OutLighting = 0;
+
+    // Iterate over adjacent pixels and integrate using ASG approximations
+    for(int dX = 0; dX < 4; dX++)
+        for(int dY = 0; dY < 4; dY++) {
+            int X = int(LocalID.x) + dX + 1;
+            int Y = int(LocalID.y) + dY + 1;
+            SGData SG = SGInterpolate(LocalSGData[Y][X], LocalSGData[Y][X+4], LocalSGData[Y+4][X], LocalSGData[Y+4][X+4], float2(3 - dX, 3 - dY) / 4);
+            float3 LightDirection = SG.Direction;
+            float3 ReflectionDirection = reflect(-ViewDirection, Normal);
+            float3 HalfVector = normalize(LightDirection + ViewDirection);
+            float dotNR = saturate(dot(Normal, ReflectionDirection));
+            float dotNV = saturate(dot(Normal, ViewDirection));
+            float dotHV = saturate(dot(HalfVector, ViewDirection));
+            float3 FresnelTerm = fresnel(0.04f.xxx, dotHV);
+            // Approximate \int D * Li with ASG
+            float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, Normal, Roughness, ViewDirection);
+            float VisibilityTerm = evaluateVisibilityGGX(Roughness * Roughness, dotNR, dotNV);
+            float3 GGXIntegrationApprox = FresnelTerm * GGX_D_Li_Approx / VisibilityTerm;
+
+            float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotHV);
+            float3 LambertIntegration = SGDiffuseInnerProduct(SG, Normal, MaterialEvaluatedData.albedo) * DiffuseCompensation;
+            OutLighting += (GGXIntegrationApprox + LambertIntegration);// * EvaluatedW;
+        }
+    
+    
+    g_RWGlobalIlluminationOutput[DispatchID.xy] = float4(OutLighting, 1.f);
+}
+
+// ***********************************************
+// *                 Misc                        *
+// ***********************************************
+
+[numthreads(8, 8, 1)]
+void ResetScreenSpaceCache (uint2 DispatchID : SV_DispatchThreadID) {
+    if(DispatchID.x >= g_OutputDimensions.x || DispatchID.y >= g_OutputDimensions.y) return ;
+    
+    float2 u = BlueNoise_Sample2D(DispatchID, g_FrameIndex);
+    float3 Direction = UniformSampleHemisphere(u);
+    float3 ShadingNormal = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+    float3 PixelTangent, PixelBitangent;
+    TangentVectors(ShadingNormal, PixelTangent, PixelBitangent);
+    Direction = normalize(Direction.x * PixelTangent + Direction.y * PixelBitangent + Direction.z * ShadingNormal);
+
+    // Direction = ShadingNormal;
+
+    g_RWBasisParameterTexture[DispatchID.xy] = float4(Direction, 3.f);
+    g_RWBasisColorTexture[DispatchID.xy] = float4(0.05f, 0.05f, 0.05f, 0);
+}
+
+// New line required for termination.
