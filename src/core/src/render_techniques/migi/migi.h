@@ -29,6 +29,8 @@ public:
 
     bool init(const CapsaicinInternal &capsaicin) noexcept override;
 
+    void terminate() noexcept override;
+
     void render(CapsaicinInternal &capsaicin) noexcept override;
 
     [[nodiscard]] AOVList getAOVs() const noexcept override;
@@ -77,6 +79,7 @@ public:
 
     struct MIGIBuffers {
         GfxBuffer dispatch_command {};
+        GfxBuffer dispatch_rays_command {};
         GfxBuffer dispatch_count {};
         GfxBuffer draw_command {};
     } buf_{};
@@ -106,6 +109,7 @@ public:
         GfxKernel  integrate_ASG_with_channeled_cache {};
 
         GfxKernel  generate_dispatch {};
+        GfxKernel  generate_dispatch_rays {};
         GfxKernel  reset_screen_space_cache {};
 
         GfxKernel  debug_hash_grid_cells {};
@@ -126,6 +130,7 @@ protected:
     void updateRenderOptions (CapsaicinInternal & capsaicin);
 
     void generateDispatch (GfxBuffer dispatch_count_buffer, uint threads_per_group);
+    void generateDispatchRays (GfxBuffer count_buffer);
 
     MIGIRenderOptions options_ {};
 
@@ -133,6 +138,8 @@ protected:
     HashGridCache   hash_grid_cache_;
 
     GfxCamera previous_camera_ {};
+
+    GfxSbt sbt_ {};
 
     // If the render dimensions have changed.
     bool need_resize_ {true};

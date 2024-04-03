@@ -78,9 +78,12 @@ struct SceneData
 static vector<SceneData> const scenes = {
     {"Flying World",    {"assets/CapsaicinTestMedia/flying_world_battle_of_the_trash_god/FlyingWorld-BattleOfTheTrashGod.gltf"},  true, 2.5f                                                                                                          },
     {"Gas Station",                                                   {"assets/CapsaicinTestMedia/gas_station/GasStation.gltf"},  true, 1.0f},
-    {"Tropical Bedroom",                                    {"assets/CapsaicinTestMedia/tropical_bedroom/TropicalBedroom.gltf"},  true, 1.0f},
+    {"Tropical Bedroom",                                    {"assets/CapsaicinTestMedia/tropical_bedroom/TropicalBedroom.gltf"},  true, 2.0f},
     {"Sponza",                                                                 {"assets/CapsaicinTestMedia/sponza/Sponza.gltf"},  true, 5.0f},
     {"Breakfast Room",                                          {"assets/CapsaicinTestMedia/breakfast_room/BreakfastRoom.gltf"},  true, 3.0f},
+    {"Remi's Room",                                          {"assets/MIGITestMedia/demo/demo.gltf"},  true, 6.0f},
+    {"Simple",                                          {"assets/MIGITestMedia/simple/scene.gltf"},  true, 1.0f},
+    {"XYZ",                                          {"assets/MIGITestMedia/xyz/z-up-x-axis-block.gltf"},  true, 1.0f},
 };
 
 /** List of supported environment maps */
@@ -295,8 +298,8 @@ void CapsaicinMain::printString(std::string const &text, MessageLevel level) noe
 bool CapsaicinMain::initialise() noexcept
 {
     // Default application settings
-    uint32_t windowWidth  = 1920;
-    uint32_t windowHeight = 1080;
+    uint32_t windowWidth  = 1280;
+    uint32_t windowHeight = 720;
 
     // Command line settings
     CLI::App app(programName.data());

@@ -11,6 +11,7 @@ namespace Capsaicin
 HashGridCache::HashGridCache(const GfxContext & gfx)
     : gfx_(gfx)
     , max_ray_count_(0)
+    , num_buckets_(0)
     , num_cells_(0)
     , num_tiles_(0)
     , num_tiles_per_bucket_(0)
@@ -57,21 +58,39 @@ HashGridCache::HashGridCache(const GfxContext & gfx)
     , radiance_cache_packed_tile_index_buffer1_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_PACKEDTILEINDEXBUFFER1])
     , radiance_cache_debug_cell_buffer_(radiance_cache_hash_buffer_float4_[HASHGRIDCACHE_DEBUGCELLBUFFER])
+    , radiance_cache_debug_bucket_occupancy_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_BUCKETOCCUPANCYBUFFER])
+    , radiance_cache_debug_bucket_overflow_count_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_BUCKETOVERFLOWCOUNTBUFFER])
+    , radiance_cache_debug_bucket_overflow_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_BUCKETOVERFLOWBUFFER])
+    , radiance_cache_debug_free_bucket_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_FREEBUCKETBUFFER])
+    , radiance_cache_debug_used_bucket_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_USEDBUCKETBUFFER])
+    , radiance_cache_debug_stats_buffer_(radiance_cache_hash_buffer_float_[HASHGRIDCACHE_STATSBUFFER])
 {}
+
 
 HashGridCache::~HashGridCache()
 {
-    for (GfxBuffer buffer : radiance_cache_hash_buffer_uint_)
+    for (GfxBuffer &buffer : radiance_cache_hash_buffer_float_)
     {
         gfxDestroyBuffer(gfx_, buffer);
     }
-
-    for (GfxBuffer buffer : radiance_cache_hash_buffer_uint2_)
+    for (GfxBuffer &buffer : radiance_cache_hash_buffer_uint_)
     {
         gfxDestroyBuffer(gfx_, buffer);
     }
-
-    for (GfxBuffer buffer : radiance_cache_hash_buffer_float4_)
+    for (GfxBuffer &buffer : radiance_cache_hash_buffer_uint2_)
+    {
+        gfxDestroyBuffer(gfx_, buffer);
+    }
+    for (GfxBuffer &buffer : radiance_cache_hash_buffer_float4_)
+    {
+        gfxDestroyBuffer(gfx_, buffer);
+    }
+    for (GfxBuffer &buffer : radiance_cache_debug_stats_readback_buffers_)
     {
         gfxDestroyBuffer(gfx_, buffer);
     }
@@ -87,8 +106,7 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
     uint32_t const size_tile_mip1       = size_tile_mip0 >> 1;
     uint32_t const size_tile_mip2       = size_tile_mip1 >> 1;
     uint32_t const size_tile_mip3       = size_tile_mip2 >> 1;
-    uint32_t const size_tile_mip4       = size_tile_mip3 >> 1;
-    GFX_ASSERT(size_tile_mip4 == 0);
+    GFX_ASSERT((size_tile_mip3 >> 1) == 0);
     uint32_t const num_cells_per_tile_mip0 = size_tile_mip0 * size_tile_mip0;
     uint32_t const num_cells_per_tile_mip1 = size_tile_mip1 * size_tile_mip1;
     uint32_t const num_cells_per_tile_mip2 = size_tile_mip2 * size_tile_mip2;
@@ -100,8 +118,15 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
     uint32_t const first_cell_offset_tile_mip2 = first_cell_offset_tile_mip1 + num_cells_per_tile_mip1;
     uint32_t const first_cell_offset_tile_mip3 = first_cell_offset_tile_mip2 + num_cells_per_tile_mip2;
     GFX_ASSERT(first_cell_offset_tile_mip3 + num_cells_per_tile_mip3 == num_cells_per_tile);
-    uint32_t const num_tiles = num_tiles_per_bucket * num_buckets;
-    uint32_t const num_cells = num_cells_per_tile * num_tiles;
+    uint32_t const num_tiles                             = num_tiles_per_bucket * num_buckets;
+    uint32_t const num_cells                             = num_cells_per_tile * num_tiles;
+    uint32_t const debug_bucket_occupancy_histogram_size = num_tiles_per_bucket + 1;
+    uint32_t const debug_bucket_overflow_histogram_size =
+        options.hash_grid_cache.debug_max_bucket_overflow + 1;
+    uint32_t const debug_stats_size =
+        2 + debug_bucket_occupancy_histogram_size + debug_bucket_overflow_histogram_size;
+
+    uint64_t debug_total_memory_size_in_bytes = 0;
 
     if (!radiance_cache_hash_buffer_ || num_tiles != num_tiles_)
     {
@@ -117,6 +142,9 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
         gfxCommandClearBuffer(gfx_, radiance_cache_hash_buffer_); // clear the radiance cache
     }
 
+    debug_total_memory_size_in_bytes += radiance_cache_hash_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_decay_tile_buffer_.getSize();
+
     if (!radiance_cache_value_buffer_ || num_cells != num_cells_)
     {
         gfxDestroyBuffer(gfx_, radiance_cache_value_buffer_);
@@ -125,11 +153,15 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
         radiance_cache_value_buffer_.setName("Capsaicin_RadianceCache_ValueBuffer");
     }
 
+    debug_total_memory_size_in_bytes += radiance_cache_value_buffer_.getSize();
+
     if (!radiance_cache_update_tile_count_buffer_)
     {
         radiance_cache_update_tile_count_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
         radiance_cache_update_tile_count_buffer_.setName("Capsaicin_RadianceCache_UpdateTileCountBuffer");
     }
+
+    debug_total_memory_size_in_bytes += radiance_cache_update_tile_count_buffer_.getSize();
 
     if (!radiance_cache_update_cell_value_buffer_ || num_cells != num_cells_)
     {
@@ -141,8 +173,15 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
         gfxCommandClearBuffer(gfx_, radiance_cache_update_cell_value_buffer_);
     }
 
+    debug_total_memory_size_in_bytes += radiance_cache_update_cell_value_buffer_.getSize();
+
     if (!radiance_cache_visibility_count_buffer_)
     {
+        gfxDestroyBuffer(gfx_, radiance_cache_visibility_count_buffer_);
+        gfxDestroyBuffer(gfx_, radiance_cache_visibility_ray_count_buffer_);
+        gfxDestroyBuffer(gfx_, radiance_cache_packed_tile_count_buffer0_);
+        gfxDestroyBuffer(gfx_, radiance_cache_packed_tile_count_buffer1_);
+
         radiance_cache_visibility_count_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
         radiance_cache_visibility_count_buffer_.setName("Capsaicin_RadianceCache_VisibilityCountBuffer");
 
@@ -156,6 +195,11 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
         radiance_cache_packed_tile_count_buffer1_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
         radiance_cache_packed_tile_count_buffer1_.setName("Capsaicin_RadianceCache_PackedTileCountBuffer1");
     }
+
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_count_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_ray_count_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_packed_tile_count_buffer0_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_packed_tile_count_buffer1_.getSize();
 
     if (!radiance_cache_packed_tile_index_buffer0_ || num_tiles != num_tiles_)
     {
@@ -171,6 +215,9 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
         gfxCommandClearBuffer(gfx_, radiance_cache_packed_tile_index_buffer0_);
         gfxCommandClearBuffer(gfx_, radiance_cache_packed_tile_index_buffer1_);
     }
+
+    debug_total_memory_size_in_bytes += radiance_cache_packed_tile_index_buffer0_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_packed_tile_index_buffer1_.getSize();
 
     // The `packedCell' buffer is not necessary for drawing, but rather used
     // when debugging our hash cells.
@@ -201,6 +248,9 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
         radiance_cache_decay_cell_buffer_ = {};
     }
 
+    debug_total_memory_size_in_bytes += radiance_cache_debug_cell_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_decay_cell_buffer_.getSize();
+
     if (!radiance_cache_update_tile_buffer_ || max_ray_count != max_ray_count_ || num_cells != num_cells_)
     {
         gfxDestroyBuffer(gfx_, radiance_cache_update_tile_buffer_);
@@ -226,24 +276,116 @@ void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
         radiance_cache_visibility_ray_buffer_.setName("Capsaicin_RadianceCache_VisibilityRayBuffer");
     }
 
-    max_ray_count_               = max_ray_count;
-    num_buckets_                 = num_buckets;
-    num_tiles_                   = num_tiles;
-    num_cells_                   = num_cells;
-    num_tiles_per_bucket_        = num_tiles_per_bucket;
-    size_tile_mip0_              = size_tile_mip0;
-    size_tile_mip1_              = size_tile_mip1;
-    size_tile_mip2_              = size_tile_mip2;
-    size_tile_mip3_              = size_tile_mip3;
-    num_cells_per_tile_mip0_     = num_cells_per_tile_mip0;
-    num_cells_per_tile_mip1_     = num_cells_per_tile_mip1;
-    num_cells_per_tile_mip2_     = num_cells_per_tile_mip2;
-    num_cells_per_tile_mip3_     = num_cells_per_tile_mip3;
-    num_cells_per_tile_          = num_cells_per_tile; // all mips
-    first_cell_offset_tile_mip0_ = first_cell_offset_tile_mip0;
-    first_cell_offset_tile_mip1_ = first_cell_offset_tile_mip1;
-    first_cell_offset_tile_mip2_ = first_cell_offset_tile_mip2;
-    first_cell_offset_tile_mip3_ = first_cell_offset_tile_mip3;
+    debug_total_memory_size_in_bytes += radiance_cache_update_tile_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_cell_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_query_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_ray_buffer_.getSize();
+
+    if (!radiance_cache_debug_free_bucket_buffer_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_debug_free_bucket_buffer_);
+        gfxDestroyBuffer(gfx_, radiance_cache_debug_used_bucket_buffer_);
+
+        radiance_cache_debug_free_bucket_buffer_ = gfxCreateBuffer<uint>(gfx_, 1);
+        radiance_cache_debug_free_bucket_buffer_.setName("Capsaicin_RadianceCache_FreeBucketBuffer");
+
+        radiance_cache_debug_used_bucket_buffer_ = gfxCreateBuffer<uint>(gfx_, 1);
+        radiance_cache_debug_used_bucket_buffer_.setName("Capsaicin_RadianceCache_UsedBucketBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_debug_free_bucket_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_debug_used_bucket_buffer_.getSize();
+
+    if (!radiance_cache_debug_bucket_overflow_count_buffer_ || num_buckets != num_buckets_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_debug_bucket_overflow_count_buffer_);
+
+        radiance_cache_debug_bucket_overflow_count_buffer_ = gfxCreateBuffer<uint>(gfx_, num_buckets);
+        radiance_cache_debug_bucket_overflow_count_buffer_.setName(
+            "Capsaicin_RadianceCache_BucketOverflowBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_debug_bucket_overflow_count_buffer_.getSize();
+
+    if (!radiance_cache_debug_bucket_occupancy_buffer_
+        || debug_bucket_occupancy_histogram_size != debug_bucket_occupancy_histogram_size_)
+    {
+        static_assert(kGfxConstant_BackBufferCount == 3);
+        gfxDestroyBuffer(gfx_, radiance_cache_debug_bucket_occupancy_buffer_);
+
+        radiance_cache_debug_bucket_occupancy_buffer_ =
+            gfxCreateBuffer<uint>(gfx_, debug_bucket_occupancy_histogram_size + 1);
+        radiance_cache_debug_bucket_occupancy_buffer_.setName(
+            "Capsaicin_RadianceCache_BucketOccupancyBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_debug_bucket_occupancy_buffer_.getSize();
+
+    if (!radiance_cache_debug_bucket_overflow_buffer_
+        || debug_bucket_overflow_histogram_size != debug_bucket_overflow_histogram_size_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_debug_bucket_overflow_buffer_);
+
+        radiance_cache_debug_bucket_overflow_buffer_ =
+            gfxCreateBuffer<uint>(gfx_, debug_bucket_overflow_histogram_size);
+        radiance_cache_debug_bucket_overflow_buffer_.setName("Capsaicin_RadianceCache_BucketOverflowBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_debug_bucket_overflow_buffer_.getSize();
+
+    if (!radiance_cache_debug_stats_buffer_ || debug_stats_size != debug_stats_size_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_debug_stats_buffer_);
+        for (GfxBuffer &buffer : radiance_cache_debug_stats_readback_buffers_)
+        {
+            gfxDestroyBuffer(gfx_, buffer);
+        }
+
+        radiance_cache_debug_stats_buffer_ = gfxCreateBuffer<float>(gfx_, debug_stats_size);
+        radiance_cache_debug_stats_buffer_.setName("Capsaicin_RadianceCache_StatsBuffer");
+
+        for (uint32_t i = 0; i < ARRAYSIZE(radiance_cache_debug_stats_readback_buffers_); ++i)
+        {
+            char buffer[64];
+            GFX_SNPRINTF(buffer, sizeof(buffer), "Capsaicin_RadianceCache_StatsReadbackBuffer%u", i);
+
+            radiance_cache_debug_stats_readback_buffers_[i] =
+                gfxCreateBuffer<float>(gfx_, debug_stats_size, nullptr, kGfxCpuAccess_Read);
+            radiance_cache_debug_stats_readback_buffers_[i].setName(buffer);
+
+            radiance_cache_debug_stats_readback_is_pending_[i] = false; // Don't readback unfilled buffers
+        }
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_debug_stats_buffer_.getSize();
+    for (GfxBuffer &buffer : radiance_cache_debug_stats_readback_buffers_)
+    {
+        debug_total_memory_size_in_bytes += buffer.getSize();
+    }
+
+    max_ray_count_                         = max_ray_count;
+    num_buckets_                           = num_buckets;
+    num_tiles_                             = num_tiles;
+    num_cells_                             = num_cells;
+    num_tiles_per_bucket_                  = num_tiles_per_bucket;
+    size_tile_mip0_                        = size_tile_mip0;
+    size_tile_mip1_                        = size_tile_mip1;
+    size_tile_mip2_                        = size_tile_mip2;
+    size_tile_mip3_                        = size_tile_mip3;
+    num_cells_per_tile_mip0_               = num_cells_per_tile_mip0;
+    num_cells_per_tile_mip1_               = num_cells_per_tile_mip1;
+    num_cells_per_tile_mip2_               = num_cells_per_tile_mip2;
+    num_cells_per_tile_mip3_               = num_cells_per_tile_mip3;
+    num_cells_per_tile_                    = num_cells_per_tile; // all mips
+    first_cell_offset_tile_mip0_           = first_cell_offset_tile_mip0;
+    first_cell_offset_tile_mip1_           = first_cell_offset_tile_mip1;
+    first_cell_offset_tile_mip2_           = first_cell_offset_tile_mip2;
+    first_cell_offset_tile_mip3_           = first_cell_offset_tile_mip3;
+    debug_bucket_occupancy_histogram_size_ = debug_bucket_occupancy_histogram_size;
+    debug_bucket_overflow_histogram_size_  = debug_bucket_overflow_histogram_size;
+    debug_stats_size_                      = debug_stats_size;
+    debug_total_memory_size_in_bytes_      = debug_total_memory_size_in_bytes;
 }
 
 }

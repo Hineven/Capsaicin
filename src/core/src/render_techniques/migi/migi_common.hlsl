@@ -1,17 +1,14 @@
 #ifndef MIGI_COMMON_HLSL
 #define MIGI_COMMON_HLSL
 
-#ifdef GI10_SHARED_H
-#error "migi_common.hlsl can not be co-included with gi10_shared.h"
-#endif
+#include "../../gpu_shared.h"
 
 // The float4x4 typedef will pollute the CUDA namespace.
-#ifndef __CUDA_ARCH__
+#ifdef __CUDA_ARCH__
+#error "This file is not compatiable with CUDA."
+#endif
 #ifdef __cplusplus
-#include <cstdint>
-#include <glm/glm.hpp>
-typedef uint32_t uint;
-typedef glm::mat4x4 float4x4;
+namespace Capsaicin {
 #endif
 
 enum HashGridCacheDebugMode
@@ -28,6 +25,7 @@ enum HashGridCacheDebugMode
 struct HashGridCacheConstants
 {
     float                  cell_size;
+    float                  min_cell_size;
     float                  tile_size;
     float                  tile_cell_ratio; // tile_size / cell_size
     uint                   num_buckets;
@@ -52,7 +50,15 @@ struct HashGridCacheConstants
     uint                   debug_mip_level;
     uint                   debug_propagate;
     uint                   debug_max_cell_decay;
+    uint                   debug_bucket_occupancy_histogram_size;
+    uint                   debug_bucket_overflow_histogram_size;
     HashGridCacheDebugMode debug_mode;
+};
+
+enum HashGridBufferNamesFloat
+{
+    HASHGRIDCACHE_STATSBUFFER,
+    HASHGRID_FLOAT_BUFFER_COUNT
 };
 
 enum HashGridBufferNamesUint
@@ -72,6 +78,11 @@ enum HashGridBufferNamesUint
     HASHGRIDCACHE_PACKEDTILECOUNTBUFFER1,
     HASHGRIDCACHE_PACKEDTILEINDEXBUFFER0,
     HASHGRIDCACHE_PACKEDTILEINDEXBUFFER1,
+    HASHGRIDCACHE_BUCKETOCCUPANCYBUFFER,
+    HASHGRIDCACHE_BUCKETOVERFLOWCOUNTBUFFER,
+    HASHGRIDCACHE_BUCKETOVERFLOWBUFFER,
+    HASHGRIDCACHE_FREEBUCKETBUFFER,
+    HASHGRIDCACHE_USEDBUCKETBUFFER,
     HASHGRID_UINT_BUFFER_COUNT
 };
 
@@ -96,5 +107,18 @@ struct WorldSpaceReSTIRConstants
     uint  unused_padding;
 };
 
-#endif // __CUDA_ARCH__
+struct RTConstants
+{
+    GpuVirtualAddressRange          ray_generation_shader_record;
+    GpuVirtualAddressRangeAndStride miss_shader_table;
+    uint2                           padding0;
+    GpuVirtualAddressRangeAndStride hit_group_table;
+    uint2                           padding1;
+    GpuVirtualAddressRangeAndStride callable_shader_table;
+    uint2                           padding2;
+};
+
+#ifdef __cplusplus
+}// namespace Capsaicin
+#endif
 #endif // MIGI_COMMON_HLSL

@@ -13,6 +13,8 @@ namespace Capsaicin {
 
 struct MIGIRenderOptions {
 
+    bool use_dxr10 {false};
+
     uint32_t width {};
     uint32_t height {};
 
@@ -29,12 +31,15 @@ struct MIGIRenderOptions {
         uint32_t num_tiles_per_bucket_l2 {4}; // 1<<4 = 16 tiles per bucket
         uint32_t tile_cell_ratio {8}; // 8x8 cells per tile
         float    cell_size {32.f};
+        float    min_cell_size {1e-1f};
         // 16 samples ensembles a stable result
         float max_sample_count {16.f};
         uint32_t debug_mip_level {};
         bool debug_propagate {false};
         uint32_t debug_max_cell_decay {50};
         HashGridCacheDebugMode debug_mode {HASHGRIDCACHE_DEBUG_RADIANCE};
+
+        int debug_max_bucket_overflow {64};
     } hash_grid_cache ;
 
     struct {
@@ -42,18 +47,10 @@ struct MIGIRenderOptions {
         // This parameter is set with the screen resolution during options update every frame.
         uint32_t max_query_ray_count {};
     } restir;
-    glm::vec3 sg_direction = glm::vec3(0.0f, 1.0f, -1.0f);
-
-    glm::vec3 sg_li_position = glm::vec3(0.0f, 0.0f, 0.0f);
-    float     sg_lambda    = 40.f;
-    glm::vec3 sg_color     = glm::vec3(0.5f, 0.5f, 0.5f);
-    float     sg_intensity = 1;
-
-    float roughness = 0.5f;
 
     bool no_importance_sampling = true;
 
-    float lr_rate   = 0.01f;
+    float lr_rate   = 0.001f;
 
     // Whether to use the channeled cache for SG lighting.
     bool channeled_cache = false;
@@ -63,6 +60,20 @@ struct MIGIRenderOptions {
 
     std::string active_debug_view {};
 };
+
+namespace MIGIRT {
+    static char const *kScreenCacheUpdateRaygenShaderName     = "ScreenCacheUpdateRaygen";
+    static char const *kScreenCacheUpdateMissShaderName       = "ScreenCacheUpdateMiss";
+    static char const *kScreenCacheUpdateAnyHitShaderName     = "ScreenCacheUpdateAnyHit";
+    static char const *kScreenCacheUpdateClosestHitShaderName = "ScreenCacheUpdateClosestHit";
+    static char const *kScreenCacheUpdateHitGroupName         = "ScreenCacheUpdateHitGroup";
+
+    static char const *kPopulateCellsRaygenShaderName     = "PopulateCellsRaygen";
+    static char const *kPopulateCellsMissShaderName       = "PopulateCellsMiss";
+    static char const *kPopulateCellsAnyHitShaderName     = "PopulateCellsAnyHit";
+    static char const *kPopulateCellsClosestHitShaderName = "PopulateCellsClosestHit";
+    static char const *kPopulateCellsHitGroupName         = "PopulateCellsHitGroup";
+}
 
 }
 

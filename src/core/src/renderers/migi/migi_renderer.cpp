@@ -21,7 +21,7 @@ THE SOFTWARE.
 ********************************************************************/
 
 #include "atmosphere/atmosphere.h"
-#include "gi10/gi10.h"
+#include "migi/migi.h"
 #include "renderer.h"
 #include "skybox/skybox.h"
 #include "ssgi/ssgi.h"
@@ -33,15 +33,15 @@ THE SOFTWARE.
 namespace Capsaicin
 {
 /** The GI-1.0 renderer. */
-class GI10Renderer
+class MIGIRenderer
     : public Renderer
-    , public RendererFactory::Registrar<GI10Renderer>
+    , public RendererFactory::Registrar<MIGIRenderer>
 {
 public:
-    static constexpr std::string_view Name = "GI-1.1";
+    static constexpr std::string_view Name = "MIGI";
 
     /** Default constructor. */
-    GI10Renderer() noexcept {};
+    MIGIRenderer() noexcept {};
 
     /**
      * Sets up the required render techniques.
@@ -55,7 +55,7 @@ public:
         std::vector<std::unique_ptr<RenderTechnique>> render_techniques;
         render_techniques.emplace_back(std::make_unique<VisibilityBuffer>());
         render_techniques.emplace_back(std::make_unique<SSGI>());
-        render_techniques.emplace_back(std::make_unique<GI10>());
+        render_techniques.emplace_back(std::make_unique<MIGI>());
         render_techniques.emplace_back(std::make_unique<Atmosphere>());
         render_techniques.emplace_back(std::make_unique<Skybox>());
         render_techniques.emplace_back(std::make_unique<UpdateHistory>());

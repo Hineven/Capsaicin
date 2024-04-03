@@ -37,8 +37,6 @@ WorldSpaceReSTIR::~WorldSpaceReSTIR()
 
 void WorldSpaceReSTIR::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
 {
-    uint32_t const buffer_width  = options.width;
-    uint32_t const buffer_height = options.height;
 
     uint32_t const max_ray_count = options.restir.max_query_ray_count;
 

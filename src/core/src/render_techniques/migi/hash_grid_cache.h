@@ -40,7 +40,12 @@ struct HashGridCache
     uint32_t first_cell_offset_tile_mip1_;
     uint32_t first_cell_offset_tile_mip2_;
     uint32_t first_cell_offset_tile_mip3_;
+    uint32_t debug_bucket_occupancy_histogram_size_;
+    uint32_t debug_bucket_overflow_histogram_size_;
+    uint32_t debug_stats_size_;
+    uint64_t debug_total_memory_size_in_bytes_;
 
+    GfxBuffer  radiance_cache_hash_buffer_float_[HASHGRID_FLOAT_BUFFER_COUNT];
     GfxBuffer  radiance_cache_hash_buffer_uint_[HASHGRID_UINT_BUFFER_COUNT];
     GfxBuffer  radiance_cache_hash_buffer_uint2_[HASHGRID_UINT2_BUFFER_COUNT];
     GfxBuffer  radiance_cache_hash_buffer_float4_[HASHGRID_FLOAT4_BUFFER_COUNT];
@@ -63,6 +68,19 @@ struct HashGridCache
     GfxBuffer &radiance_cache_packed_tile_index_buffer0_;
     GfxBuffer &radiance_cache_packed_tile_index_buffer1_;
     GfxBuffer &radiance_cache_debug_cell_buffer_;
+    GfxBuffer &radiance_cache_debug_bucket_occupancy_buffer_;
+    GfxBuffer &radiance_cache_debug_bucket_overflow_count_buffer_;
+    GfxBuffer &radiance_cache_debug_bucket_overflow_buffer_;
+    GfxBuffer &radiance_cache_debug_free_bucket_buffer_;
+    GfxBuffer &radiance_cache_debug_used_bucket_buffer_;
+    GfxBuffer &radiance_cache_debug_stats_buffer_;
+    GfxBuffer  radiance_cache_debug_stats_readback_buffers_[kGfxConstant_BackBufferCount];
+    bool       radiance_cache_debug_stats_readback_is_pending_[kGfxConstant_BackBufferCount];
+
+    std::vector<float> debug_bucket_occupancy_histogram_;
+    std::vector<float> debug_bucket_overflow_histogram_;
+    float              debug_free_bucket_count_;
+    float              debug_used_bucket_count_;
 
     const GfxContext & gfx_;
 };

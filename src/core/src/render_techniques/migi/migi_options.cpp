@@ -15,22 +15,12 @@ namespace Capsaicin {
 RenderOptionList MIGI::getRenderOptions() noexcept
 {
     auto ret = RenderOptionList();
-    ret.emplace("direction_x", options_.sg_direction.x);
-    ret.emplace("direction_y", options_.sg_direction.y);
-    ret.emplace("direction_z", options_.sg_direction.z);
-    ret.emplace("light_x", options_.sg_li_position.x);
-    ret.emplace("light_y", options_.sg_li_position.y);
-    ret.emplace("light_z", options_.sg_li_position.z);
-    ret.emplace("lambda", options_.sg_lambda);
-    ret.emplace("intensity", options_.sg_intensity);
-    ret.emplace("roughness", options_.roughness);
-    ret.emplace("color_r", options_.sg_color.x);
-    ret.emplace("color_g", options_.sg_color.y);
-    ret.emplace("color_b", options_.sg_color.z);
     ret.emplace("lr_rate", options_.lr_rate);
 
     ret.emplace("channeled_cache", options_.channeled_cache);
     ret.emplace("shading_with_geometry_normal", options_.shading_with_geometry_normal);
+
+    ret.emplace("no_importance_sampling", options_.no_importance_sampling);
 
     ret.emplace("reset_screen_space_cache", options_.reset_screen_space_cache);
     return ret;
@@ -75,23 +65,11 @@ void MIGI::updateRenderOptions(CapsaicinInternal &capsaicin)
     // GI Parameters
     // Read the options from the render settings and update options_.
     // This is called before rendering.
-    options_.sg_direction.x = std::get<float>(capsaicin.getOptions()["direction_x"]);
-    options_.sg_direction.y = std::get<float>(capsaicin.getOptions()["direction_y"]);
-    options_.sg_direction.z = std::get<float>(capsaicin.getOptions()["direction_z"]);
-    options_.sg_li_position.x = std::get<float>(capsaicin.getOptions()["light_x"]);
-    options_.sg_li_position.y = std::get<float>(capsaicin.getOptions()["light_y"]);
-    options_.sg_li_position.z = std::get<float>(capsaicin.getOptions()["light_z"]);
-    options_.sg_lambda = std::get<float>(capsaicin.getOptions()["lambda"]);
-    options_.sg_intensity = std::get<float>(capsaicin.getOptions()["intensity"]);
-    options_.roughness = std::get<float>(capsaicin.getOptions()["roughness"]);
-    options_.sg_color.x = std::get<float>(capsaicin.getOptions()["color_r"]);
-    options_.sg_color.y = std::get<float>(capsaicin.getOptions()["color_g"]);
-    options_.sg_color.z = std::get<float>(capsaicin.getOptions()["color_b"]);
     options_.lr_rate = std::get<float>(capsaicin.getOptions()["lr_rate"]);
-
 
     options_.channeled_cache = std::get<bool>(capsaicin.getOptions()["channeled_cache"]);
     options_.shading_with_geometry_normal = std::get<bool>(capsaicin.getOptions()["shading_with_geometry_normal"]);
+    options_.no_importance_sampling = std::get<bool>(capsaicin.getOptions()["no_importance_sampling"]);
     options_.reset_screen_space_cache = std::get<bool>(capsaicin.getOptions()["reset_screen_space_cache"]);
 
 

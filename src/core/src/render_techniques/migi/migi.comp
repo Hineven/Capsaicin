@@ -2,6 +2,12 @@
 // Okay it crashes the DXC compiler, so I'm going to remove it.
 // #define FIX_LIGHT_SAMPLER_BOUNDS
 
+#ifndef USE_INLINE_RT
+#define USE_INLINE_RT 1
+#endif
+
+#define MIN_COLOR 0.000001f
+
 // Shared structs among CPU and GPU
 #include "../../gpu_shared.h"
 
@@ -52,6 +58,23 @@ void GenerateDispatch()
     dispatch_command.num_groups_z = 1;
     dispatch_command.padding = 0;
     g_RWDispatchCommandBuffer[0] = dispatch_command;
+}
+
+[numthreads(1, 1, 1)]
+void GenerateDispatchRays()
+{
+    DispatchRaysCommand dispatch_rays_command;
+    dispatch_rays_command.ray_generation_shader_record = g_RTConstants.ray_generation_shader_record;
+    dispatch_rays_command.miss_shader_table = g_RTConstants.miss_shader_table;
+    dispatch_rays_command.hit_group_table = g_RTConstants.hit_group_table;
+    dispatch_rays_command.callable_shader_table = g_RTConstants.callable_shader_table;
+    dispatch_rays_command.width = g_CountBuffer[0];
+    dispatch_rays_command.height = 1;
+    dispatch_rays_command.depth = 1;
+    dispatch_rays_command.padding[0] = 0;
+    dispatch_rays_command.padding[1] = 0;
+    dispatch_rays_command.padding[2] = 0;
+    g_RWDispatchRaysCommandBuffer[0] = dispatch_rays_command;
 }
 
 [numthreads(64, 1, 1)]
@@ -111,7 +134,7 @@ void ClearCounters()
     
 }
 
-void ScreenCacheUpdateHandleHit(uint2 DispatchID, inout ScreenCacheUpdatePayload payload, RayDesc ray, HitInfo hit_info)
+void ScreenCacheUpdateHandleHit(uint DispatchID, inout ScreenCacheUpdatePayload payload, RayDesc ray, HitInfo hit_info)
 {
     HashGridCache_Data data;
     data.eye_position = g_CameraPosition;
@@ -141,7 +164,7 @@ void ScreenCacheUpdateHandleHit(uint2 DispatchID, inout ScreenCacheUpdatePayload
         InterlockedAdd(g_HashGridCache_VisibilityCountBuffer[0], 1, visibility_index);
         g_HashGridCache_VisibilityBuffer[visibility_index]      = HashGridCache_PackVisibility(visibility);
         g_HashGridCache_VisibilityCellBuffer[visibility_index]  = cell_index;
-        g_HashGridCache_VisibilityQueryBuffer[visibility_index] = DispatchID.x + DispatchID.y * g_OutputDimensions.x;
+        g_HashGridCache_VisibilityQueryBuffer[visibility_index] = DispatchID;
 
         // Write out bounds of visibility
         requestLightSampleLocation(data.hit_position);
@@ -242,12 +265,28 @@ void TraceUpdateRays (uint2 DispatchID) {
     if(DispatchID.x >= g_OutputDimensions.x || DispatchID.y >= g_OutputDimensions.y) return ;
     
     float2 UV = (DispatchID + 0.5f) / float2(g_OutputDimensions);
-    float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
-    float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
-    float3 GeometryNormal = normalize(2.0f * g_NormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
-    float3 ShadingNormal  = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+
+    float4 Visibility   = g_VisibilityTexture.Load(int3(DispatchID, 0));
+    float2 Barycentrics = Visibility.xy;
+    uint   InstanceID   = asuint(Visibility.z);
+    uint   PrimitiveID  = asuint(Visibility.w);
+
+    Instance InstanceData  = g_InstanceBuffer[InstanceID];
+    Mesh     MeshData      = g_MeshBuffer[InstanceData.mesh_index];
+    float3x4 Transform     = g_TransformBuffer[InstanceData.transform_index];
+
+    Triangle vertices = fetchVertices(MeshData, PrimitiveID);
+    float3 v0 = transformPoint(vertices.v0, Transform);
+    float3 v1 = transformPoint(vertices.v1, Transform);
+    float3 v2 = transformPoint(vertices.v2, Transform);
+
+    float3 WorldPixelPosition  = interpolate(v0, v1, v2, Barycentrics);
+    
+    float3 GeometryNormal = normalize(2.0f * g_GeometryNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+    float3 ShadingNormal  = normalize(2.0f * g_ShadingNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
 
     float3 RayOrigin = offsetPosition(WorldPixelPosition, GeometryNormal);
+
     float2 u_b = BlueNoise_Sample2D(DispatchID, g_FrameIndex);
     float3 RayDirection;
     [branch]
@@ -272,15 +311,6 @@ void TraceUpdateRays (uint2 DispatchID) {
     // Record trace ray direction for later hit position recovery
     g_RWRayDirectionTexture[DispatchID.xy] = float4(RayDirection * 0.5f + 0.5f, 0);
 
-    
-
-#ifdef BYPASS_WORLD_RADIANCE_CACHE
-    // Trace and evaluate direct illumination using Monte-Carlo ray tracing on secondary vertex directly.
-    float3 RayRadiance = TraceAndCalculateDirectIllumination(RayOrigin, RayDirection, DispatchID.x + DispatchID.y * g_OutputDimensions.x, g_FrameIndex);
-    g_RWRayRadianceTexture[DispatchID.xy] = float4(RayRadiance, 0.f);
-#else               
-    // Clear ray radiance for later accumulation.
-    g_RWRayRadianceTexture[DispatchID.xy] = 0.f.xxxx;
     // Trace a visibility ray only.
     RayDesc VisibilityRayDesc;
     VisibilityRayDesc.Origin = RayOrigin;
@@ -294,8 +324,7 @@ void TraceUpdateRays (uint2 DispatchID) {
         DispatchID.y * g_OutputDimensions.x + DispatchID.x,
         payload, VisibilityRayDesc
     );
-#endif // BYPASS_WORLD_RADIANCE_CACHE
-
+    g_RWRayRadianceTexture[DispatchID.xy] = float4(payload.sky_sample, 0.f);
 }
 
 [numthreads(4, 4, 1)]
@@ -326,7 +355,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     // Reconstruct world-space position and normal
     Instance instance  = g_InstanceBuffer[visibility.instance_index];
     Mesh     mesh      = g_MeshBuffer[instance.mesh_index + visibility.geometry_index];
-    float4x4 transform = FetchTransform(instance.transform_index);
+    float3x4 transform = g_TransformBuffer[instance.transform_index];
 
     TriangleNormUV vertices = fetchVerticesNormUV(mesh, visibility.primitive_index);
 
@@ -338,8 +367,8 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     vertices.n1 = transformNormal(vertices.n1, transform);
     vertices.n2 = transformNormal(vertices.n2, transform);
 
-    float3   world    =                                                       interpolate(v0.position.xyz, v1.position.xyz, v2.position.xyz, visibility.barycentrics);
-    float3   normal   = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(v0.normal.xyz,   v1.normal.xyz,   v2.normal.xyz,   visibility.barycentrics));
+    float3   world    =                                                       interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
+    float3   normal   = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
     Material material = g_MaterialBuffer[instance.material_index];
 
     // Recover the ray origin
@@ -349,7 +378,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     float depth = g_DepthTexture.Load(int3(pixel_coords, 0)).x;
     float2 uv = (pixel_coords + 0.5f) / g_OutputDimensions;
     float3 origin = InverseProject(g_CameraProjViewInv, uv, depth);
-    float2 mesh_uv = interpolate(v0.uv.xy, v1.uv.xy, v2.uv.xy, visibility.barycentrics);
+    float2 mesh_uv = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
 
     // Patch the screen space cache with some emissivity information:
     // We bypass the hash-grid cache entirely here, as adding emissive information to the cells
@@ -358,7 +387,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     if (visibility.is_front_face && dot(material.emissivity.xyz, material.emissivity.xyz) > 0.0f)
     {
         MaterialEmissive emissive = MakeMaterialEmissive(material, mesh_uv);
-        g_RWRayRadianceTexture[pixel_coords] = float4(emissive.emissive, 1.f);
+        // g_RWRayRadianceTexture[pixel_coords] = float4(emissive.emissive, 1.f);
 
         return; // do not continue past an emissive surface
     }
@@ -368,31 +397,30 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     // If successful, we inject the reprojected radiance into the cache so it can be re-used
     // by neighbor vertices but bypass the filtered readback as the sample is already denoised.
     {
-        float3 homogeneous = transformPointProjection(world, g_ViewProjection);
+        float3 homogeneous = transformPointProjection(world, g_CameraProjView);
 
         uv    = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
         depth = homogeneous.z;
 
         if (all(uv > 0.0f) && all(uv < 1.0f) && depth > 0.0f && depth < 1.0f)
         {
-            float2 previous_uv = uv - g_VelocityBuffer.SampleLevel(g_NearestSampler, uv, 0.0f).xy;
+            float2 previous_uv = uv - g_VelocityTexture.SampleLevel(g_NearestSampler, uv, 0.0f).xy;
 
             if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
             {
                 float3 homogeneous2 = transformPointProjection(float3(2.0f * float2(uv.x, 1.0f - uv.y) - 1.0f, depth), g_Reprojection);
                 homogeneous2.z      = GetLinearDepth(homogeneous2.z);
 
-                float  previous_depth  = GetLinearDepth(g_PreviousDepthBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
-                float3 previous_normal = normalize(2.0f * g_PreviousNormalBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
+                float  previous_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
+                float3 previous_normal = normalize(2.0f * g_PreviousGeometryNormalTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
 
                 if (dot(previous_normal, normal) > 5e-1f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
                 {
-                    float3 previous_lighting = g_PrevCombinedIlluminationBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
+                    float3 previous_lighting = g_PrevCombinedIlluminationTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
 
-                    uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[did];
+                    uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[DispatchID];
                     uint4 quantized_radiance = HashGridCache_QuantizeRadiance(previous_lighting);
 
-                    //ScreenProbes_AccumulateRadiance(query_index, previous_lighting);
                     g_RWRayRadianceTexture[pixel_coords] = g_RWRayRadianceTexture[pixel_coords] + float4(previous_lighting, 0.f);
 
                     if (dot(previous_lighting, previous_lighting) > 0.0f)
@@ -417,7 +445,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
     Random random = MakeRandom(DispatchID, g_FrameIndex);
     LightSampler lightSampler = MakeLightSampler(random);
-    Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(random, world, normal, view_direction, solid_angle, materialBRDF);
+    Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
 
     if (!reservoir.isValid())
     {
@@ -652,7 +680,7 @@ void PopulateCells(uint did)
     // Reconstruct world-space position and normal
     Instance instance  = g_InstanceBuffer[visibility.instance_index];
     Mesh     mesh      = g_MeshBuffer[instance.mesh_index + visibility.geometry_index];
-    float4x4 transform = FetchTransform(instance.transform_index);
+    float3x4 transform = g_TransformBuffer[instance.transform_index];
 
     Triangle vertices = fetchVertices(mesh, visibility.primitive_index);
 
@@ -991,12 +1019,13 @@ void UpdateCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_Group
     // Now we can use the data
     // 3 batches, 32 lanes per batch, 96 (80) basis
     SGDifferentials Differentials = (SGDifferentials)0;
+    float WSum = 0.f;
     for(int batch_index = 0; batch_index < 3; batch_index ++) {
         int index = LaneID + batch_index * 32;
         if(index < 80) {
-            int X = index % 9 + LocalID.y;
-            int Y = index / 9 + LocalID.z;
-            float2 Delta = float2(index % 9 - 4, index / 9 - 4);
+            int X = (index + 1) % 9 + LocalID.y;
+            int Y = (index + 1) / 9 + LocalID.z;
+            float2 Delta = float2((index + 1) % 9 - 4, (index + 1) / 9 - 4);
             float WFactor = EvaluateW(WD, Delta);
             float3 CurrentEvaluatedRadiance = EvaluateSG(SG, LocalRayDirection[Y][X]);
             SGDifferentials NewDifferentials;
@@ -1004,6 +1033,7 @@ void UpdateCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_Group
             Differentials.dColor += NewDifferentials.dColor * WFactor;
             Differentials.dDirection += NewDifferentials.dDirection * WFactor;
             Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+            WSum += WFactor;
         }
     }
     // Aggregate the differentials
@@ -1011,24 +1041,20 @@ void UpdateCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_Group
     Differentials.dColor = WaveActiveSum(Differentials.dColor);
     Differentials.dDirection = WaveActiveSum(Differentials.dDirection);
     Differentials.dLambda = WaveActiveSum(Differentials.dLambda);
+    WSum = WaveActiveSum(WSum);
 
     GroupMemoryBarrierWithGroupSync();
 
     if(LaneID == 0) {
         // Update
-        float3 Ortho = (Differentials.dDirection - dot(Differentials.dDirection, SG.Direction) * SG.Direction) * 5.f;
+        float3 Ortho = (Differentials.dDirection - dot(Differentials.dDirection, SG.Direction) * SG.Direction);
 
         float Scale = Differentials.dLambda * Differentials.dLambda + dot(Differentials.dColor, Differentials.dColor) + dot(Ortho, Ortho);
-        float NormalizationFactor = g_CacheUpdateLearningRate / sqrt(max(Scale, 0.001f));
+        float NormalizationFactor = g_CacheUpdateLearningRate * (1.f / WSum);// * (1.f / sqrt(max(Scale, 0.001f)));
 
-        SG.Color = max(SG.Color - Differentials.dColor * NormalizationFactor, float3(0.001f, 0.001f, 0.001f));
+        SG.Color = max(SG.Color - Differentials.dColor * NormalizationFactor, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
         SG.Direction = normalize(SG.Direction - Ortho * NormalizationFactor);
-        SG.Lambda = min(max(SG.Lambda - Differentials.dLambda * NormalizationFactor * 0.02f, 0.5f), 100.f);
-        
-        // SG.Color = g_OverWriteSGColor;
-        // SG.Direction = g_OverWriteSGDirection;
-        // SG.Lambda = g_OverWriteSGLambda;
-
+        SG.Lambda = clamp(SG.Lambda - Differentials.dLambda * NormalizationFactor, 0.1f, 100.f);
         // W: ignore it for now
         // Write Back
         g_RWBasisParameterTexture[BasisCoords] = float4(SG.Direction, SG.Lambda);
@@ -1046,11 +1072,8 @@ void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
 
     float2 UV = (DispatchID + 0.5f) / float2(g_OutputDimensions);
     float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
-    float2 NDC2 = float2(UV.x * 2.f - 1.f, 1.f - UV.y * 2.f);
     if(Depth >= 1.0f) {
-        float3 ViewDirection = GetCameraRayDirection(NDC2);
-        float3 SkyColor = g_EnvironmentBuffer.SampleLevel(g_TextureSampler, ViewDirection, 0.0f).rgb;
-        g_RWDebugOutput[DispatchID] = float4(SkyColor, 1.0f);
+        g_RWGlobalIlluminationOutput[DispatchID] = float4(0.f, 0.f, 0.f, 1.0f);
         return ;
     }
 
@@ -1061,31 +1084,35 @@ void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
     Instance InstanceData = g_InstanceBuffer[InstanceID];
     Mesh MeshData = g_MeshBuffer[InstanceData.mesh_index];
 
-    Vertex Vertex0, Vertex1, Vertex2;
-    FetchVertices(MeshData, PrimitiveID, Vertex0, Vertex1, Vertex2);
+    // Get UV values from buffers
+    UVs PrimitiveUVs = fetchUVs(MeshData, PrimitiveID);
 
-    float3 Normal = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+    float2 MeshUV = interpolate(PrimitiveUVs.uv0, PrimitiveUVs.uv1, PrimitiveUVs.uv2, Visbility.xy);
+
+
+    float3 Normal = normalize(2.0f * g_ShadingNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
 
     float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
 
     float3 ViewDirection = normalize(g_CameraPosition - WorldPixelPosition);
-    float2 MeshUV = interpolate(Vertex0.uv, Vertex1.uv, Vertex2.uv, Visbility.xy);
+    // float2 MeshUV = interpolate(T.uv0, T.uv1, T.uv2, Visbility.xy);
     float DotNV = saturate(dot(Normal, ViewDirection));
 
-    Material MaterialData = g_MaterialBuffer[MeshData.material_index];
+    Material MaterialData = g_MaterialBuffer[InstanceData.material_index];
     MaterialEvaluated MaterialEvaluatedData = MakeMaterialEvaluated(MaterialData, MeshUV);
     MaterialEmissive EmissiveMaterialData = MakeMaterialEmissive(MaterialData, MeshUV);
 
     MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvaluatedData);
 
     // This should be alpha actually
-    float Roughness = g_OverWriteRoughness;//MaterialEvaluated.roughness;
+    float Roughness = clamp(MaterialBRDFData.roughnessAlpha, 0.001f, 1.f);
 
     float3 OutLighting = 0;
 
     // Iterate over adjacent pixels and integrate using ASG approximations
     for(int dX = -4; dX < 4; dX++)
         for(int dY = -4; dY < 4; dY++) {
+            if(dX == 3 && dY == 3) continue ; // Ignore the last SG
             int X = int(DispatchID.x) + dX;
             int Y = int(DispatchID.y) + dY;
             int2 Coord = int2(X, Y);
@@ -1112,9 +1139,9 @@ void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
                 OutLighting += (GGXIntegrationApprox + LambertIntegration) * EvaluatedW;
             }
         }
-    
-    
-    g_RWGlobalIlluminationOutput[DispatchID.xy] = float4(OutLighting, 1.f);
+
+
+    g_RWGlobalIlluminationOutput[DispatchID.xy] = float4(OutLighting + EmissiveMaterialData.emissive, 1.f);
 
 }
 
@@ -1195,7 +1222,6 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
         }
     }
     GroupMemoryBarrierWithGroupSync();
-
 
     // Now we can use the data
     SGDifferentials Differentials = (SGDifferentials)0;
@@ -1301,16 +1327,11 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
         float3 Ortho = Differentials.dDirection - dot(Differentials.dDirection, SG11.Direction) * SG11.Direction;
 
         float Scale = Differentials.dLambda * Differentials.dLambda + dot(Differentials.dColor, Differentials.dColor) + dot(Ortho, Ortho);
-        float NormalizationFactor = g_CacheUpdateLearningRate / sqrt(max(Scale, 0.001f)) 
-            * (float((((GroupID.x * 4 + LocalID.y) + (GroupID.y * 4 + LocalID.z) * g_ScreenCacheDimensions.x) * 17271 + g_FrameIndex) % 131) * (1.f / 131.f));
+        float NormalizationFactor = g_CacheUpdateLearningRate;// / sqrt(max(Scale, 0.001f));
 
-        SG11.Color = max(SG11.Color - Differentials.dColor * NormalizationFactor, float3(0.0001f, 0.0001f, 0.0001f));
-        // SG11.Direction = normalize(SG11.Direction - Ortho * NormalizationFactor);
-        SG11.Lambda = min(max(SG11.Lambda - Differentials.dLambda * NormalizationFactor * 0.02f, 0.5f), 100.f);
-        
-        // SG.Color = g_OverWriteSGColor;
-        // SG.Direction = g_OverWriteSGDirection;
-        // SG.Lambda = g_OverWriteSGLambda;
+        SG11.Color = max(SG11.Color - Differentials.dColor * NormalizationFactor, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
+        SG11.Direction = normalize(SG11.Direction - Ortho * NormalizationFactor);
+        SG11.Lambda = clamp(SG11.Lambda - Differentials.dLambda * NormalizationFactor, 0.1f, 100.f);
 
         // W: ignore it for now
         // Write Back
@@ -1321,7 +1342,7 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
 
 
 [numthreads(4, 4, 1)]
-void IntegrateASGWithChanneledCache(uint2 DispatchID : SV_DispatchThreadID, uint2 LocalID : SV_GroupThreadID, uint2 GroupID : SV_GroupID)
+void IntegrateASGWithChanneledCache (uint2 DispatchID : SV_DispatchThreadID, uint2 LocalID : SV_GroupThreadID, uint2 GroupID : SV_GroupID)
 {
     if(DispatchID.x >= g_OutputDimensions.x || DispatchID.y >= g_OutputDimensions.y)
     {
@@ -1342,11 +1363,8 @@ void IntegrateASGWithChanneledCache(uint2 DispatchID : SV_DispatchThreadID, uint
 
     float2 UV = (DispatchID + 0.5f) / float2(g_OutputDimensions);
     float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
-    float2 NDC2 = float2(UV.x * 2.f - 1.f, 1.f - UV.y * 2.f);
     if(Depth >= 1.0f) {
-        float3 ViewDirection = GetCameraRayDirection(NDC2);
-        float3 SkyColor = g_EnvironmentBuffer.SampleLevel(g_TextureSampler, ViewDirection, 0.0f).rgb;
-        g_RWDebugOutput[DispatchID] = float4(SkyColor, 1.0f);
+        g_RWGlobalIlluminationOutput[DispatchID] = float4(0.f, 0.f, 0.f, 1.0f);
         return ;
     }
 
@@ -1357,25 +1375,24 @@ void IntegrateASGWithChanneledCache(uint2 DispatchID : SV_DispatchThreadID, uint
     Instance InstanceData = g_InstanceBuffer[InstanceID];
     Mesh MeshData = g_MeshBuffer[InstanceData.mesh_index];
 
-    Vertex Vertex0, Vertex1, Vertex2;
-    FetchVertices(MeshData, PrimitiveID, Vertex0, Vertex1, Vertex2);
+    TriangleUV T = fetchVerticesUV(MeshData, PrimitiveID);
 
-    float3 Normal = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+    float3 Normal = normalize(2.0f * g_ShadingNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
 
     float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
 
     float3 ViewDirection = normalize(g_CameraPosition - WorldPixelPosition);
-    float2 MeshUV = interpolate(Vertex0.uv, Vertex1.uv, Vertex2.uv, Visbility.xy);
+    float2 MeshUV = interpolate(T.uv0, T.uv1, T.uv2, Visbility.xy);
     float DotNV = saturate(dot(Normal, ViewDirection));
 
-    Material MaterialData = g_MaterialBuffer[MeshData.material_index];
+    Material MaterialData = g_MaterialBuffer[InstanceData.material_index];
     MaterialEvaluated MaterialEvaluatedData = MakeMaterialEvaluated(MaterialData, MeshUV);
     MaterialEmissive EmissiveMaterialData = MakeMaterialEmissive(MaterialData, MeshUV);
 
     MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvaluatedData);
 
     // This should be alpha actually
-    float Roughness = g_OverWriteRoughness;//MaterialEvaluated.roughness;
+    float Roughness = MaterialBRDFData.roughnessAlpha;
 
     float3 OutLighting = 0;
 
@@ -1401,8 +1418,8 @@ void IntegrateASGWithChanneledCache(uint2 DispatchID : SV_DispatchThreadID, uint
             float3 LambertIntegration = SGDiffuseInnerProduct(SG, Normal, MaterialEvaluatedData.albedo) * DiffuseCompensation;
             OutLighting += (GGXIntegrationApprox + LambertIntegration);// * EvaluatedW;
         }
-    
-    
+
+
     g_RWGlobalIlluminationOutput[DispatchID.xy] = float4(OutLighting, 1.f);
 }
 
@@ -1416,7 +1433,7 @@ void ResetScreenSpaceCache (uint2 DispatchID : SV_DispatchThreadID) {
     
     float2 u = BlueNoise_Sample2D(DispatchID, g_FrameIndex);
     float3 Direction = UniformSampleHemisphere(u);
-    float3 ShadingNormal = normalize(2.0f * g_DetailsTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
+    float3 ShadingNormal = normalize(2.0f * g_ShadingNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
     float3 PixelTangent, PixelBitangent;
     TangentVectors(ShadingNormal, PixelTangent, PixelBitangent);
     Direction = normalize(Direction.x * PixelTangent + Direction.y * PixelBitangent + Direction.z * ShadingNormal);
