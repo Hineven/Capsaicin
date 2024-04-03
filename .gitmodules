@@ -7,3 +7,6 @@
 [submodule "assets/CapsaicinTestMedia"]
 	path = assets/CapsaicinTestMedia
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/CapsaicinTestMedia.git
+[submodule "assets/MIGITestMedia"]
+	path = assets/MIGITestMedia
+	url = https://gitee.com/hineven/MIGITestMedia
