@@ -102,40 +102,35 @@ float EvaluateW (WData WD, float2 Delta)
     return max(dot(4 - max(abs(Delta.x), abs(Delta.y)), float2(1, 1)), 0) * 0.1f;//exp(-dot(Delta, Delta) * WD.Lambda);
 }
 
-struct SGDifferentials {
+struct SGGradients {
     float dLambda;
     float3 dColor;
     float3 dDirection;
 };
 
 // error function: (x - y) ^ 2
-void EvaluateSGDifferentials2 (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGDifferentials Differentials) {
-    // Compute the differentials for SG parameters
-    // Targeting at the remaining radiance after subtracting all other SH and SGs
-    float W1 = (dot(SG.Direction, TargetDirection) - 1);
-    float3 W2 = exp(SG.Lambda * W1);
-    float3 W3 = 2 * W2 * (SG.Color * W2 - TargetRadiance);
-    // d (sg_theta(dir) - v)^2 / d theta
-    Differentials.dLambda = dot(SG.Color * W3 * (dot(SG.Direction, TargetDirection) - 1.f), float3(1, 1, 1));
-    Differentials.dColor = W3;
-    Differentials.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
-}
+// void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGGradients Gradients) {
+//     // Compute the Gradients for SG parameters
+//     // Targeting at the remaining radiance after subtracting all other SH and SGs
+//     float W1 = (dot(SG.Direction, TargetDirection) - 1);
+//     float3 W2 = exp(SG.Lambda * W1);
+//     float3 W3 = 2 * W2 * (SG.Color * W2 - TargetRadiance);
+//     // d (sg_theta(dir) - v)^2 / d theta
+//     Gradients.dLambda = dot(SG.Color * W3 * (dot(SG.Direction, TargetDirection) - 1.f), float3(1, 1, 1));
+//     Gradients.dColor = W3;
+//     Gradients.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
+// }
 
-// error function: abs(x - y)
-void EvaluateSGDifferentials (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGDifferentials Differentials) {
-    // Compute the differentials for SG parameters
+void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients) {
+    // Compute the Gradients for SG parameters
     // Targeting at the remaining radiance after subtracting all other SH and SGs
     float W1 = dot(SG.Direction, TargetDirection) - 1;
     float W2 = exp(SG.Lambda * W1);
     float W3 = W1 * W2;
-    float TargetRadianceScale = dot(TargetRadiance, float3(1, 1, 1));
-    float CurrentRadianceScale = dot(CurrentRadiance, float3(1, 1, 1));
     float SGColorScale = dot(SG.Color, float3(1, 1, 1));
-    float DiffDirection1 = CurrentRadianceScale - TargetRadianceScale;// CurrentRadianceScale > TargetRadianceScale ? 1 : -1;
-    float3 DiffDirection3 = CurrentRadiance - TargetRadiance;// select(CurrentRadiance > TargetRadiance, 1.f.xxx, -1.f.xxx);
-    Differentials.dLambda    = W3 * SGColorScale * DiffDirection1;
-    Differentials.dColor     = W2 * DiffDirection3;
-    Differentials.dDirection = TargetDirection * W2 * SGColorScale * SG.Lambda * DiffDirection1;
+    Gradients.dLambda    = W3 * SGColorScale;
+    Gradients.dColor     = W2.xxx;
+    Gradients.dDirection = TargetDirection * W2 * SGColorScale * SG.Lambda;
 }
 
 float SampleSGCosTheta (float u, float lambda) {
@@ -232,6 +227,7 @@ void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
     if (dot(Bitangent, Bitangent) < 0.01f) {
         Bitangent = cross(Normal, float3(0, 1, 0));
     }
+    Bitangent = normalize(Bitangent);
     Tangent = cross(Bitangent, Normal);
 }
 
@@ -463,14 +459,14 @@ SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11
 //     } else SampleBasisBrickTexel(Basis.TextureLevelOffset, XY, SG, EvaluatedW);
 // }
 //
-// // It's the caller's duty to spread the differentials from tri-linear interpolation to the neighboring texels
-// // Use group-shared memory to accumulate differentials for acceleration.
-// // Note: the output SG differentials are not multiplied by EvaluatedW. Don't forget that!
+// // It's the caller's duty to spread the Gradients from tri-linear interpolation to the neighboring texels
+// // Use group-shared memory to accumulate Gradients for acceleration.
+// // Note: the output SG Gradients are not multiplied by EvaluatedW. Don't forget that!
 // // @param MN: The fractional part of the texture coordinates
 // // @param BrickTextureCoords: The integer part of the texture coordinates within the basis texture brick
-// void GetBasisUpdateDifferentials (BasisData Basis, float2 UV, float3 Direction, float3 TargetRadiance,
+// void GetBasisUpdateGradients (BasisData Basis, float2 UV, float3 Direction, float3 TargetRadiance,
 //     out float EvaluatedW,
-//     out SGDifferentials Differentials, out float WDifferential,
+//     out SGGradients Gradients, out float WDifferential,
 //     out float2 MN, out int2 BrickTextureCoords) {
 //     SGData SG;
 //     float2 XY = ConvertUVScreenToBasis(Basis, UV);
@@ -478,7 +474,7 @@ SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11
 //         EvaluatedW = 0.f;
 //     } else SampleBasisBrickTexel(Basis.TextureLevelOffset, XY, SG, EvaluatedW, MN, BrickTextureCoords);
 //     float3 CurrentRadiance = EvaluateSG(SG, Direction) * EvaluatedW;
-//     EvaluateSGDifferentials(SG, Direction, TargetRadiance, Differentials);
+//     EvaluateSGGradients(SG, Direction, TargetRadiance, Gradients);
 //     WDifferential = dot(CurrentRadiance - TargetRadiance, 1.xxx);
 // }
 //

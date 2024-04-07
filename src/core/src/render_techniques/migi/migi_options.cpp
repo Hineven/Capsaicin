@@ -15,12 +15,16 @@ namespace Capsaicin {
 RenderOptionList MIGI::getRenderOptions() noexcept
 {
     auto ret = RenderOptionList();
+    ret.emplace("visualize_mode", options_.visualize_mode);
+
     ret.emplace("lr_rate", options_.lr_rate);
 
     ret.emplace("channeled_cache", options_.channeled_cache);
     ret.emplace("shading_with_geometry_normal", options_.shading_with_geometry_normal);
-
     ret.emplace("no_importance_sampling", options_.no_importance_sampling);
+    ret.emplace("fixed_step_size", options_.fixed_step_size);
+    ret.emplace("use_blue_noise_sample_direction", options_.use_blue_noise_sample_direction);
+    ret.emplace("enable_indirect", options_.enable_indirect);
 
     ret.emplace("reset_screen_space_cache", options_.reset_screen_space_cache);
     return ret;
@@ -48,6 +52,8 @@ AOVList MIGI::getAOVs() const noexcept
 void MIGI::updateRenderOptions(CapsaicinInternal &capsaicin)
 {
 
+    options_.visualize_mode = std::get<uint32_t>(capsaicin.getOptions()["visualize_mode"]);
+
     uint32_t new_width = capsaicin.getWidth();
     uint32_t new_height = capsaicin.getHeight();
     if(options_.width != new_width || options_.height != new_height) {
@@ -70,7 +76,14 @@ void MIGI::updateRenderOptions(CapsaicinInternal &capsaicin)
     options_.channeled_cache = std::get<bool>(capsaicin.getOptions()["channeled_cache"]);
     options_.shading_with_geometry_normal = std::get<bool>(capsaicin.getOptions()["shading_with_geometry_normal"]);
     options_.no_importance_sampling = std::get<bool>(capsaicin.getOptions()["no_importance_sampling"]);
+    options_.fixed_step_size = std::get<bool>(capsaicin.getOptions()["fixed_step_size"]);
+    options_.use_blue_noise_sample_direction = std::get<bool>(capsaicin.getOptions()["use_blue_noise_sample_direction"]);
     options_.reset_screen_space_cache = std::get<bool>(capsaicin.getOptions()["reset_screen_space_cache"]);
+    auto new_enable_indirect = std::get<bool>(capsaicin.getOptions()["enable_indirect"]);
+    if(options_.enable_indirect != new_enable_indirect) {
+        need_reload_kernel_ = true;
+    }
+    options_.enable_indirect = new_enable_indirect;
 
 
     // Debugging

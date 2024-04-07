@@ -73,6 +73,9 @@ RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 
 // Parameters
 uint g_NoImportanceSampling;
+uint g_FixedStepSize;
+uint g_UseBlueNoiseSampleDirection;
+uint g_EnableIndirect;
 
 RWTexture2D<float4> g_RWBasisParameterTexture;
 RWTexture2D<float4> g_RWBasisColorTexture;

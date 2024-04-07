@@ -287,13 +287,18 @@ void TraceUpdateRays (uint2 DispatchID) {
 
     float3 RayOrigin = offsetPosition(WorldPixelPosition, GeometryNormal);
 
-    float2 u_b = BlueNoise_Sample2D(DispatchID, g_FrameIndex);
+    float2 u_b;
+    if(g_UseBlueNoiseSampleDirection) {
+        u_b = BlueNoise_Sample2D(DispatchID, g_FrameIndex);
+    } else {
+        Random randomNG = MakeRandom(DispatchID.x + DispatchID.y * g_OutputDimensions.x, g_FrameIndex);
+        u_b = randomNG.rand2();
+    }
     float3 RayDirection;
     [branch]
     if(g_NoImportanceSampling == 1) 
     {
-        RayDirection = CosineWeightedSampleHemisphere(u_b);
-        // float RayDirectionPDF = CosineWeightedSampleHemispherePDF(RayDirection, ShadingNormal);
+        RayDirection = UniformSampleSphere(u_b);//UniformSampleHemisphere(u_b);//CosineWeightedSampleHemisphere(u_b);
         
         float3 PixelTangent, PixelBitangent;
         TangentVectors(ShadingNormal, PixelTangent, PixelBitangent);
@@ -310,6 +315,15 @@ void TraceUpdateRays (uint2 DispatchID) {
     }
     // Record trace ray direction for later hit position recovery
     g_RWRayDirectionTexture[DispatchID.xy] = float4(RayDirection * 0.5f + 0.5f, 0);
+
+    if(dot(RayDirection, GeometryNormal) < 0.0f) {
+        // Learn negative samples.
+        g_RWRayRadianceTexture[DispatchID.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        return ;
+    }
+
+    // g_RWRayRadianceTexture[DispatchID.xy] = float4(dot(RayDirection, float3(1, -1, 0)).xxx, 0.0f);
+    // return ;
 
     // Trace a visibility ray only.
     RayDesc VisibilityRayDesc;
@@ -387,7 +401,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     if (visibility.is_front_face && dot(material.emissivity.xyz, material.emissivity.xyz) > 0.0f)
     {
         MaterialEmissive emissive = MakeMaterialEmissive(material, mesh_uv);
-        // g_RWRayRadianceTexture[pixel_coords] = float4(emissive.emissive, 1.f);
+        g_RWRayRadianceTexture[pixel_coords] = float4(emissive.emissive, 1.f);
 
         return; // do not continue past an emissive surface
     }
@@ -420,9 +434,9 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
 
                     uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[DispatchID];
                     uint4 quantized_radiance = HashGridCache_QuantizeRadiance(previous_lighting);
-
+#ifdef ENABLE_INDIRECT
                     g_RWRayRadianceTexture[pixel_coords] = g_RWRayRadianceTexture[pixel_coords] + float4(previous_lighting, 0.f);
-
+#endif // ENABLE_INDIRECT
                     if (dot(previous_lighting, previous_lighting) > 0.0f)
                     {
                         InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
@@ -443,7 +457,8 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     const float solid_angle = FOUR_PI / (kReservoir_SampleCount * 1.5f);
     MaterialEvaluated material2 = MakeMaterialEvaluated(material, mesh_uv);
     MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
-    Random random = MakeRandom(DispatchID, g_FrameIndex);
+    // Make the seed different from the one used in TraceUpdateRays
+    Random random = MakeRandom(DispatchID ^ 0x8a197727, g_FrameIndex);
     LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
 
@@ -921,7 +936,9 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
     float4 radiance = HashGridCache_FilteredRadiance(cell_index, false);
 
     int2 pixel_coords = int2(query_index % g_OutputDimensions.x, query_index / g_OutputDimensions.x);
+#ifdef ENABLE_INDIRECT
     g_RWRayRadianceTexture[pixel_coords] = g_RWRayRadianceTexture[pixel_coords] + float4(GIDenoiser_RemoveNaNs(radiance.xyz / max(radiance.w, 1.0f)), 0.f);
+#endif
 }
 
 // The screen resolution must be dividable by 4, so we dont need to check for boundaries.
@@ -959,15 +976,16 @@ void PrecomputeCacheUpdate (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_Group
     float3 RayRadiance = g_RWRayRadianceTexture[RayCoords].xyz;
 
     // Now we can use the data
-    // 3 batches, 32 lanes per batch, 96 (80) basis
+    // 3 batches, 32 lanes per batch, 96 (81) basis
     float3 EvaluatedRayRadiance = float3(0, 0, 0);
     for(int batch_index = 0; batch_index < 3; batch_index ++) {
         int index = LaneID + batch_index * 32;
-        if(index < 80) {
+        if(index < 81) {
             int X = index % 9 + LocalID.y;
             int Y = index / 9 + LocalID.z;
             float2 Delta = float2(4 - index % 9, 4 - index / 9);
-            float3 CurrentEvaluatedRadiance = EvaluateSG(LocalSGData[Y][X], RayDirection) * EvaluateW(LocalWData[Y][X], Delta);
+            float  EvaluatedW = EvaluateW(LocalWData[Y][X], Delta);
+            float3 CurrentEvaluatedRadiance    = EvaluateSG(LocalSGData[Y][X],  RayDirection) * EvaluatedW;
             EvaluatedRayRadiance += CurrentEvaluatedRadiance;
         }
     }
@@ -1017,44 +1035,63 @@ void UpdateCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_Group
     FetchBasisData(BasisCoords, SG, WD);
 
     // Now we can use the data
-    // 3 batches, 32 lanes per batch, 96 (80) basis
-    SGDifferentials Differentials = (SGDifferentials)0;
+    // 3 batches, 32 lanes per batch, 96 (81) basis
+    SGGradients Gradients = (SGGradients)0;
     float WSum = 0.f;
     for(int batch_index = 0; batch_index < 3; batch_index ++) {
         int index = LaneID + batch_index * 32;
-        if(index < 80) {
-            int X = (index + 1) % 9 + LocalID.y;
-            int Y = (index + 1) / 9 + LocalID.z;
-            float2 Delta = float2((index + 1) % 9 - 4, (index + 1) / 9 - 4);
+        if(index < 81) {
+            int X = index % 9 + LocalID.y;
+            int Y = index / 9 + LocalID.z;
+            float2 Delta = float2(index % 9 - 4, index / 9 - 4);
             float WFactor = EvaluateW(WD, Delta);
             float3 CurrentEvaluatedRadiance = EvaluateSG(SG, LocalRayDirection[Y][X]);
-            SGDifferentials NewDifferentials;
-            EvaluateSGDifferentials(SG, LocalRayDirection[Y][X], CurrentEvaluatedRadiance * WFactor + LocalRayRadianceDifference[Y][X], CurrentEvaluatedRadiance, NewDifferentials);
-            Differentials.dColor += NewDifferentials.dColor * WFactor;
-            Differentials.dDirection += NewDifferentials.dDirection * WFactor;
-            Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+            SGGradients NewGradients;
+            EvaluateSG_Gradients(SG,  LocalRayDirection[Y][X], NewGradients);
+            float3 Difference3 = LocalRayRadianceDifference[Y][X];
+            float  Difference  = dot(Difference3, 1.f.xxx);
+            // float3 Difference3Signal = sign(Difference3);
+            // float  DifferenceSignal = sign(Difference);
+            Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
+            Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
+            Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
             WSum += WFactor;
         }
     }
-    // Aggregate the differentials
+    // Aggregate the Gradients
 
-    Differentials.dColor = WaveActiveSum(Differentials.dColor);
-    Differentials.dDirection = WaveActiveSum(Differentials.dDirection);
-    Differentials.dLambda = WaveActiveSum(Differentials.dLambda);
+    Gradients.dColor = WaveActiveSum(Gradients.dColor);
+    Gradients.dDirection = WaveActiveSum(Gradients.dDirection);
+    Gradients.dLambda = WaveActiveSum(Gradients.dLambda);
     WSum = WaveActiveSum(WSum);
 
     GroupMemoryBarrierWithGroupSync();
 
     if(LaneID == 0) {
         // Update
-        float3 Ortho = (Differentials.dDirection - dot(Differentials.dDirection, SG.Direction) * SG.Direction);
+        if(g_FixedStepSize) {
+            Gradients.dDirection = normalize(Gradients.dDirection);
+            Gradients.dColor     = sign(Gradients.dColor);
+            Gradients.dLambda    = sign(Gradients.dLambda);
+        }
 
-        float Scale = Differentials.dLambda * Differentials.dLambda + dot(Differentials.dColor, Differentials.dColor) + dot(Ortho, Ortho);
-        float NormalizationFactor = g_CacheUpdateLearningRate * (1.f / WSum);// * (1.f / sqrt(max(Scale, 0.001f)));
+        float3 Ortho = (Gradients.dDirection - dot(Gradients.dDirection, SG.Direction) * SG.Direction);
 
-        SG.Color = max(SG.Color - Differentials.dColor * NormalizationFactor, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
-        SG.Direction = normalize(SG.Direction - Ortho * NormalizationFactor);
-        SG.Lambda = clamp(SG.Lambda - Differentials.dLambda * NormalizationFactor, 0.1f, 100.f);
+        float Scale = Gradients.dLambda * Gradients.dLambda + dot(Gradients.dColor, Gradients.dColor) + dot(Ortho, Ortho);
+        float RandomStride = BlueNoise_Sample1D(BasisCoords, g_FrameIndex, 7);
+        float NormalizationFactor = g_CacheUpdateLearningRate * RandomStride;// / sqrt(max(Scale, 0.001f));
+
+        float3 NewDirection = SG.Direction + Gradients.dDirection * NormalizationFactor;
+        float  Magnification = length(NewDirection);
+        if(Magnification > 0.001f) SG.Direction = NewDirection / Magnification;
+
+        float3 ColorMaximum = SG.Color * 0.05f;
+        float3 ColorStep   = Gradients.dColor * NormalizationFactor;
+        // ColorStep = select(abs(ColorStep) > ColorMaximum, ColorMaximum * sign(ColorStep), ColorStep);
+        
+
+        SG.Color = max(SG.Color + ColorStep, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
+        SG.Lambda = clamp(SG.Lambda + Gradients.dLambda * NormalizationFactor, 0.1f, 100.f);
         // W: ignore it for now
         // Write Back
         g_RWBasisParameterTexture[BasisCoords] = float4(SG.Direction, SG.Lambda);
@@ -1062,6 +1099,7 @@ void UpdateCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_Group
     }   
 }
 
+// TODO speed up
 [numthreads(8, 8, 1)]
 void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
 {
@@ -1095,7 +1133,6 @@ void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
     float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
 
     float3 ViewDirection = normalize(g_CameraPosition - WorldPixelPosition);
-    // float2 MeshUV = interpolate(T.uv0, T.uv1, T.uv2, Visbility.xy);
     float DotNV = saturate(dot(Normal, ViewDirection));
 
     Material MaterialData = g_MaterialBuffer[InstanceData.material_index];
@@ -1105,14 +1142,13 @@ void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
     MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvaluatedData);
 
     // This should be alpha actually
-    float Roughness = clamp(MaterialBRDFData.roughnessAlpha, 0.001f, 1.f);
+    float Roughness = clamp(MaterialEvaluatedData.roughness, 0.001f, 1.f);
 
     float3 OutLighting = 0;
 
     // Iterate over adjacent pixels and integrate using ASG approximations
     for(int dX = -4; dX < 4; dX++)
         for(int dY = -4; dY < 4; dY++) {
-            if(dX == 3 && dY == 3) continue ; // Ignore the last SG
             int X = int(DispatchID.x) + dX;
             int Y = int(DispatchID.y) + dY;
             int2 Coord = int2(X, Y);
@@ -1121,17 +1157,17 @@ void IntegrateASG(uint2 DispatchID : SV_DispatchThreadID)
                 WData WD;
                 FetchBasisData(Coord, SG, WD);
                 float3 LightDirection = SG.Direction;
-                float3 ReflectionDirection = reflect(-ViewDirection, Normal);
+                float3 ReflectionDirection = calculateGGXSpecularDirection(Normal, ViewDirection, Roughness);
                 float3 HalfVector = normalize(LightDirection + ViewDirection);
                 float dotNR = saturate(dot(Normal, ReflectionDirection));
                 float dotNV = saturate(dot(Normal, ViewDirection));
                 float dotHV = saturate(dot(HalfVector, ViewDirection));
                 float3 FresnelTerm = fresnel(0.04f.xxx, dotHV);
                 // Approximate \int D * Li with ASG
-                float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, Normal, Roughness, ViewDirection);
-                float VisibilityTerm = evaluateVisibilityGGX(Roughness * Roughness, dotNR, dotNV);
+                // we use RoughnessAlpha here
+                float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, Normal, MaterialBRDFData.roughnessAlphaSqr, ViewDirection);
+                float VisibilityTerm = evaluateVisibilityGGX(MaterialBRDFData.roughnessAlphaSqr, dotNR, dotNV);
                 float3 GGXIntegrationApprox = FresnelTerm * GGX_D_Li_Approx / VisibilityTerm;
-
                 float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotHV);
                 float3 LambertIntegration = SGDiffuseInnerProduct(SG, Normal, MaterialEvaluatedData.albedo) * DiffuseCompensation;
                 float2 Jitter = float2(0, 0);//BlueNoise_Sample2D(Coord, g_FrameIndex, 2) * 2.f - 1.f;
@@ -1224,7 +1260,7 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
     GroupMemoryBarrierWithGroupSync();
 
     // Now we can use the data
-    SGDifferentials Differentials = (SGDifferentials)0;
+    SGGradients Gradients = (SGGradients)0;
     // Upper left 5x5
     int2 BasisCoords = int2(GroupID.x * 4 + LocalID.y, GroupID.y * 4 + LocalID.z);
     SGData SG00, SG01, SG02, SG10, SG11, SG12, SG20, SG21, SG22; WData WD;
@@ -1245,16 +1281,16 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
         float2 UV = float2(X + 1, Y + 1) / 4.f;
         SGData InterpolatedSG = SGInterpolate(SG00, SG01, SG10, SG11, UV);
         float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[1 + Y + LocalID.z][1 + X + LocalID.y]);
-        SGDifferentials NewDifferentials;
-        EvaluateSGDifferentials(InterpolatedSG, 
+        SGGradients NewGradients;
+        EvaluateSG_Gradients(InterpolatedSG, 
             LocalRayDirection[1 + Y + LocalID.z][1 + X + LocalID.y],
-            CurrentEvaluatedRadiance + LocalRayRadianceDifference[1 + Y + LocalID.z][1 + X + LocalID.y],
-            CurrentEvaluatedRadiance,
-            NewDifferentials);
+            NewGradients);
         float WFactor = UV.x * UV.y;
-        Differentials.dColor += NewDifferentials.dColor * WFactor;
-        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
-        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+        float3 Difference3 = LocalRayRadianceDifference[1 + Y + LocalID.z][1 + X + LocalID.y];
+        float  Difference  = dot(Difference3, 1.f.xxx);
+        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
+        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
+        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
     }
     // Upper right 4x3
     if(LaneID < 12) {
@@ -1263,16 +1299,16 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
         float2 UV = float2(X + 1, Y + 1) / 4.f;
         SGData InterpolatedSG = SGInterpolate(SG01, SG02, SG11, SG12, UV);
         float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[1 + Y + LocalID.z][5 + X + LocalID.y]);
-        SGDifferentials NewDifferentials;
-        EvaluateSGDifferentials(InterpolatedSG,
+        SGGradients NewGradients;
+        EvaluateSG_Gradients(InterpolatedSG,
             LocalRayDirection[1 + Y + LocalID.z][5 + X + LocalID.y],
-            CurrentEvaluatedRadiance + LocalRayRadianceDifference[1 + Y + LocalID.z][5 + X + LocalID.y],
-            CurrentEvaluatedRadiance,
-            NewDifferentials);
+            NewGradients);
+        float3 Difference3 = LocalRayRadianceDifference[1 + Y + LocalID.z][5 + X + LocalID.y];
+        float  Difference  = dot(Difference3, 1.f.xxx);
         float WFactor = (1 - UV.x) * UV.y;
-        Differentials.dColor += NewDifferentials.dColor * WFactor;
-        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
-        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
+        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
+        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
     }
     // Lower left 3x4
     if(LaneID < 12) {
@@ -1281,16 +1317,16 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
         float2 UV = float2(X + 1, Y + 1) / 4.f;
         SGData InterpolatedSG = SGInterpolate(SG10, SG11, SG20, SG21, UV);
         float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[5 + Y + LocalID.z][1 + X + LocalID.y]);
-        SGDifferentials NewDifferentials;
-        EvaluateSGDifferentials(InterpolatedSG,
+        SGGradients NewGradients;
+        EvaluateSG_Gradients(InterpolatedSG,
             LocalRayDirection[5 + Y + LocalID.z][1 + X + LocalID.y],
-            CurrentEvaluatedRadiance + LocalRayRadianceDifference[5 + Y + LocalID.z][1 + X + LocalID.y],
-            CurrentEvaluatedRadiance,
-            NewDifferentials);
+            NewGradients);
+        float3 Difference3 = LocalRayRadianceDifference[5 + Y + LocalID.z][1 + X + LocalID.y];
+        float  Difference  = dot(Difference3, 1.f.xxx);
         float WFactor = UV.x * (1 - UV.y);
-        Differentials.dColor += NewDifferentials.dColor * WFactor;
-        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
-        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
+        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
+        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
     }
     // Lower right 3x3
     if(LaneID < 9) {
@@ -1299,39 +1335,41 @@ void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID :
         float2 UV = float2(X + 1, Y + 1) / 4.f;
         SGData InterpolatedSG = SGInterpolate(SG11, SG12, SG21, SG22, UV);
         float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[5 + Y + LocalID.z][5 + X + LocalID.y]);
-        SGDifferentials NewDifferentials;
-        EvaluateSGDifferentials(InterpolatedSG, 
+        SGGradients NewGradients;
+        EvaluateSG_Gradients(InterpolatedSG, 
             LocalRayDirection[5 + Y + LocalID.z][5 + X + LocalID.y], 
-            CurrentEvaluatedRadiance + LocalRayRadianceDifference[5 + Y + LocalID.z][5 + X + LocalID.y],
-            CurrentEvaluatedRadiance,
-            NewDifferentials);
+            NewGradients);
+        float3 Difference3 = LocalRayRadianceDifference[5 + Y + LocalID.z][5 + X + LocalID.y];
+        float  Difference  = dot(Difference3, 1.f.xxx);
         float WFactor = (1 - UV.x) * (1 - UV.y);
-        Differentials.dColor += NewDifferentials.dColor * WFactor;
-        Differentials.dDirection += NewDifferentials.dDirection * WFactor;
-        Differentials.dLambda += NewDifferentials.dLambda * WFactor;
+        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
+        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
+        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
     }
 
 
-    // Aggregate the differentials
-    Differentials.dColor = WaveActiveSum(Differentials.dColor);
-    Differentials.dDirection = WaveActiveSum(Differentials.dDirection);
-    Differentials.dLambda = WaveActiveSum(Differentials.dLambda);
+    // Aggregate the Gradients
+    Gradients.dColor = WaveActiveSum(Gradients.dColor);
+    Gradients.dDirection = WaveActiveSum(Gradients.dDirection);
+    Gradients.dLambda = WaveActiveSum(Gradients.dLambda);
 
     GroupMemoryBarrierWithGroupSync();
 
     if(LaneID == 0) {
         // Write to gradient texture
-        g_RWBasisParameterGradientTexture[BasisCoords] = float4(Differentials.dDirection, Differentials.dLambda);
-        g_RWBasisColorGradientTexture[BasisCoords] = float4(Differentials.dColor, 0);
+        g_RWBasisParameterGradientTexture[BasisCoords] = float4(Gradients.dDirection, Gradients.dLambda);
+        g_RWBasisColorGradientTexture[BasisCoords] = float4(Gradients.dColor, 0);
         // Update
-        float3 Ortho = Differentials.dDirection - dot(Differentials.dDirection, SG11.Direction) * SG11.Direction;
+        // float3 Ortho = Gradients.dDirection - dot(Gradients.dDirection, SG11.Direction) * SG11.Direction;
 
-        float Scale = Differentials.dLambda * Differentials.dLambda + dot(Differentials.dColor, Differentials.dColor) + dot(Ortho, Ortho);
+        //float Scale = Gradients.dLambda * Gradients.dLambda + dot(Gradients.dColor, Gradients.dColor) + dot(Ortho, Ortho);
         float NormalizationFactor = g_CacheUpdateLearningRate;// / sqrt(max(Scale, 0.001f));
 
-        SG11.Color = max(SG11.Color - Differentials.dColor * NormalizationFactor, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
-        SG11.Direction = normalize(SG11.Direction - Ortho * NormalizationFactor);
-        SG11.Lambda = clamp(SG11.Lambda - Differentials.dLambda * NormalizationFactor, 0.1f, 100.f);
+        float3 NewDirection = SG11.Direction + Gradients.dDirection * NormalizationFactor;
+        float  Magnification = length(NewDirection);
+        SG11.Direction = NewDirection / max(Magnification, 0.001f);
+        SG11.Color = max(SG11.Color * Magnification + Gradients.dColor * NormalizationFactor, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
+        SG11.Lambda = clamp(SG11.Lambda + Gradients.dLambda * NormalizationFactor, 0.1f, 100.f);
 
         // W: ignore it for now
         // Write Back
@@ -1416,7 +1454,7 @@ void IntegrateASGWithChanneledCache (uint2 DispatchID : SV_DispatchThreadID, uin
 
             float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotHV);
             float3 LambertIntegration = SGDiffuseInnerProduct(SG, Normal, MaterialEvaluatedData.albedo) * DiffuseCompensation;
-            OutLighting += (GGXIntegrationApprox + LambertIntegration);// * EvaluatedW;
+            OutLighting += (GGXIntegrationApprox + LambertIntegration);
         }
 
 
@@ -1440,7 +1478,7 @@ void ResetScreenSpaceCache (uint2 DispatchID : SV_DispatchThreadID) {
 
     // Direction = ShadingNormal;
 
-    g_RWBasisParameterTexture[DispatchID.xy] = float4(Direction, 3.f);
+    g_RWBasisParameterTexture[DispatchID.xy] = float4(Direction, 1.f);
     g_RWBasisColorTexture[DispatchID.xy] = float4(0.05f, 0.05f, 0.05f, 0);
 }
 

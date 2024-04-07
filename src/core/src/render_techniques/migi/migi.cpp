@@ -35,6 +35,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     {
         if (need_reload_kernel_)
         {
+            terminate();
             init(capsaicin);
             need_reload_kernel_ = false;
         }
@@ -179,6 +180,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     gfxProgramSetTexture(gfx_, kernels_.program, "g_RWGlobalIlluminationOutput", gi_output_aov);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_NoImportanceSampling", (uint)options_.no_importance_sampling);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_FixedStepSize", (uint)options_.fixed_step_size);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_UseBlueNoiseSampleDirection", (uint)options_.use_blue_noise_sample_direction);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterTexture", tex_.basis_parameter);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisColorTexture", tex_.basis_color);
@@ -559,6 +562,11 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
             assert(dispatch_size[0] * threads[0] == options_.width && dispatch_size[1] * threads[1] == options_.height);
             gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
         }
+    }
+
+    // Visualize basis
+    if(options_.visualize_mode == 1) {
+        gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), tex_.basis_parameter);
     }
 
     // Update camera history

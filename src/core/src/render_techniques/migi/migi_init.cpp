@@ -279,6 +279,8 @@ std::vector<std::string> MIGI::getShaderCompileDefinitions(const CapsaicinIntern
     if (capsaicin.hasAOVBuffer("OcclusionAndBentNormal")) ret.push_back("HAS_OCCLUSION");
     ret.push_back("USE_RESAMPLING");
 
+    if(options_.enable_indirect) ret.push_back("ENABLE_INDIRECT");
+
     if (capsaicin.getCurrentDebugView().starts_with("HashGridCache_"))
     {
         ret.push_back("DEBUG_HASH_CELLS");
