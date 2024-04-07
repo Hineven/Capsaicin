@@ -118,6 +118,9 @@ struct RTConstants
     uint2                           padding2;
 };
 
+// 32 x 5 x 5 = 800 <= 1024 (max thread group size)
+#define COOPERATIVE_SHADING_GRID_SIZE 5
+
 #ifdef __cplusplus
 }// namespace Capsaicin
 #endif

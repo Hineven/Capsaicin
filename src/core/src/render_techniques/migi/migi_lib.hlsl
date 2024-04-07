@@ -99,7 +99,19 @@ struct WData {
 };
 float EvaluateW (WData WD, float2 Delta)
 {
-    return max(dot(4 - max(abs(Delta.x), abs(Delta.y)), float2(1, 1)), 0) * 0.1f;//exp(-dot(Delta, Delta) * WD.Lambda);
+    return 1.f;//max(dot(4 - max(abs(Delta.x), abs(Delta.y)), float2(1, 1)), 0) * 0.1f;//exp(-dot(Delta, Delta) * WD.Lambda);
+}
+
+float EvaluateBilateralFilterWeight (float PixelScale, float FilmPlaneRadius, float3 DeltaPosition, float3 ShadingPixelNormal, float3 LightingPixelNormal) {
+    // Bilaterally filter the neighbor reservoir
+    float DirectionalDecay = max(dot(ShadingPixelNormal, LightingPixelNormal), 0.0f);
+    DirectionalDecay = squared(squared(DirectionalDecay)); // make it steep
+    //return DirectionalDecay;
+    // return DirectionalDecay;
+    float Distance = length(DeltaPosition);
+    float Radius = 4.f * PixelScale * FilmPlaneRadius;
+    float DistanceDecay = exp(- Distance / Radius);
+    return DirectionalDecay * DistanceDecay;
 }
 
 struct SGGradients {

@@ -132,6 +132,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     auto camera_up = camera.up;
     auto camera_right = glm::cross(camera_forward, camera_up);
     camera_up = normalize(cross(camera_right, camera_forward));
+    // Half the height of the standard camera plane
     float scale = tanf(camera.fovY / 2.f);
     float aspect = capsaicin.getCamera().aspect;
     camera_right *= scale * aspect;
@@ -147,6 +148,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraProjView", camera_matrices.view_projection);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraViewInv", camera_matrices.inv_view);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraProjViewInv", camera_matrices.inv_view_projection);
+
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraPixelScale", 0.5f * scale / float(options_.height));
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_Reprojection",
         glm::dmat4(camera_matrices.view_projection_prev) * glm::inverse(glm::dmat4(camera_matrices.view_projection)));
@@ -528,8 +531,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
             const TimedSection timed_section(*this, "IntegrateASG");
             gfxCommandBindKernel(gfx_, kernels_.integrate_ASG);
             auto threads = gfxKernelGetNumThreads(gfx_, kernels_.integrate_ASG);
-            uint32_t dispatch_size[] = {options_.width / threads[0], options_.height / threads[1]};
-            assert(dispatch_size[0] * threads[0] == options_.width && dispatch_size[1] * threads[1] == options_.height);
+            uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
+            assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
             gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
         }
     } else {
@@ -538,6 +541,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
             // Precompute cache update
             gfxCommandBindKernel(gfx_, kernels_.precompute_channeled_cache_update);
             auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_channeled_cache_update);
+            // Cooperative computation.
             uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
             assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
             gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);

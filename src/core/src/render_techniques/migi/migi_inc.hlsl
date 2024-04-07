@@ -40,6 +40,8 @@ float4x4 g_CameraView;
 float4x4 g_CameraProjView;
 float4x4 g_CameraViewInv;
 float4x4 g_CameraProjViewInv;
+// The scale of a single pixel in the standard camera plane (z = 1)
+float g_CameraPixelScale;
 
 float4x4 g_Reprojection;
 
