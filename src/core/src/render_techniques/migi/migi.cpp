@@ -107,6 +107,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureMaps", capsaicin.getTextures(), capsaicin.getTextureCount());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearSampler());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_NearestSampler", capsaicin.getNearestSampler());
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_LinearSampler", capsaicin.getLinearSampler());
 
     // Geometry
     gfxProgramSetParameter(gfx_, kernels_.program, "g_IndexBuffer", capsaicin.getIndexBuffer());
@@ -153,6 +154,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_Reprojection",
         glm::dmat4(camera_matrices.view_projection_prev) * glm::inverse(glm::dmat4(camera_matrices.view_projection)));
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_ForwardReprojection",
+        glm::dmat4(camera_matrices.view_projection) * glm::inverse(glm::dmat4(camera_matrices.view_projection_prev)));
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousCameraPosition", previous_camera_.eye);
 

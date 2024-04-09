@@ -1,9 +1,10 @@
-// Correct some behaviors within `light_sampler_bounds.hlsl`
-// Okay it crashes the DXC compiler, so I'm going to remove it.
-// #define FIX_LIGHT_SAMPLER_BOUNDS
-
 #ifndef USE_INLINE_RT
 #define USE_INLINE_RT 1
+#endif
+
+#ifndef WARP_SIZE
+// NVIDIA's default warp size
+#define WARP_SIZE 32
 #endif
 
 #define MIN_COLOR 0.000001f
@@ -941,192 +942,368 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
 #endif
 }
 
-groupshared SGData LocalSGData[8 + COOPERATIVE_SHADING_GRID_SIZE][8 + COOPERATIVE_SHADING_GRID_SIZE];
-groupshared WData LocalWData[8 + COOPERATIVE_SHADING_GRID_SIZE][8 + COOPERATIVE_SHADING_GRID_SIZE];
-groupshared float3 LocalPixelPosition[8 + COOPERATIVE_SHADING_GRID_SIZE][8 + COOPERATIVE_SHADING_GRID_SIZE];
-groupshared float3 LocalPixelNormal[8 + COOPERATIVE_SHADING_GRID_SIZE][8 + COOPERATIVE_SHADING_GRID_SIZE];
-[numthreads(32, COOPERATIVE_SHADING_GRID_SIZE, COOPERATIVE_SHADING_GRID_SIZE)]
-void PrecomputeCacheUpdate (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
-    int WarpID = LocalID.y * COOPERATIVE_SHADING_GRID_SIZE + LocalID.z; 
-    int LaneID = LocalID.x;
-    // Cooperatively load the data into shared memory
-    // Warp : Y, Lane : X
-    if(WarpID < 8 + COOPERATIVE_SHADING_GRID_SIZE && LaneID < 8 + COOPERATIVE_SHADING_GRID_SIZE) {
-        int X_Real = int(GroupID.x) * COOPERATIVE_SHADING_GRID_SIZE + LaneID - 4;
-        int Y_Real = int(GroupID.y) * COOPERATIVE_SHADING_GRID_SIZE + WarpID - 4;
-        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
-            SGData SG = (SGData)0;
-            SG.Lambda = 1.f;
-            LocalSGData[WarpID][LaneID] = SG;
-            WData W = (WData)0;
-            W.Lambda = 100.f;
-            LocalWData[WarpID][LaneID] = W;
-            LocalPixelPosition[WarpID][LaneID] = float3(0, 0, 0);
-            LocalPixelNormal[WarpID][LaneID] = float3(0, 0, 0);
-        } else {
-            FetchBasisData(int2(X_Real, Y_Real), LocalSGData[WarpID][LaneID], LocalWData[WarpID][LaneID]);
-            float2 UV = (float2(X_Real, Y_Real) + 0.5f) / g_OutputDimensions;
-            float PixelDepth = g_DepthTexture.Load(int3(X_Real, Y_Real, 0)).x;
-            LocalPixelPosition[WarpID][LaneID] = InverseProject(g_CameraProjViewInv, UV, PixelDepth);
-            LocalPixelNormal[WarpID][LaneID] = normalize(2.f * g_GeometryNormalTexture.Load(int3(X_Real, Y_Real, 0)).xyz - 1.f);
+// Reproject basis from previous frame, filter and inject
+[numthreads(WARP_SIZE, 1, 1)]
+void ReprojectPreviousBasis (int DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= g_RWTileBasisCountBuffer[0]) {
+        return;
+    }
+    if(!IsBasisActive(DispatchID)) {
+        return;
+    }
+    SGData SG;
+    WData W;
+    float2 PreviousUV;
+    FetchBasisData(DispatchID, SG, W);
+    FetchBasisLocation(DispatchID, PreviousUV);
+    float PreviousPixelDepth = g_PreviousDepthTexture.SampleLevel(g_LinearSampler, UV, 0.0f).x;
+    float3 PreviousPixelNormal = normalize(2.f * g_PreviousGeometryNormalTexture.SampleLevel(g_LinearSampler, PreviousUV, 0.0f).xyz - 1.f);
+    float3 CurrentHomogeneous = transformPointProjection(float3(2.0f * float2(PreviousUV.x, 1.0f - PreviousUV.y) - 1.0f, PreviousPixelDepth), g_ForwardReprojection);
+
+
+    float2 CurrentUV = 0.5f * float2(CurrentHomogeneous.x, -CurrentHomogeneous.y) + 0.5f;
+    float  CurrentDepth = CurrentHomogeneous.z;
+
+    bool ActiveFlag = false;
+
+    if (all(CurrentUV > -g_ScreenSpaceCacheBorderPaddingUV) 
+    && all(CurrentUV < 1.0f + g_ScreenSpaceCacheBorderPaddingUV) 
+    && CurrentDepth > 0.0f && CurrentDepth < 1.0f) {
+        float CurrentLinearDepth = DepthToLinearDepth(CurrentDepth, g_CameraNear, g_CameraFar);
+        float PreviousLinearDepth = DepthToLinearDepth(PreviousPixelDepth, g_CameraNear, g_CameraFar);
+        float DeltaLinearDepth = CurrentLinearDepth - PreviousLinearDepth;
+        float3 CameraRayDirection = GetCameraRayDirectionUnnormalized(UV2NDC2(CurrentUV));
+        float3 Delta = DeltaLinearDepth * CameraRayDirection;
+        // Recompute W parameters based on position shift.
+        WData WShifted = ShiftW(W, Delta);
+        // TODO decay according to geometry difference
+
+        if(!IsEmptyW(WShifted)) {
+            // Write back
+            WriteBasisWData(DispatchID, WShifted);
+            WriteBasisLocation(DispatchID, CurrentUV);
+            // Update the depth for basis, used in later injection pass
+            g_RWBasisCenterDepthBuffer[DispatchID] = CurrentDepth;
+            ActiveFlag = true;
         }
     }
-    GroupMemoryBarrierWithGroupSync();
 
-    // Fetch ray direction and radiance
-    int2 RayCoords = int2(GroupID.x * COOPERATIVE_SHADING_GRID_SIZE + LocalID.y, GroupID.y * COOPERATIVE_SHADING_GRID_SIZE + LocalID.z);
-    float3 RayDirection = (g_RWRayDirectionTexture[RayCoords].xyz * 2.f - 1.f);
-    float3 RayRadiance = g_RWRayRadianceTexture[RayCoords].xyz;
-
-    float  PixelDepth          = g_DepthTexture.Load(int3(RayCoords, 0)).x;
-    float3 PixelNormal         = LocalPixelNormal[LocalID.z + 4][LocalID.y + 4];
-    float2 UV                  = (RayCoords + 0.5f) / g_OutputDimensions;
-    float3 WorldPixelPosition  = InverseProject(g_CameraProjViewInv, UV, PixelDepth);
-    float  PixelCameraDistance = distance(WorldPixelPosition, g_CameraPosition);
-    float  WorldPixelScale     = PixelCameraDistance * g_CameraPixelScale;
-
-    float SumBilateralWeight   = 0.f;
-
-    // Now we can use the data
-    // 3 batches, 32 lanes per batch, 96 (81) basis
-    float3 EvaluatedRayRadiance = float3(0, 0, 0);
-    for(int batch_index = 0; batch_index < 3; batch_index ++) {
-        int index = LaneID + batch_index * 32;
-        if(index < 81) {
-            int X = index % 9 + LocalID.y;
-            int Y = index / 9 + LocalID.z;
-            float2 Delta = float2(4 - index % 9, 4 - index / 9);
-            float  EvaluatedW = EvaluateW(LocalWData[Y][X], Delta);
-            float3 LightingPixelPosition = LocalPixelPosition[Y][X];
-            float3 DeltaPosition = WorldPixelPosition - LightingPixelPosition;
-            float3 LightingPixelNormal = LocalPixelNormal[Y][X];
-            float BilateralWeight = EvaluateBilateralFilterWeight(WorldPixelScale, 4, DeltaPosition, PixelNormal, LightingPixelNormal) * EvaluatedW;
-            float3 CurrentEvaluatedRadiance = EvaluateSG(LocalSGData[Y][X],  RayDirection);
-            EvaluatedRayRadiance += CurrentEvaluatedRadiance * BilateralWeight;
-            SumBilateralWeight += BilateralWeight;
-        }
-    }
-    // Aggregate the evaluated radiance from cache
-    SumBilateralWeight = WaveActiveSum(SumBilateralWeight);
-    EvaluatedRayRadiance = WaveActiveSum(EvaluatedRayRadiance) / (SumBilateralWeight + 1e-6f);
-
-    if(LaneID == 0) {
-        // Write Back
-        g_RWRayRadianceDifferenceTexture[RayCoords] = float4(RayRadiance - EvaluatedRayRadiance, SumBilateralWeight);
+    // Free the slot if reprojection failed
+    if(!ActiveFlag) {
+        uint Slot = InterlockedAdd(g_RWFreeBasisIndicesCountBuffer[0], 1);
+        g_RWFreeBasisIndicesBuffer[Slot] = DispatchID;
+        g_RWBasisFlagsBuffer[DispatchID] = 0;
     }
 }
 
-// The screen resolution must be dividable by 4, so we dont need to check for boundaries.
-// (4+4+4) ^ 2
-groupshared float3 LocalRayDirection[16][16];
-groupshared float3 LocalRayRadiance[16][16];
-groupshared float4 LocalRayRadianceDifferenceSum[16][16];
-
-// X, Y, lane
-[numthreads(32, COOPERATIVE_SHADING_GRID_SIZE, COOPERATIVE_SHADING_GRID_SIZE)]
-void UpdateCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
-    int WarpID = LocalID.y * COOPERATIVE_SHADING_GRID_SIZE + LocalID.z;
-    int LaneID = LocalID.x;
-    // Cooperatively load the data into shared memory
-    // Warp : Y, Lane: X
-    if(WarpID < 8 + COOPERATIVE_SHADING_GRID_SIZE && LaneID < 8 + COOPERATIVE_SHADING_GRID_SIZE) {
-        int X_Real = int(GroupID.x) * COOPERATIVE_SHADING_GRID_SIZE + LaneID - 4;
-        int Y_Real = int(GroupID.y) * COOPERATIVE_SHADING_GRID_SIZE + WarpID - 4;
-        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
-            LocalRayRadiance[WarpID][LaneID] = float3(0, 0, 0);
-            LocalRayDirection[WarpID][LaneID] = float3(0, 0, 1);
-            LocalRayRadianceDifferenceSum[WarpID][LaneID] = 0.f.xxxx;
-            LocalPixelPosition[WarpID][LaneID] = float3(0, 0, 0);
-            LocalPixelNormal[WarpID][LaneID] = float3(0, 0, 0);
-        } else {
-            LocalRayDirection[WarpID][LaneID] = (g_RWRayDirectionTexture[int2(X_Real, Y_Real)].xyz * 2.f - 1.f);
-            LocalRayRadiance[WarpID][LaneID] = g_RWRayRadianceTexture[int2(X_Real, Y_Real)].xyz;
-            LocalRayRadianceDifferenceSum[WarpID][LaneID] = g_RWRayRadianceDifferenceTexture[int2(X_Real, Y_Real)];
-            float  PixelDepth          = g_DepthTexture.Load(int3(X_Real, Y_Real, 0)).x;
-            float2 UV                  = (float2(X_Real, Y_Real) + 0.5f) / g_OutputDimensions;
-            LocalPixelPosition[WarpID][LaneID] = InverseProject(g_CameraProjViewInv, UV, PixelDepth);
-            LocalPixelNormal[WarpID][LaneID] = normalize(2.f * g_GeometryNormalTexture.Load(int3(X_Real, Y_Real, 0)).xyz - 1.f);
-        }
+// Clear tile injection index
+[numthreads(WARP_SIZE, 1, 1)]
+void ClearTileInjectionIndex (int DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= g_TileDimensions.x * g_TileDimensions.y) {
+        return;
     }
-    GroupMemoryBarrierWithGroupSync();
+    g_RWTileBasisCountBuffer[DispatchID] = 0;
+}
 
-    SGData SG;
-    WData WD;
-    int2 BasisCoords = int2(GroupID.x * COOPERATIVE_SHADING_GRID_SIZE + LocalID.y, GroupID.y * COOPERATIVE_SHADING_GRID_SIZE + LocalID.z);
-    FetchBasisData(BasisCoords, SG, WD);
 
-    float3 LightPixelPosition = LocalPixelPosition[LocalID.z + 4][LocalID.y + 4];
-    float3 LightingPixelNormal = LocalPixelNormal[LocalID.z + 4][LocalID.y + 4];
+// Inject reprojected basis to tile injection index
+// Performed within the fragment shader with conservative rasterization
+// InjectReprojectedBasis : TOPOLOGY_TRIANGLEFAN
+
+// Clip overflowing tile index
+[numthreads(WARP_SIZE, 1, 1)]
+void ClipOverflowTileIndex (int DispatchID : SV_DispatchThreadID) {
+    if(DispatchID > g_TileDimensions.x * g_TileDimensions.y) {
+        return;
+    }
+    if(g_RWTileBasisCountBuffer[DispatchID] > SRC_TILE_BASIS_INJECTION_RESERVATION) {
+        g_RWTileBasisCountBuffer[DispatchID] = SRC_TILE_BASIS_INJECTION_RESERVATION;
+    }
+}
+
+// A scan sum is performed to accumulate g_RWTileBasisBaseOffsetBuffer
+
+// Allocate one extra slot for each tile and accumulate it to the accumulated base basis index offset,
+// which is used to store the newly allocated basis index this frame
+[numthreads(WARP_SIZE, 1, 1)]
+void AllocateExtraSlotForBasisGeneration (int DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= g_TileDimensions.x * g_TileDimensions.y) {
+        return;
+    }
+    g_RWTileBaseSlotOffsetBuffer[DispatchID] = g_RWTileBaseSlotOffsetBuffer[DispatchID] + DispatchID;
+}
+
+// Compress the tile basis index
+[numthreads(WARP_SIZE, 1, 1)]
+void CompressTileBasisIndex (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    if(any(GroupID >= g_TileDimensions)) {
+        return;
+    }
+    int TileID = GroupID.x + GroupID.y * g_TileDimensions.x;
+    int UncompressedTileSlotOffset = TileID * SRC_TILE_BASIS_INJECTION_RESERVATION;
+    int CompressedTileSlotOffset   = g_RWTileBaseSlotOffsetBuffer[TileID];
+    // Cooperatively fill the compressed index
+    int Count = g_RWTileBasisCountBuffer[TileID];
     
-
-    // Now we can use the data
-    // 3 batches, 32 lanes per batch, 96 (81) basis
-    SGGradients Gradients = (SGGradients)0;
-    for(int batch_index = 0; batch_index < 3; batch_index ++) {
-        int index = LaneID + batch_index * 32;
-        if(index < 81) {
-            int X = index % 9 + LocalID.y;
-            int Y = index / 9 + LocalID.z;
-            float2 Delta = float2(index % 9 - 4, index / 9 - 4);
-            float WFactor = EvaluateW(WD, Delta);
-            
-            float3 PixelNormal = LocalPixelNormal[Y][X];
-            float3 PixelPosition = LocalPixelPosition[Y][X];
-            float3 DeltaPosition = LightPixelPosition - PixelPosition;
-            float  PixelScale    = distance(PixelPosition, g_CameraPosition) * g_CameraPixelScale;
-            float BilateralWeight = EvaluateBilateralFilterWeight(PixelScale, 4, DeltaPosition, PixelNormal, LightingPixelNormal) * WFactor;
-            SGGradients NewGradients;
-            EvaluateSG_Gradients(SG,  LocalRayDirection[Y][X], NewGradients);
-            float3 Difference3 = LocalRayRadianceDifferenceSum[Y][X].xyz;
-            float  Sum         = LocalRayRadianceDifferenceSum[Y][X].w;
-            float  Weight = BilateralWeight / (Sum + 1e-6f);
-            float  Difference  = dot(Difference3, 1.f.xxx);
-            Gradients.dColor += NewGradients.dColor * Weight * Difference3;
-            Gradients.dDirection += NewGradients.dDirection * Weight * Difference;
-            Gradients.dLambda += NewGradients.dLambda * Weight * Difference;
+    for(int TileSlotOffset = 0; TileSlotOffset < Count; TileSlotOffset += WARP_SIZE) {
+        int TileSlot = TileSlotOffset + LocalID;
+        if(TileSlot < Count) {
+            g_RWTileBasisIndexBuffer[CompressedTileSlotOffset + TileSlot] = 
+                g_RWTileBasisIndexInjectionBuffer[UncompressedTileSlotOffset + TileSlot];
         }
     }
-    // Aggregate the Gradients
+}
 
-    Gradients.dColor = WaveActiveSum(Gradients.dColor);
-    Gradients.dDirection = WaveActiveSum(Gradients.dDirection);
-    Gradients.dLambda = WaveActiveSum(Gradients.dLambda);
+// Precompute the cache update
+groupshared float3 LocalRayDirection[SRC_TILE_SIZE][SRC_TILE_SIZE];
+groupshared float3 LocalRayRadiance[SRC_TILE_SIZE][SRC_TILE_SIZE];
+groupshared float3 LocalRayOrigin[SRC_TILE_SIZE][SRC_TILE_SIZE];
 
+[numthreads(WARP_SIZE, 1, 1)]
+void PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    int TileID             = GroupID.x + GroupID.y * g_TileDimensions.x;
+    int TileBasisCount     = g_RWTileBasisCountBuffer[TileID];
+    int TileSlotBaseOffset = g_RWTileBaseSlotOffsetBuffer[TileID];
+    int2 TileTextureBaseOffset = int2(GroupID.x * SRC_TILE_SIZE, GroupID.y * SRC_TILE_SIZE);
+    // Cooperatively load the tile data into shmem
+    for(int PixelIndexBase = 0; PixelIndexBase < SRC_TILE_SIZE * SRC_TILE_SIZE; PixelIndexBase += WARP_SIZE) {
+        int PixelIndex = PixelIndexBase + LocalID;
+        int PixelX = PixelIndex % SRC_TILE_SIZE;
+        int PixelY = PixelIndex / SRC_TILE_SIZE;
+        // We assume WARP_SIZE is a multiple of SRC_TILE_SIZE, and SRC_TILE_SIZE^2 is a multiple of WARP_SIZE
+        {   
+            int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
+            float3 RayDirection = normalize(g_RWRayDirectionTexture[TexCoords].xyz * 2.f - 1.f);
+            float3 RayRadiance  = g_RWRayRadianceTexture[TexCoords].xyz;
+            float  Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
+            float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
+            float3 RayOrigin = InverseProject(g_CameraProjViewInv, UV, Depth);
+            LocalRayDirection[PixelY][PixelX] = RayDirection;
+            LocalRayRadiance[PixelY][PixelX] = RayRadiance;
+            LocalRayOrigin[PixelY][PixelX] = RayOrigin;
+        }
+    }
+    
     GroupMemoryBarrierWithGroupSync();
 
-    if(LaneID == 0) {
-        // Update
-        if(g_FixedStepSize) {
-            Gradients.dDirection = normalize(Gradients.dDirection);
-            Gradients.dColor     = sign(Gradients.dColor);
-            Gradients.dLambda    = sign(Gradients.dLambda);
+    // Thread local accumulators
+    float3 ThreadSumRadiance[SRC_TILE_SIZE * SRC_TILE_SIZE / WARP_SIZE];
+    float  ThreadSumWeight  [SRC_TILE_SIZE * SRC_TILE_SIZE / WARP_SIZE];
+    for(int i = 0; i< SRC_TILE_SIZE * SRC_TILE_SIZE / WARP_SIZE; i++) {
+        ThreadSumRadiance[i] = 0.f.xxx;
+        ThreadSumWeight[i] = 0.f;
+    }
+    
+    // Iterate over each basis overlapping with this tile
+    for(int Slot = 0; Slot < TileBasisCount; Slot ++) {
+        int BasisIndex = g_RWTileBasisIndexBuffer[TileSlotBaseOffset + Slot];
+        SGData SG;
+        WData  W;
+        FetchBasisData(BasisIndex, SG, W);
+        float3 BasisWorldPosition = ReconstructBasisWorldPosition(BasisIndex);
+
+        // Cooperatively iterate over all pixels of the grid
+        for(int PixelIndexBase = 0; PixelIndexBase < SRC_TILE_SIZE * SRC_TILE_SIZE; PixelIndexBase += WARP_SIZE) {
+            int PixelIndex = PixelIndexBase + LocalID;
+            int PixelX = PixelIndex % SRC_TILE_SIZE;
+            int PixelY = PixelIndex / SRC_TILE_SIZE;
+            // We assume WARP_SIZE is a multiple of SRC_TILE_SIZE, and SRC_TILE_SIZE^2 is a multiple of WARP_SIZE
+            {
+                // There is no bank conflict as the stride is 3 * 4 bytes for float3
+                // Loading from shmem is done in 1 cycle per word
+                float3 RayDirection = LocalRayDirection[PixelY][PixelX];
+                float3 RayRadiance  = LocalRayRadiance [PixelY][PixelX];
+
+                float3 EvaluatedRadiance = EvaluateSG(SG, RayDirection);
+                float3 DeltaPosition = LocalRayOrigin[PixelY][PixelX] - BasisWorldPosition;
+                float  EvaluatedW        = EvaluateW(W, DeltaPosition);
+
+                // Use thread local registers to accumulate results
+                ThreadSumRadiance[PixelIndexBase / WARP_SIZE] += EvaluatedRadiance * EvaluatedW;
+                ThreadSumWeight  [PixelIndexBase / WARP_SIZE] += EvaluatedW;
+            }
         }
+    }
+    // Cooperatively write back the data
+    for(int PixelIndexBase = 0; PixelIndexBase < SRC_TILE_SIZE * SRC_TILE_SIZE; PixelIndexBase += WARP_SIZE) {
+        int PixelIndex = PixelIndexBase + LocalID;
+        int PixelX = PixelIndex % SRC_TILE_SIZE;
+        int PixelY = PixelIndex / SRC_TILE_SIZE;
+        // We assume WARP_SIZE is a multiple of SRC_TILE_SIZE, and SRC_TILE_SIZE^2 is a multiple of WARP_SIZE
+        {   
+            int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
+            float3 RayRadiance = LocalRayRadiance [PixelY][PixelX];
+            float SumWeight    = ThreadSumWeight  [PixelIndexBase / WARP_SIZE];
+            float3 SumRadiance = ThreadSumRadiance[PixelIndexBase / WARP_SIZE];
+            SumWeight = max(SumWeight, 1e-6f);
+            if(SumWeight > 0.f) {
+                g_RWRayRadianceDifferenceWSumTexture[TexCoords] = float4(RayRadiance - SumRadiance / SumWeight, SumWeight);
+            }
+        }
+    }
+}
 
-        float3 Ortho = (Gradients.dDirection - dot(Gradients.dDirection, SG.Direction) * SG.Direction);
 
-        float Scale = Gradients.dLambda * Gradients.dLambda + dot(Gradients.dColor, Gradients.dColor) + dot(Ortho, Ortho);
-        float RandomStride = BlueNoise_Sample1D(BasisCoords, g_FrameIndex, 7);
-        float NormalizationFactor = g_CacheUpdateLearningRate * RandomStride;// / sqrt(max(Scale, 0.001f));
+// Split the 4x4 strided data into 3x4 and 1x4 to avoid bank conflicts
+groupshared float3 LocalRayRadianceDifference[SRC_TILE_SIZE][SRC_TILE_SIZE];
+groupshared float  LocalInvSumWeight[SRC_TILE_SIZE][SRC_TILE_SIZE];
 
-        float3 NewDirection = SG.Direction + Gradients.dDirection * NormalizationFactor;
-        float  Magnification = length(NewDirection);
-        if(Magnification > 0.001f) SG.Direction = NewDirection / Magnification;
+[numthreads(WARP_SIZE, 1, 1)]
+void UpdateCacheParameters (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    int TileID             = GroupID.x + GroupID.y * g_TileDimensions.x;
+    int TileBasisCount     = g_RWTileBasisCountBuffer[TileID];
+    int TileSlotBaseOffset = g_RWTileBaseSlotOffsetBuffer[TileID];
+    int2 TileTextureBaseOffset = int2(GroupID.x * SRC_TILE_SIZE, GroupID.y * SRC_TILE_SIZE);
+    // Cooperatively load the tile data into shmem
+    for(int PixelIndexBase = 0; PixelIndexBase < SRC_TILE_SIZE * SRC_TILE_SIZE; PixelIndexBase += WARP_SIZE) {
+        int PixelIndex = PixelIndexBase + LocalID;
+        int PixelX = PixelIndex % SRC_TILE_SIZE;
+        int PixelY = PixelIndex / SRC_TILE_SIZE;
+        // We assume WARP_SIZE is a multiple of SRC_TILE_SIZE, and SRC_TILE_SIZE^2 is a multiple of WARP_SIZE
+        {   
+            int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
+            float3 RayDirection = normalize(g_RWRayDirectionTexture[TexCoords].xyz * 2.f - 1.f);
+            float4 RayRadianceDifferenceSum  = g_RWRayRadianceDifferenceWSumTexture[TexCoords];
+            float  Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
+            float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
+            float3 RayOrigin = InverseProject(g_CameraProjViewInv, UV, Depth);
+            LocalRayDirection[PixelY][PixelX]          = RayDirection;
+            LocalRayRadianceDifference[PixelY][PixelX] = RayRadianceDifferenceSum.xyz;
+            LocalInvSumWeight[PixelY][PixelX]          = 1.f / max(RayRadianceDifferenceSum.w, 1e-6f);
+            LocalRayOrigin[PixelY][PixelX]             = RayOrigin;
+        }
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
 
-        float3 ColorMaximum = SG.Color * 0.05f + 0.05f.xxx;
-        float3 ColorStep   = Gradients.dColor * NormalizationFactor;
-        // ColorStep = select(abs(ColorStep) > ColorMaximum, ColorMaximum * sign(ColorStep), ColorStep);
-        
+    // Thread local accumulators
+    SGGradients SumStepSize   = (SGGradients)0;
+    WGradients  SumStepSize_W = (WGradients)0;
+    
+    // Iterate over each basis overlapping with this tile
+    for(int Slot = 0; Slot < TileBasisCount; Slot ++) {
+        int BasisIndex = g_RWTileBasisIndexBuffer[TileSlotBaseOffset + Slot];
+        SGData SG;
+        WData  W;
+        FetchBasisData(BasisIndex, SG, W);
+        float3 BasisWorldPosition = ReconstructBasisWorldPosition(BasisIndex);
+        // Cooperatively iterate over all pixels of the grid
+        for(int PixelIndexBase = 0; PixelIndexBase < SRC_TILE_SIZE * SRC_TILE_SIZE; PixelIndexBase += WARP_SIZE) {
+            int PixelIndex = PixelIndexBase + LocalID;
+            int PixelX = PixelIndex % SRC_TILE_SIZE;
+            int PixelY = PixelIndex / SRC_TILE_SIZE;
+            // We assume WARP_SIZE is a multiple of SRC_TILE_SIZE, and SRC_TILE_SIZE^2 is a multiple of WARP_SIZE
+            {
+                // There is no bank conflict as the stride is (1 or 3) * 4 bytes for float3
+                // Loading from shmem is done in 1 cycle per word
+                float3 RayDirection          = LocalRayDirection[PixelY][PixelX];
+                float3 RayRadianceDifference = LocalRayRadianceDifference[PixelY][PixelX];
+                float  InvSumWeight          = LocalInvSumWeight[PixelY][PixelX];
 
-        SG.Color = max(SG.Color + ColorStep, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
-        SG.Lambda = clamp(SG.Lambda + Gradients.dLambda * NormalizationFactor, 0.1f, 100.f);
-        // W: ignore it for now
-        // Write Back
-        g_RWBasisParameterTexture[BasisCoords] = float4(SG.Direction, SG.Lambda);
-        g_RWBasisColorTexture[BasisCoords] = float4(SG.Color, 0);
+                float3 EvaluatedRadiance     = EvaluateSG(SG, RayDirection);
+                float  EvaluatedRadianceSum  = dot(EvaluatedRadiance, 1.f.xxx);
+                float3 DeltaPosition         = LocalRayOrigin[PixelY][PixelX] - BasisWorldPosition;
+                float  EvaluatedW            = EvaluateW(W, DeltaPosition);
 
-        g_RWBasisParameterGradientTexture[BasisCoords] = float4(Gradients.dDirection, Gradients.dLambda);
-        g_RWBasisColorGradientTexture[BasisCoords] = float4(Gradients.dColor, 0);
-    }   
+                // Compute gradients
+                SGGradients Gradients;
+                WGradients  Gradients_W;
+                EvaluateSG_Gradients(SG, RayDirection, Gradients);
+                float3 DeltaRadiance    = EvaluatedRadiance - RayRadianceDifference;
+                float  DeltaRadianceSum = dot(DeltaRadiance, 1.f.xxx);
+                float  Weight           = EvaluatedW * InvSumWeight;
+                EvaluateW_Gradients(W, DeltaPosition, Gradients_W);
+                // Accumulate and combine gradients for optimal descending
+                // TODO adaptive learning rate based on the magnitude of the gradients
+                SumStepSize.dColor     += DeltaRadiance    * Gradients.dColor     * Weight;
+                SumStepSize.dDirection += DeltaRadianceSum * Gradients.dDirection * Weight;
+                SumStepSize.dLambda    += DeltaRadianceSum * Gradients.dLambda    * Weight;
+                // F = W / (S+W) * f, so the step size of W is calculated by the followings
+                SumStepSize_W.dLambda  += 
+                   (Gradients_W.dLambda * InvSumWeight - InvSumWeight * InvSumWeight * Gradients_W.dLambda)
+                    * EvaluatedRadianceSum * DeltaRadianceSum;
+                SumStepSize_W.dAlpha   += 
+                   (Gradients_W.dAlpha  * InvSumWeight - InvSumWeight * InvSumWeight * Gradients_W.dAlpha) 
+                    * EvaluatedRadianceSum * DeltaRadianceSum;
+            }
+        }
+        // Wave reduce the gradients
+        SumStepSize.dColor     = WaveActiveSum(SumStepSize.dColor);
+        SumStepSize.dDirection = WaveActiveSum(SumStepSize.dDirection);
+        SumStepSize.dLambda    = WaveActiveSum(SumStepSize.dLambda);
+        SumStepSize_W.dLambda  = WaveActiveSum(SumStepSize_W.dLambda);
+        if(WaveIsFirstLane()) {
+            // Accumulate the gradients with atomic operations.
+            // Note: Performance for atomic operations drops drastically when the quantlilized step buffer 
+            // for accumulation overflows the L2 GPU cache (8MB for 3090). 
+            // (about 1ms for 250000 basis, and 32 random basis for each tile)
+            // However, if we kept some locallity in the accumulation (by processing adjacent tiles at one time), 
+            // the performance is still acceptable.
+            // (No L2 overflow: 200us)
+            ScreenCache_AccumulateStepSize(BasisIndex, SumStepSize, SumStepSize_W);
+        }
+    }
+}
+
+[numthreads(WARP_SIZE, 1, 1)]
+void SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    int TileID = GroupID.x + GroupID.y * g_TileDimensions.x;
+    int TileBasisCount = g_RWTileBasisCountBuffer[TileID];
+    if(TileBasisCount >= SRC_TILE_BASIS_INJECTION_RESERVATION) {
+        // Overflowed
+        return;
+    }
+    // Find a pixel with minimum weight coverage
+    uint MinCoverage    = 0xffffffff;
+    // We assume SRC_TILE_SIZE * SRC_TILE_SIZE is a multiple of WARP_SIZE
+    for(int Offset = 0; Offset < SRC_TILE_SIZE * SRC_TILE_SIZE; Offset += WARP_SIZE) {
+        int PixelIndex = Offset + LocalID;
+        int PixelX = PixelIndex % SRC_TILE_SIZE;
+        int PixelY = PixelIndex / SRC_TILE_SIZE;
+        int2 TexCoords = int2(GroupID.x * SRC_TILE_SIZE + PixelX, GroupID.y * SRC_TILE_SIZE + PixelY);
+        float Coverage = g_RWRayRadianceDifferenceWSumTexture.Load(int3(TexCoords, 0)).w;
+        MinCoverage = min(MinCoverage, (uint(Coverage * 0xfffff) << 12) | PixelIndex);
+    }
+    WaveActiveMin(MinCoverage);
+    if(WaveIsFirstLane()) {
+        uint MinPixelIndex = MinCoverage & 0xfff;
+        if(MinPixelIndex != 0xfff) {
+            // New basis is here!
+            int2 TexCoords = int2(GroupID.x * SRC_TILE_SIZE + MinPixelIndex % SRC_TILE_SIZE, GroupID.y * SRC_TILE_SIZE + MinPixelIndex / SRC_TILE_SIZE);
+            uint BasisAllocIndex = InterlockedAdd(g_RWFreeBasisIndicesCountBuffer[0], -1);
+            if(BasisAllocIndex < 0x7fffffffu) {
+                // Allocation succeeded
+                int BasisIndex = g_RWFreeBasisIndicesBuffer[BasisAllocIndex];
+
+                // The last slot for each tile is reserved for the newly allocated basis
+                // Inject it to the tile basis index
+                g_RWTileBasisIndexBuffer[g_RWTileBaseSlotOffsetBuffer[TileID] + TileBasisCount] = BasisIndex;
+                g_RWTileBasisCountBuffer[TileID] = TileBasisCount + 1;
+
+                // Initialize the basis
+                SGData SG = (SGData)0;
+                WData W = (WData)0;
+                float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
+                float PixelDepth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
+                float3 PixelNormal = normalize(2.f * g_GeometryNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
+                float3 WorldPosition = InverseProject(g_CameraProjViewInv, UV, PixelDepth);
+                
+                // TODO better initialization
+                SG.Direction = PixelNormal;
+                SG.Lambda = 0.85f;
+                SG.Color  = 0.5f.xxx;
+                W.Alpha   = GetLinearDepth(PixelDepth) * (g_BasisWInitialRadius / g_OutputDimensions.y);
+                W.Lambda  = 0.5f;
+
+                // Write the basis data
+                g_RWBasisCenterDepthBuffer[BasisIndex] = PixelDepth;
+                WriteBasisData_W(BasisIndex, SG, W);
+                WriteBasisLocation(BasisIndex, UV);
+                // Mark the basis as active
+                g_RWBasisFlagsBuffer[BasisIndex] = 1;
+            } 
+        }
+    }
 }
 
 [numthreads(32, COOPERATIVE_SHADING_GRID_SIZE, COOPERATIVE_SHADING_GRID_SIZE)]
@@ -1245,286 +1422,6 @@ void IntegrateASG(int2 GroupID : SV_GroupID, int3 LocalID : SV_GroupThreadID)
 
     g_RWGlobalIlluminationOutput[PixelCoords] = float4(OutLighting + EmissiveMaterialData.emissive, 1.f);
 
-}
-
-// X, Y, lane
-[numthreads(32, 4, 4)]
-void PrecomputeChanneledCacheUpdate (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
-    int WarpID = LocalID.y * 4 + LocalID.z; 
-    int LaneID = LocalID.x;
-    // Cooperatively load the data into shared memory
-    // First 12 lanes of first 12 warps
-    if(WarpID < 12 && LaneID < 12) {
-        int X_Real = int(GroupID.x) * 4 + LaneID - 4;
-        int Y_Real = int(GroupID.y) * 4 + WarpID - 4;
-        int X = min(max(X_Real, 0), g_ScreenCacheDimensions.x-1);
-        int Y = min(max(Y_Real, 0), g_ScreenCacheDimensions.y-1);
-        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
-            SGData SG = (SGData)0;
-            SG.Lambda = 1.f;
-            LocalSGData[WarpID][LaneID] = SG;
-            WData W = (WData)0;
-            W.Lambda = 100.f;
-            LocalWData[WarpID][LaneID] = W;
-        } else {
-            FetchBasisData(int2(X, Y), LocalSGData[WarpID][LaneID], LocalWData[WarpID][LaneID]);
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    // Fetch ray direction and radiance
-    int2 RayCoords = int2(GroupID.x * 4 + LocalID.y, GroupID.y * 4 + LocalID.z);
-    float3 RayDirection = (g_RWRayDirectionTexture[RayCoords].xyz * 2.f - 1.f);
-    float3 RayRadiance = g_RWRayRadianceTexture[RayCoords].xyz;
-
-    // Now we can use the data
-    // 4x4 = 16 lanes
-    float3 EvaluatedRayRadiance = float3(0, 0, 0);
-    if(LaneID < 16) {
-        int X = LaneID % 4;
-        int Y = LaneID / 4;
-        SGData SG00 = LocalSGData[1 + Y + LocalID.z][1 + X + LocalID.y];
-        SGData SG01 = LocalSGData[1 + Y + LocalID.z][1 + X + 4 + LocalID.y];
-        SGData SG10 = LocalSGData[1 + Y + 4 + LocalID.z][1 + X + LocalID.y];
-        SGData SG11 = LocalSGData[1 + Y + 4 + LocalID.z][1 + X + 4 + LocalID.y];
-        float2 UV = float2(3 - X, 3 - Y) / 4.f;
-        SGData InterpolatedSG = SGInterpolate(SG00, SG01, SG10, SG11, UV);
-        EvaluatedRayRadiance = EvaluateSG(InterpolatedSG, RayDirection);
-    }
-    // Aggregate the evaluated radiance from cache
-    float3 SumEvaluatedRadiance = WaveActiveSum(EvaluatedRayRadiance);
-
-    if(LaneID == 0) {
-        // Write Back
-        g_RWRayRadianceDifferenceTexture[RayCoords] = float4(RayRadiance - SumEvaluatedRadiance, 0);
-    }
-}
-
-// X, Y, lane
-[numthreads(32, 4, 4)]
-void UpdateChanneledCacheParameters (uint3 GroupID : SV_GroupID, uint3 LocalID : SV_GroupThreadID) {
-
-    int WarpID = LocalID.y * 4 + LocalID.z;
-    int LaneID = LocalID.x;
-    // Cooperatively load the data into shared memory
-    // First 12 lanes of first 12 warps
-    if(WarpID < 12 && LaneID < 12) {
-        int X_Real = int(GroupID.x) * 4 + LaneID - 4;
-        int Y_Real = int(GroupID.y) * 4 + WarpID - 4;
-        int X = min(max(X_Real, 0), g_ScreenCacheDimensions.x-1);
-        int Y = min(max(Y_Real, 0), g_ScreenCacheDimensions.y-1);
-        if(X_Real < 0 || Y_Real < 0 || X_Real >= g_ScreenCacheDimensions.x || Y_Real >= g_ScreenCacheDimensions.y) {
-            LocalRayRadiance[WarpID][LaneID] = float3(0, 0, 0);
-            LocalRayDirection[WarpID][LaneID] = float3(0, 0, 1);
-            LocalRayRadianceDifferenceSum[WarpID][LaneID] = float4(0, 0, 0, 0);
-        } else {
-            LocalRayDirection[WarpID][LaneID] = (g_RWRayDirectionTexture[int2(X, Y)].xyz * 2.f - 1.f);
-            LocalRayRadiance[WarpID][LaneID] = g_RWRayRadianceTexture[int2(X, Y)].xyz;
-            LocalRayRadianceDifferenceSum[WarpID][LaneID] = float4(g_RWRayRadianceDifferenceTexture[int2(X, Y)].xyz, 0.f);
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    // Now we can use the data
-    SGGradients Gradients = (SGGradients)0;
-    // Upper left 5x5
-    int2 BasisCoords = int2(GroupID.x * 4 + LocalID.y, GroupID.y * 4 + LocalID.z);
-    SGData SG00, SG01, SG02, SG10, SG11, SG12, SG20, SG21, SG22; WData WD;
-    FetchBasisData(int2(BasisCoords.x - 4, BasisCoords.y - 4), SG00, WD);
-    FetchBasisData(int2(BasisCoords.x, BasisCoords.y - 4), SG01, WD);
-    FetchBasisData(int2(BasisCoords.x + 4, BasisCoords.y - 4), SG02, WD);
-    FetchBasisData(int2(BasisCoords.x - 4, BasisCoords.y), SG10, WD);
-    FetchBasisData(int2(BasisCoords.x, BasisCoords.y), SG11, WD);
-    FetchBasisData(int2(BasisCoords.x + 4, BasisCoords.y), SG12, WD);
-    FetchBasisData(int2(BasisCoords.x - 4, BasisCoords.y + 4), SG20, WD);
-    FetchBasisData(int2(BasisCoords.x, BasisCoords.y + 4), SG21, WD);
-    FetchBasisData(int2(BasisCoords.x + 4, BasisCoords.y + 4), SG22, WD);
-    
-    // Upper left 4x4
-    if(LaneID < 16) {
-        int X = LaneID % 4;
-        int Y = LaneID / 4;
-        float2 UV = float2(X + 1, Y + 1) / 4.f;
-        SGData InterpolatedSG = SGInterpolate(SG00, SG01, SG10, SG11, UV);
-        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[1 + Y + LocalID.z][1 + X + LocalID.y]);
-        SGGradients NewGradients;
-        EvaluateSG_Gradients(InterpolatedSG, 
-            LocalRayDirection[1 + Y + LocalID.z][1 + X + LocalID.y],
-            NewGradients);
-        float WFactor = UV.x * UV.y;
-        float3 Difference3 = LocalRayRadianceDifferenceSum[1 + Y + LocalID.z][1 + X + LocalID.y].xyz;
-        float  Difference  = dot(Difference3, 1.f.xxx);
-        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
-        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
-        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
-    }
-    // Upper right 4x3
-    if(LaneID < 12) {
-        int X = LaneID % 3;
-        int Y = LaneID / 3;
-        float2 UV = float2(X + 1, Y + 1) / 4.f;
-        SGData InterpolatedSG = SGInterpolate(SG01, SG02, SG11, SG12, UV);
-        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[1 + Y + LocalID.z][5 + X + LocalID.y]);
-        SGGradients NewGradients;
-        EvaluateSG_Gradients(InterpolatedSG,
-            LocalRayDirection[1 + Y + LocalID.z][5 + X + LocalID.y],
-            NewGradients);
-        float3 Difference3 = LocalRayRadianceDifferenceSum[1 + Y + LocalID.z][5 + X + LocalID.y].xyz;
-        float  Difference  = dot(Difference3, 1.f.xxx);
-        float WFactor = (1 - UV.x) * UV.y;
-        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
-        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
-        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
-    }
-    // Lower left 3x4
-    if(LaneID < 12) {
-        int X = LaneID % 4;
-        int Y = LaneID / 4;
-        float2 UV = float2(X + 1, Y + 1) / 4.f;
-        SGData InterpolatedSG = SGInterpolate(SG10, SG11, SG20, SG21, UV);
-        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[5 + Y + LocalID.z][1 + X + LocalID.y]);
-        SGGradients NewGradients;
-        EvaluateSG_Gradients(InterpolatedSG,
-            LocalRayDirection[5 + Y + LocalID.z][1 + X + LocalID.y],
-            NewGradients);
-        float3 Difference3 = LocalRayRadianceDifferenceSum[5 + Y + LocalID.z][1 + X + LocalID.y].xyz;
-        float  Difference  = dot(Difference3, 1.f.xxx);
-        float WFactor = UV.x * (1 - UV.y);
-        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
-        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
-        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
-    }
-    // Lower right 3x3
-    if(LaneID < 9) {
-        int X = LaneID % 3;
-        int Y = LaneID / 3;
-        float2 UV = float2(X + 1, Y + 1) / 4.f;
-        SGData InterpolatedSG = SGInterpolate(SG11, SG12, SG21, SG22, UV);
-        float3 CurrentEvaluatedRadiance = EvaluateSG(InterpolatedSG, LocalRayDirection[5 + Y + LocalID.z][5 + X + LocalID.y]);
-        SGGradients NewGradients;
-        EvaluateSG_Gradients(InterpolatedSG, 
-            LocalRayDirection[5 + Y + LocalID.z][5 + X + LocalID.y], 
-            NewGradients);
-        float3 Difference3 = LocalRayRadianceDifferenceSum[5 + Y + LocalID.z][5 + X + LocalID.y].xyz;
-        float  Difference  = dot(Difference3, 1.f.xxx);
-        float WFactor = (1 - UV.x) * (1 - UV.y);
-        Gradients.dColor += NewGradients.dColor * WFactor * Difference3;
-        Gradients.dDirection += NewGradients.dDirection * WFactor * Difference;
-        Gradients.dLambda += NewGradients.dLambda * WFactor * Difference;
-    }
-
-
-    // Aggregate the Gradients
-    Gradients.dColor = WaveActiveSum(Gradients.dColor);
-    Gradients.dDirection = WaveActiveSum(Gradients.dDirection);
-    Gradients.dLambda = WaveActiveSum(Gradients.dLambda);
-
-    GroupMemoryBarrierWithGroupSync();
-
-    if(LaneID == 0) {
-        // Write to gradient texture
-        g_RWBasisParameterGradientTexture[BasisCoords] = float4(Gradients.dDirection, Gradients.dLambda);
-        g_RWBasisColorGradientTexture[BasisCoords] = float4(Gradients.dColor, 0);
-        // Update
-        // float3 Ortho = Gradients.dDirection - dot(Gradients.dDirection, SG11.Direction) * SG11.Direction;
-
-        //float Scale = Gradients.dLambda * Gradients.dLambda + dot(Gradients.dColor, Gradients.dColor) + dot(Ortho, Ortho);
-        float NormalizationFactor = g_CacheUpdateLearningRate;// / sqrt(max(Scale, 0.001f));
-
-        float3 NewDirection = SG11.Direction + Gradients.dDirection * NormalizationFactor;
-        float  Magnification = length(NewDirection);
-        SG11.Direction = NewDirection / max(Magnification, 0.001f);
-        SG11.Color = max(SG11.Color * Magnification + Gradients.dColor * NormalizationFactor, float3(MIN_COLOR, MIN_COLOR, MIN_COLOR));
-        SG11.Lambda = clamp(SG11.Lambda + Gradients.dLambda * NormalizationFactor, 0.1f, 100.f);
-
-        // W: ignore it for now
-        // Write Back
-        g_RWBasisParameterTexture[BasisCoords] = float4(SG11.Direction, SG11.Lambda);
-        g_RWBasisColorTexture[BasisCoords] = float4(SG11.Color, 0);
-    }   
-}
-
-
-[numthreads(4, 4, 1)]
-void IntegrateASGWithChanneledCache (uint2 DispatchID : SV_DispatchThreadID, uint2 LocalID : SV_GroupThreadID, uint2 GroupID : SV_GroupID)
-{
-    if(DispatchID.x >= g_OutputDimensions.x || DispatchID.y >= g_OutputDimensions.y)
-    {
-        return;
-    }
-
-    WData WD;
-    for(int j = 0; j<3; j++)
-        for(int i = 0; i<3; i++) {
-            int2 P = int2(int(GroupID.x * 4 + LocalID.x * 3) - 4 + i, int(GroupID.y * 4 + LocalID.y * 3) - 4 + j);
-            if(all(P >= 0) && all(P < g_OutputDimensions)) FetchBasisData(P, LocalSGData[LocalID.y * 3 + j][LocalID.x * 3 + i], WD);
-            else {
-                SGData SG = (SGData)0;
-                SG.Lambda = 1.f;
-                LocalSGData[LocalID.y * 3 + j][LocalID.x * 3 + i] = SG;
-            }
-        }
-
-    float2 UV = (DispatchID + 0.5f) / float2(g_OutputDimensions);
-    float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
-    if(Depth >= 1.0f) {
-        g_RWGlobalIlluminationOutput[DispatchID] = float4(0.f, 0.f, 0.f, 1.0f);
-        return ;
-    }
-
-    float4 Visbility = g_VisibilityTexture.Load(int3(DispatchID, 0));
-    uint InstanceID = asuint(Visbility.z);
-    uint PrimitiveID = asuint(Visbility.w);
-
-    Instance InstanceData = g_InstanceBuffer[InstanceID];
-    Mesh MeshData = g_MeshBuffer[InstanceData.mesh_index];
-
-    TriangleUV T = fetchVerticesUV(MeshData, PrimitiveID);
-
-    float3 Normal = normalize(2.0f * g_ShadingNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.0f);
-
-    float3 WorldPixelPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
-
-    float3 ViewDirection = normalize(g_CameraPosition - WorldPixelPosition);
-    float2 MeshUV = interpolate(T.uv0, T.uv1, T.uv2, Visbility.xy);
-    float DotNV = saturate(dot(Normal, ViewDirection));
-
-    Material MaterialData = g_MaterialBuffer[InstanceData.material_index];
-    MaterialEvaluated MaterialEvaluatedData = MakeMaterialEvaluated(MaterialData, MeshUV);
-    MaterialEmissive EmissiveMaterialData = MakeMaterialEmissive(MaterialData, MeshUV);
-
-    MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvaluatedData);
-
-    // This should be alpha actually
-    float Roughness = MaterialBRDFData.roughnessAlpha;
-
-    float3 OutLighting = 0;
-
-    // Iterate over adjacent pixels and integrate using ASG approximations
-    for(int dX = 0; dX < 4; dX++)
-        for(int dY = 0; dY < 4; dY++) {
-            int X = int(LocalID.x) + dX + 1;
-            int Y = int(LocalID.y) + dY + 1;
-            SGData SG = SGInterpolate(LocalSGData[Y][X], LocalSGData[Y][X+4], LocalSGData[Y+4][X], LocalSGData[Y+4][X+4], float2(3 - dX, 3 - dY) / 4);
-            float3 LightDirection = SG.Direction;
-            float3 ReflectionDirection = reflect(-ViewDirection, Normal);
-            float3 HalfVector = normalize(LightDirection + ViewDirection);
-            float dotNR = saturate(dot(Normal, ReflectionDirection));
-            float dotNV = saturate(dot(Normal, ViewDirection));
-            float dotHV = saturate(dot(HalfVector, ViewDirection));
-            float3 FresnelTerm = fresnel(0.04f.xxx, dotHV);
-            // Approximate \int D * Li with ASG
-            float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, Normal, Roughness, ViewDirection);
-            float VisibilityTerm = evaluateVisibilityGGX(Roughness * Roughness, dotNR, dotNV);
-            float3 GGXIntegrationApprox = FresnelTerm * GGX_D_Li_Approx / VisibilityTerm;
-
-            float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotHV);
-            float3 LambertIntegration = SGDiffuseInnerProduct(SG, Normal, MaterialEvaluatedData.albedo) * DiffuseCompensation;
-            OutLighting += (GGXIntegrationApprox + LambertIntegration);
-        }
-
-
-    g_RWGlobalIlluminationOutput[DispatchID.xy] = float4(OutLighting, 1.f);
 }
 
 // ***********************************************

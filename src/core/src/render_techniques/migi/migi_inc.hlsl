@@ -12,6 +12,7 @@ TextureCube g_EnvironmentBuffer;
 Texture2D g_TextureMaps[] : register(space99);
 SamplerState g_NearestSampler;
 SamplerState g_TextureSampler; // Is a linear sampler.
+SamplerState g_LinearSampler;
 
 // Common buffers of GPU scene
 
@@ -43,7 +44,10 @@ float4x4 g_CameraProjViewInv;
 // The scale of a single pixel in the standard camera plane (z = 1)
 float g_CameraPixelScale;
 
+// Camera space : Current -> Prev
 float4x4 g_Reprojection;
+// Camera space : Prev -> Current
+float4x4 g_ForwardProjection;
 
 float3 g_PreviousCameraPosition;
 
@@ -73,32 +77,51 @@ RWStructuredBuffer<uint4>               g_RWDrawCommandBuffer;
 RWTexture2D<float4> g_RWDebugOutput;
 RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 
-// Parameters
+// Sparse screen space cache
+RWStructuredBuffer<uint>   g_RWBasisLocationBuffer;  // Screen UV of the basis, short int quantilized
+// Color : 16*3, Lambda: 16, Normal: 32packed, WLambda: 16, WAlpha: 16
+RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
+// Color, Lambda, Normal, WLambda, WAlpha (9)
+RWStructuredBuffer<uint>   g_RWQuantilizedBasisStepBuffer; // Step size for atomic accumulation
+RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
+RWStructuredBuffer<float>  g_RWBasisCenterDepthBuffer; // Basis center depth (cached for rasterization in early passes)
+RWStructuredBuffer<uint>   g_RWBasisCountBuffer; // The number of all allocated basis.
+RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
+RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
+// Before compression
+RWStructuredBuffer<uint>   g_RWTileBasisCountBuffer; // The number of injected basis in each tile
+// TILE_BASIS_INJECTION_RESERVATION slots are reserved for each tile for injection.
+RWStructuredBuffer<uint>   g_RWTileBasisIndexInjectionBuffer;
+// Compressed
+RWStructuredBuffer<uint>   g_RWTileBaseSlotOffsetBuffer;  // Points to the first basis indice index
+RWStructuredBuffer<uint>   g_RWTileBasisIndexBuffer; // Store indices
+RWStructuredBuffer<uint>   g_RWTileBasisParameterStepBuffer; // Cache 
+uint2 g_TileDimensions; // Number of tiles in x and y direction
+float g_ScreenSapaceCacheBorderPaddingUV; // The padding for the border of the screen space cache in UV space
+float g_BasisWInitialRadius; // Initial radius of each basis's W in pixels
+
+// Conservative Rasterization for index injection
+uint g_CR_DiskVertexCount; // Number of vertices in the disk when injecting basis
+float g_CR_DiskRadiusMultiplier; // Multiplier for the disk radius
+float g_CR_DiskRadiusBias; // Bias for the disk radius
+
+// Misc parameters
 uint g_NoImportanceSampling;
 uint g_FixedStepSize;
 uint g_UseBlueNoiseSampleDirection;
 uint g_EnableIndirect;
 
-RWTexture2D<float4> g_RWBasisParameterTexture;
-RWTexture2D<float4> g_RWBasisColorTexture;
-RWTexture2D<float4> g_RWBasisParameterGradientTexture;
-RWTexture2D<float4> g_RWBasisColorGradientTexture;
-RWTexture2D<float4> g_RWRadianceXTexture;
-RWTexture2D<float4> g_RWRadianceYTexture;
-
-Texture2D<float4> g_RadianceXTexture;
-Texture2D<float4> g_RadianceYTexture;
-
+// Update rays (currently uniformly distributed across the film)
 RWTexture2D<float4> g_RWRayDirectionTexture;
 RWTexture2D<float4> g_RWRayRadianceTexture;
-// RayRadiance - CacheEvaluatedRadiance
-RWTexture2D<float4> g_RWRayRadianceDifferenceTexture;
+// RayRadiance - CacheEvaluatedRadiance, WSum
+RWTexture2D<float4> g_RWRayRadianceDifferenceWSumTexture;
 
-int2 g_ScreenCacheDimensions;
 float g_CacheUpdateLearningRate;
 
-// Resolution
-int2 g_OutputDimensions;
+// Screen resolution
+int2   g_OutputDimensions;
+float2 g_InvOutputDimensions;
 
 // Constant buffers for sub-components
 ConstantBuffer<HashGridCacheConstants>     g_HashGridCacheConstants;

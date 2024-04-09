@@ -118,8 +118,10 @@ struct RTConstants
     uint2                           padding2;
 };
 
-// 32 x 5 x 5 = 800 <= 1024 (max thread group size)
-#define COOPERATIVE_SHADING_GRID_SIZE 5
+// The 
+#define SRC_TILE_SIZE 8
+// A maximum of 64 basis can be injected into a single tile.
+#define SRC_TILE_BASIS_INJECTION_RESERVATION 64
 
 #ifdef __cplusplus
 }// namespace Capsaicin

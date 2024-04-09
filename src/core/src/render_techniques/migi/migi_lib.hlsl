@@ -96,10 +96,40 @@ float EvaluateNormalizedSG (SGData SG, float3 Direction) {
 
 struct WData {
     float Lambda;
+    float Alpha;
 };
-float EvaluateW (WData WD, float2 Delta)
+
+float EvaluateW (WData WD, float3 Delta)
 {
-    return 1.f;//max(dot(4 - max(abs(Delta.x), abs(Delta.y)), float2(1, 1)), 0) * 0.1f;//exp(-dot(Delta, Delta) * WD.Lambda);
+    float LinearDistance = length(Delta);
+    return max(WD.Alpha - WD.Lambda * LinearDistance, 0);
+}
+
+struct WGradients {
+    float dLambda;
+    float dAlpha;
+};
+
+void EvaluateW_Gradients (WData WD, float3 Delta, out WGradients Gradients)
+{
+    float LinearDistance = length(Delta);
+    bool Within = (LinearDistance * WD.Lambda) <= WD.Alpha;
+    Gradients.dLambda = Within ? -LinearDistance : 0;
+    Gradients.dAlpha  = Within ? -1 : 0;
+}
+
+float EvaluateWEffectiveRadius (WData WD) {
+    return max(1.f / WD.Lambda, 0);
+}
+
+WData ShiftW (WData WD, float3 Delta) {
+    float LinearDistance = length(Delta);
+    WD.Alpha = max(WD.Alpha - LinearDistance * WD.Lambda, 0);
+    return WD;
+}
+
+bool IsEmptyW (WData WD) {
+    return WD.Alpha <= 0.f || WD.Lambda <= 0.001f;
 }
 
 float EvaluateBilateralFilterWeight (float PixelScale, float FilmPlaneRadius, float3 DeltaPosition, float3 ShadingPixelNormal, float3 LightingPixelNormal) {
@@ -145,6 +175,16 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
     Gradients.dDirection = TargetDirection * W2 * SGColorScale * SG.Lambda;
 }
 
+uint QuantilizeNormGradient (float V) {
+    return uint(V * 1000000);
+}
+uint QuantilizeRadianceGradient (float Radiance) {
+    return uint(Radiance * 100000);
+}
+uint QuantilizeLambdaGradient    (float dL) {
+    return uint(dL * 1000000);
+}
+
 float SampleSGCosTheta (float u, float lambda) {
     return min(log(u + (1 - u) * exp(-2.f * lambda)) / lambda + 1, 1.f);
 }
@@ -161,13 +201,143 @@ float3 SampleSG (float2 u, float lambda, out float pdf) {
     return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 }
 
-void FetchBasisData (int2 PixelID, out SGData SG, out WData WD) {
-    float4 P0 = g_RWBasisParameterTexture[PixelID];
-    float4 C0 = g_RWBasisColorTexture[PixelID];
-    SG.Direction = P0.xyz;
-    SG.Lambda = P0.w;
-    SG.Color = C0.xyz;
-    WD.Lambda = 0.25f;
+float3 unpackSnorm10_10_12 (uint packed) {
+    float3 ret;
+    ret.x = (packed & 0x3FF) * (2.f / 1024.f) - (1.f - 1.f / 2048.f);
+    ret.y = ((packed >> 10) & 0x3FF) * (2.f / 1024.f) - (1.f - 1.f / 2048.f);
+    ret.z = ((packed >> 20) & 0xFFF) * (2.f / 4096.f) - (1.f - 1.f / 8192.f);
+    return ret;
+}
+
+uint packSnorm10_10_12 (float3 normal) {
+    uint x = uint(clamp(normal.x * 512.f + 512f, 0.f, 1023.f));
+    uint y = uint(clamp(normal.y * 512.f + 512f, 0.f, 1023.f));
+    uint z = uint(clamp(normal.z + 2048.f + 2048.f, 0.f, 4095.f));
+    return x | (y << 10) | (z << 20);
+}
+
+uint4 FetchBasisData_W_Packed (int BasisIndex) {
+    uint P0 = g_RWBasisParameterBuffer[BasisIndex * 4];
+    uint P1 = g_RWBasisParameterBuffer[BasisIndex * 4 + 1];
+    uint P2 = g_RWBasisParameterBuffer[BasisIndex * 4 + 2];
+    uint P3 = g_RWBasisParameterBuffer[BasisIndex * 4 + 3];
+    return uint4(P0, P1, P2, P3);
+}
+uint FetchBasisLocationPacked (int BasisIndex) {
+    return g_RWBasisLocationBuffer[BasisIndex];
+}
+
+void UnpackBasisData (uint3 Packed, out SGData SG) {
+    SG.Color     = float3(f16tof32(Packed.x & 0xFFFF), f16tof32(Packed.x >> 16), f16tof32(Packed.y & 0xFFFF));
+    SG.Lambda    = f16tof32(Packed.y >> 16);
+    SG.Direction = unpackSnorm10_10_12(Packed.z).xyz;
+}
+
+uint3 PackBasisData (SGData SG) {
+    uint3 Packed;
+    Packed.x = f32tof16(SG.Color.x) | (f32tof16(SG.Color.y) << 16);
+    Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
+    Packed.z = packSnorm10_10_12(SG.Direction);
+    return Packed;
+}
+
+void WriteBasisData (int BasisIndex, SGData SG) {
+    uint3 Packed = PackBasisData(SG);
+    g_RWBasisParameterBuffer[BasisIndex * 4] = Packed.x;
+    g_RWBasisParameterBuffer[BasisIndex * 4 + 1] = Packed.y;
+    g_RWBasisParameterBuffer[BasisIndex * 4 + 2] = Packed.z;
+}
+
+void UnpackBasisLocation (uint Packed, out float2 UV) {
+    UV.x = unpackUnorm1x16(Packed & 0xFFFF) * g_InvOutputDimensions.x;
+    UV.y = unpackUnorm1x16(Packed >> 16) * g_InvOutputDimensions.y;
+}
+
+void FetchBasisLocation (int BasisIndex, out float2 UV) {
+    uint Packed = FetchBasisLocationPacked(BasisIndex);
+    UnpackBasisLocation(Packed, UV);
+}
+
+// Call it only after g_RWBasisCenterDepthBuffer is filled
+float3 ReconstructBasisWorldPosition (int BasisIndex) {
+    float2 UV;
+    FetchBasisLocation(BasisIndex, UV);
+    float Depth = g_RWBasisCenterDepthBuffer[BasisIndex].x;
+    return InverseProject(g_CameraProjViewInv, UV, Depth);
+}
+
+bool IsBasisActive (int BasisIndex) {
+    uint Flags = g_RWBasisFlagsBuffer[BasisIndex];
+    return Flags != 0;
+}
+
+uint PackWData (WData WD) {
+    return f32tof16(WD.Lambda) | (packUnorm1x16(WD.Alpha) << 16);
+}
+
+void UnpackWData (uint Packed, out WData WD) {
+    WD.Lambda = f16tof32(Packed & 0xFFFF);
+    WD.Alpha  = unpackUnorm1x16(Packed >> 16);
+}
+
+void FetchBasisData_W (int BasisIndex, out SGData SG, out WData WD) {
+    uint4 Packed = FetchBasisData_W_Packed(BasisIndex);
+    UnpackBasisData(Packed.xyz, SG);
+    UnpackWData(Packed.w, WD);
+}
+
+void WriteBasisWData (int BasisIndex, WData WD) {
+    g_RWBasisParameterBuffer[BasisIndex * 4 + 3] = PackWData(WD);
+}
+
+uint4 PackBasisData_W (SGData SG, WData WD) {
+    uint3 PackedSG = PackBasisData(SG);
+    uint PackedW = PackWData(WD);
+    return uint4(PackedSG.x, PackedSG.y, PackedSG.z, PackedW);
+}
+
+void WriteBasisData_W (int BasisIndex, SGData SG, WData WD) {
+    WriteBasisData(BasisIndex, SG);
+    WriteBasisWData(BasisIndex, WD);
+}
+
+void WriteBasisLocation (int BasisIndex, float2 UV) {
+    g_RWBasisLocationBuffer[BasisIndex] = 
+        packUnorm1x16(UV.x * g_OutputDimensions.x) 
+        + (packUnorm1x16(UV.y * g_OutputDimensions.y) << 16);
+}
+
+// Tile index related
+void ScreenCache_InjectBasisIndexToTile (int2 TileCoords, int BasisIndex) {
+    int TileIndex  = TileCoords.x + TileCoords.y * g_TileDimensions.x;
+    int SlotBase   = TileIndex * TILE_BASIS_INJECTION_RESERVATION;
+    int SlotOffset = InterlockedAdd(g_RWTileBasisCountBuffer[TileIndex], 1);
+    if(SlotOffset < TILE_BASIS_INJECTION_RESERVATION) {
+        g_RWTileBasisIndexInjectionBuffer[SlotBase + SlotOffset] = BasisIndex;
+    }
+}
+
+void ScreenCache_AccumulateStepSize (int BasisIndex, SGGradients Step_SG, WGradients Step_W) {
+    // Quantilize all step sizes and accumulate to the step buffer
+    // Color, Lambda, Normal, WLambda, WAlpha (9)
+    uint P0 = QuantilizeRadianceGradient(Step_SG.dColor.x);
+    uint P1 = QuantilizeRadianceGradient(Step_SG.dColor.y);
+    uint P2 = QuantilizeRadianceGradient(Step_SG.dColor.z);
+    uint P3 = QuantilizeLambdaGradient(Step_SG.dLambda);
+    uint P4 = QuantilizeLambdaGradient(Step_SG.dDirection.x);
+    uint P5 = QuantilizeLambdaGradient(Step_SG.dDirection.y);
+    uint P6 = QuantilizeLambdaGradient(Step_SG.dDirection.z);
+    uint P7 = QuantilizeLambdaGradient(Step_W.dLambda);
+    uint P8 = QuantilizeLambdaGradient(Step_W.dAlpha);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0], P0);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1], P1);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2], P2);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 3], P3);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 4], P4);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 5], P5);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 6], P6);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 7], P7);
+    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 8], P8);
 }
 
 // Misc
@@ -241,6 +411,10 @@ void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
     }
     Bitangent = normalize(Bitangent);
     Tangent = cross(Bitangent, Normal);
+}
+
+float2 UV2NDC2 (float2 UV) {
+    return float2(UV.x*2 - 1.f, 1.f - UV.y*2);
 }
 
 // Approximating SG integration
@@ -391,111 +565,6 @@ SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11
     Result.Color = lerp(lerp(X00.Color, X01.Color, UV.x), lerp(X10.Color, X11.Color, UV.x), UV.y);
     return Result;
 }
-
-// Screen Basis
-// struct BasisData {
-//     // Counter-clockwise polygon vertices
-//     // They should include depth (calculated from frame to frame)
-//     int2 Offset, Size;
-//     // texture level (8) / Offset of the texture brick (12, 12) in the atlas
-//     // Avaliable: 0: 1x1, 1: 2x2, 2: 4x4, 3: 8x8, 4: 16x16
-//     uint TextureLevelOffset;
-//     // The depth of the basis (0-1, NDC space)
-//     float Depth;
-//     // The depth kernel size of the basis
-//     float DepthRange;
-// };
-//
-// void FetchBasis (int BasisIndex, out BasisData Basis) {
-//     uint4 BasisDataPacked = g_BasisBuffer[BasisIndex];
-//     Basis.Offset = UnpackUInt2x16(BasisDataPacked.x);
-//     Basis.Size = UnpackUInt2x16(BasisDataPacked.y);
-//     Basis.TextureLevelOffset = BasisDataPacked.z;
-//     Basis.Depth = ashalf(BasisDataPacked.w&0xffffu);
-//     Basis.DepthRange = ashalf((BasisDataPacked.w>>16u)&0xffffu);
-// }
-//
-// void UnpackTextureLevelOffset (uint TextureLevelOffset, int TextureLevel, int2 TextureOffset) {
-//     TextureLevel = TextureLevelOffset >> 24u;
-//     TextureOffset = int2(TextureLevelOffset & 0xFFFu, (TextureLevelOffset >> 12) & 0xFFFu);
-// }
-//
-// void PackTextureLevelOffset (int TextureLevel, int2 TextureOffset) {
-//     return (TextureLevel << 24u) | (TextureOffset.x & 0xFFFu) | ((TextureOffset.y & 0xFFFu) << 12u);
-// }
-//
-// void FetchBasisBrickTexel (int TextureLevelOffset, int2 Texel, out SGData SG, out float EvaluatedW) {
-//     int TextureLevel, TextureOffset;
-//     UnpackTextureLevelOffset(TextureLevelOffset, TextureLevel, TextureOffset);
-//     float4 Params = g_BasisAtlasParameter[TextureLevel].Load(int3(TextureOffset + Texel, 0));
-//     float3 Color  = g_BasisAtlasColor[TextureLevel].Load(int3(TextureOffset + Texel, 0));
-//     SG = SGData{Params.xyz, Params.w, Color};
-//     EvaluatedW = g_BasisAtlasW[TextureLevel].Load(int3(TextureOffset + Texel, 0)).x;
-// }
-//
-// void SampleBasisBrickTexel (int TextureLevelOffset, float2 UV, out SGData SG, out float EvaluatedW) {
-//     int TextureLevel, TextureOffset;
-//     UnpackTextureLevelOffset(TextureLevelOffset, TextureLevel, TextureOffset);
-//     float2 RealUV = TextureOffset * g_InvBasisAtlasSize[TextureLevel] + UV * float2(g_BasisAtlasUVScaler[TextureLevel]);
-//     float4 Params = g_BasisAtlasParameter[TextureLevelBrick].SampleLevel(g_TextureSampler, RealUV, 0.0f);
-//     float3 Color  = g_BasisAtlasColor[TextureLevelBrick].SampleLevel(g_TextureSampler, RealUV, 0.0f);
-//     SG = SGData{Params.xyz, Params.w, Color};
-//     EvaluatedW = g_BasisAtlasW[TextureLevelBrick].SampleLevel(g_TextureSampler, RealUV, 0.0f).x;
-// }
-//
-// // @param MN The fractional part of the texture coordinates
-// // @param BrickTextureCoords The integer part of the texture coordinates within the basis texture brick
-// void SampleBasisBrickTexel (int TextureLevelOffset, float2 UV, out SGData SG, out float EvaluatedW, out float2 MN, out int2 BrickTextureCoords) {
-//     int TextureLevel, TextureOffset;
-//     UnpackTextureLevelOffset(TextureLevelOffset, TextureLevel, TextureOffset);
-//     float2 RealUV = TextureOffset * g_InvBasisAtlasSize[TextureLevel] + UV * float2(g_BasisAtlasUVScaler[TextureLevel]);
-//     float2 XY = RealUV * g_BasisAtlasSize[TextureLevel];
-//     // The parameters for tri-linear interpolation
-//     MN = frac(XY);
-//     BrickTextureCoords = int2(UV * float(1<<TextureLevel));
-//     float4 Params = g_BasisAtlasParameter[TextureLevelBrick].SampleLevel(g_TextureSampler, RealUV, 0.0f);
-//     float3 Color  = g_BasisAtlasColor[TextureLevelBrick].SampleLevel(g_TextureSampler, RealUV, 0.0f);
-//     SG = SGData{Params.xyz, Params.w, Color};
-//     EvaluatedW = g_BasisAtlasW[TextureLevelBrick].SampleLevel(g_TextureSampler, RealUV, 0.0f).x;
-// }
-//
-// float2 ConvertUVScreenToBasis (BasisData Basis, float2 UV) {
-//     float XY = (UV - float(Basis.Offset) + 0.5) / Basis.Size;
-//     return XY;
-// }
-//
-// void EvaluateBasis (BasisData Basis, float2 UV, float Depth, out SGData SG, out float EvaluatedW) {
-//     float2 XY = ConvertUVScreenToBasis(Basis, UV);
-//     if(XY < 0 || XY > 1) {
-//         EvaluatedW = 0.f;
-//     } else SampleBasisBrickTexel(Basis.TextureLevelOffset, XY, SG, EvaluatedW);
-// }
-//
-// // It's the caller's duty to spread the Gradients from tri-linear interpolation to the neighboring texels
-// // Use group-shared memory to accumulate Gradients for acceleration.
-// // Note: the output SG Gradients are not multiplied by EvaluatedW. Don't forget that!
-// // @param MN: The fractional part of the texture coordinates
-// // @param BrickTextureCoords: The integer part of the texture coordinates within the basis texture brick
-// void GetBasisUpdateGradients (BasisData Basis, float2 UV, float3 Direction, float3 TargetRadiance,
-//     out float EvaluatedW,
-//     out SGGradients Gradients, out float WDifferential,
-//     out float2 MN, out int2 BrickTextureCoords) {
-//     SGData SG;
-//     float2 XY = ConvertUVScreenToBasis(Basis, UV);
-//     if(XY < 0 || XY > 1) {
-//         EvaluatedW = 0.f;
-//     } else SampleBasisBrickTexel(Basis.TextureLevelOffset, XY, SG, EvaluatedW, MN, BrickTextureCoords);
-//     float3 CurrentRadiance = EvaluateSG(SG, Direction) * EvaluatedW;
-//     EvaluateSGGradients(SG, Direction, TargetRadiance, Gradients);
-//     WDifferential = dot(CurrentRadiance - TargetRadiance, 1.xxx);
-// }
-//
-// float EvaluateSGSimilarity (SGData X, float W_X, SGData Y, float W_Y) {
-//     float3 X_Eval = EvaluateSG(X, X.Direction);
-//     float3 Y_Eval = EvaluateSG(Y, Y.Direction);
-//     return dot(X_Eval, Y_Eval) * W_X * W_Y;
-// }
-
 
 // Removes NaNs from the color values.
 float GIDenoiser_RemoveNaNs(in float color)
