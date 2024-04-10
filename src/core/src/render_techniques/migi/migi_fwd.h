@@ -24,7 +24,14 @@ struct MIGIRenderOptions {
     bool reset_screen_space_cache {true};
 
     // Maximum number of update rays for the screen space radiance cache
-    uint32_t max_SSRC_update_ray_count {};
+    // Set to screen resolution automatically
+    uint32_t SSRC_max_update_ray_count {};
+    // Maximum number of basis active in the screen space radiance cache
+    uint32_t SSRC_max_basis_count {256 * 1024};
+    // Default initial W radius for newly generated basis
+    float SSRC_initial_W_radius {0.005};
+    // Resolution of the disk when doing rasterization for tile index injection
+    uint32_t SSRC_CR_disk_vertex_count {12};
 
     struct {
         uint32_t num_buckets_l2 {12}; // 1<<12 = 4096
@@ -60,9 +67,6 @@ struct MIGIRenderOptions {
     bool enable_indirect = true;
 
     float lr_rate   = 0.001f;
-
-    // Whether to use the channeled cache for SG lighting.
-    bool channeled_cache = false;
 
     // Whether to shade with geometry normals only
     bool shading_with_geometry_normal {false};

@@ -178,11 +178,20 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
 uint QuantilizeNormGradient (float V) {
     return uint(V * 1000000);
 }
+float RecoverNormGradient (uint V) {
+    return float(V) / 1000000;
+}
 uint QuantilizeRadianceGradient (float Radiance) {
     return uint(Radiance * 100000);
 }
+float RecoverRadianceGradient (uint Radiance) {
+    return float(Radiance) / 100000;
+}
 uint QuantilizeLambdaGradient    (float dL) {
     return uint(dL * 1000000);
+}
+float RecoverLambdaGradient (uint dL) {
+    return float(dL) / 1000000;
 }
 
 float SampleSGCosTheta (float u, float lambda) {
@@ -201,21 +210,6 @@ float3 SampleSG (float2 u, float lambda, out float pdf) {
     return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 }
 
-float3 unpackSnorm10_10_12 (uint packed) {
-    float3 ret;
-    ret.x = (packed & 0x3FF) * (2.f / 1024.f) - (1.f - 1.f / 2048.f);
-    ret.y = ((packed >> 10) & 0x3FF) * (2.f / 1024.f) - (1.f - 1.f / 2048.f);
-    ret.z = ((packed >> 20) & 0xFFF) * (2.f / 4096.f) - (1.f - 1.f / 8192.f);
-    return ret;
-}
-
-uint packSnorm10_10_12 (float3 normal) {
-    uint x = uint(clamp(normal.x * 512.f + 512f, 0.f, 1023.f));
-    uint y = uint(clamp(normal.y * 512.f + 512f, 0.f, 1023.f));
-    uint z = uint(clamp(normal.z + 2048.f + 2048.f, 0.f, 4095.f));
-    return x | (y << 10) | (z << 20);
-}
-
 uint4 FetchBasisData_W_Packed (int BasisIndex) {
     uint P0 = g_RWBasisParameterBuffer[BasisIndex * 4];
     uint P1 = g_RWBasisParameterBuffer[BasisIndex * 4 + 1];
@@ -223,21 +217,18 @@ uint4 FetchBasisData_W_Packed (int BasisIndex) {
     uint P3 = g_RWBasisParameterBuffer[BasisIndex * 4 + 3];
     return uint4(P0, P1, P2, P3);
 }
-uint FetchBasisLocationPacked (int BasisIndex) {
-    return g_RWBasisLocationBuffer[BasisIndex];
-}
 
 void UnpackBasisData (uint3 Packed, out SGData SG) {
     SG.Color     = float3(f16tof32(Packed.x & 0xFFFF), f16tof32(Packed.x >> 16), f16tof32(Packed.y & 0xFFFF));
     SG.Lambda    = f16tof32(Packed.y >> 16);
-    SG.Direction = unpackSnorm10_10_12(Packed.z).xyz;
+    SG.Direction = normalize(unpackNormal(Packed.z));
 }
 
 uint3 PackBasisData (SGData SG) {
     uint3 Packed;
     Packed.x = f32tof16(SG.Color.x) | (f32tof16(SG.Color.y) << 16);
     Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
-    Packed.z = packSnorm10_10_12(SG.Direction);
+    Packed.z = packNormal(SG.Direction);
     return Packed;
 }
 
@@ -253,17 +244,8 @@ void UnpackBasisLocation (uint Packed, out float2 UV) {
     UV.y = unpackUnorm1x16(Packed >> 16) * g_InvOutputDimensions.y;
 }
 
-void FetchBasisLocation (int BasisIndex, out float2 UV) {
-    uint Packed = FetchBasisLocationPacked(BasisIndex);
-    UnpackBasisLocation(Packed, UV);
-}
-
-// Call it only after g_RWBasisCenterDepthBuffer is filled
-float3 ReconstructBasisWorldPosition (int BasisIndex) {
-    float2 UV;
-    FetchBasisLocation(BasisIndex, UV);
-    float Depth = g_RWBasisCenterDepthBuffer[BasisIndex].x;
-    return InverseProject(g_CameraProjViewInv, UV, Depth);
+void FetchBasisLocation (int BasisIndex, out float3 Position) {
+    Position = g_RWBasisLocationBuffer[BasisIndex];
 }
 
 bool IsBasisActive (int BasisIndex) {
@@ -278,6 +260,11 @@ uint PackWData (WData WD) {
 void UnpackWData (uint Packed, out WData WD) {
     WD.Lambda = f16tof32(Packed & 0xFFFF);
     WD.Alpha  = unpackUnorm1x16(Packed >> 16);
+}
+
+void UnpackBasisData_W (uint4 Packed, out SGData SG, out WData WD) {
+    UnpackBasisData(Packed.xyz, SG);
+    UnpackWData(Packed.w, WD);
 }
 
 void FetchBasisData_W (int BasisIndex, out SGData SG, out WData WD) {
@@ -301,10 +288,8 @@ void WriteBasisData_W (int BasisIndex, SGData SG, WData WD) {
     WriteBasisWData(BasisIndex, WD);
 }
 
-void WriteBasisLocation (int BasisIndex, float2 UV) {
-    g_RWBasisLocationBuffer[BasisIndex] = 
-        packUnorm1x16(UV.x * g_OutputDimensions.x) 
-        + (packUnorm1x16(UV.y * g_OutputDimensions.y) << 16);
+void WriteBasisLocation (int BasisIndex, float3 Position) {
+    g_RWBasisLocationBuffer[BasisIndex] = Position;
 }
 
 // Tile index related
@@ -324,20 +309,41 @@ void ScreenCache_AccumulateStepSize (int BasisIndex, SGGradients Step_SG, WGradi
     uint P1 = QuantilizeRadianceGradient(Step_SG.dColor.y);
     uint P2 = QuantilizeRadianceGradient(Step_SG.dColor.z);
     uint P3 = QuantilizeLambdaGradient(Step_SG.dLambda);
-    uint P4 = QuantilizeLambdaGradient(Step_SG.dDirection.x);
-    uint P5 = QuantilizeLambdaGradient(Step_SG.dDirection.y);
-    uint P6 = QuantilizeLambdaGradient(Step_SG.dDirection.z);
+    uint P4 = QuantilizeNormGradient(Step_SG.dDirection.x);
+    uint P5 = QuantilizeNormGradient(Step_SG.dDirection.y);
+    uint P6 = QuantilizeNormGradient(Step_SG.dDirection.z);
     uint P7 = QuantilizeLambdaGradient(Step_W.dLambda);
     uint P8 = QuantilizeLambdaGradient(Step_W.dAlpha);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0], P0);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1], P1);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2], P2);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 3], P3);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 4], P4);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 5], P5);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 6], P6);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 7], P7);
-    InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 8], P8);
+    if(P0) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0], P0);
+    if(P1) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1], P1);
+    if(P2) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2], P2);
+    if(P3) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 3], P3);
+    if(P4) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 4], P4);
+    if(P5) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 5], P5);
+    if(P6) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 6], P6);
+    if(P7) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 7], P7);
+    if(P8) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 8], P8);
+}
+
+void ScreenCache_GetStepSize (int BasisIndex, out SGGradients Step_SG, out WGradients Step_W) {
+    uint P0 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0];
+    uint P1 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1];
+    uint P2 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2];
+    uint P3 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 3];
+    uint P4 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 4];
+    uint P5 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 5];
+    uint P6 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 6];
+    uint P7 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 7];
+    uint P8 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 8];
+    Step_SG.dColor.x = RecoverRadianceGradient(P0);
+    Step_SG.dColor.y = RecoverRadianceGradient(P1);
+    Step_SG.dColor.z = RecoverRadianceGradient(P2);
+    Step_SG.dLambda = RecoverLambdaGradient(P3);
+    Step_SG.dDirection.x = RecoverNormGradient(P4);
+    Step_SG.dDirection.y = RecoverNormGradient(P5);
+    Step_SG.dDirection.z = RecoverNormGradient(P6);
+    Step_W.dLambda = RecoverLambdaGradient(P7);
+    Step_W.dAlpha = RecoverLambdaGradient(P8);
 }
 
 // Misc

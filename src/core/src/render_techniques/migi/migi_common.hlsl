@@ -119,9 +119,9 @@ struct RTConstants
 };
 
 // The 
-#define SRC_TILE_SIZE 8
+#define SSRC_TILE_SIZE 8
 // A maximum of 64 basis can be injected into a single tile.
-#define SRC_TILE_BASIS_INJECTION_RESERVATION 64
+#define SSRC_MAX_BASIS_PER_TILE 64
 
 #ifdef __cplusplus
 }// namespace Capsaicin

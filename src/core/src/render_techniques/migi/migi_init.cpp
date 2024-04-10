@@ -43,6 +43,9 @@ bool MIGI::initConfig (const CapsaicinInternal & capsaicin) {
         }
         cfg_.wave_lane_count = features.WaveLaneCountMin;
     }
+
+    cfg_.basis_buffer_allocation = 256 * 1024;
+
     return true;
 }
 
@@ -83,25 +86,38 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "UpdateTiles", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.resolve_cells = gfxCreateComputeKernel(
             gfx_, kernels_.program, "ResolveCells", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.precompute_cache_update = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "PrecomputeCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.update_cache_parameters = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "UpdateCacheParameters", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.precompute_channeled_cache_update = gfxCreateComputeKernel(gfx_, kernels_.program,
-            "PrecomputeChanneledCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.update_channeled_cache_params     = gfxCreateComputeKernel(gfx_, kernels_.program,
-                "UpdateChanneledCacheParameters", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.integrate_ASG = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.integrate_ASG_with_channeled_cache = gfxCreateComputeKernel(gfx_, kernels_.program,
-            "IntegrateASGWithChanneledCache", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_reproject_and_filter = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ReprojectAndFilter", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_clear_tile_injection_index = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ClearTileInjectionIndex", defines_c.data(), (uint32_t)defines_c.size());
+        GfxDrawState injection_draw_state = {};
+        // No culling
+        gfxDrawStateSetCullMode(injection_draw_state, D3D12_CULL_MODE_NONE);
+        kernels_.SSRC_inject_reprojected_basis = gfxCreateGraphicsKernel(gfx_, kernels_.program, injection_draw_state,
+            "SSRC_InjectReprojectedBasis", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_clip_overflow_tile_index = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ClipOverflowTileIndex", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_allocate_extra_slot_for_basis_generation = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_AllocateExtraSlotForBasisGeneration", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_compress_tile_basis_index = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_CompressTileBasisIndex", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_precompute_cache_update = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_PrecomputeCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_compute_cache_update_step = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ComputeCacheUpdateStep", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_apply_cache_update = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ApplyCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_spawn_new_basis = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_SpawnNewBasis", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_integrate_ASG = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_reset = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_Reset", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.generate_dispatch_rays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatchRays", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.reset_screen_space_cache = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "ResetScreenSpaceCache", defines_c.data(), (uint32_t)defines_c.size());
 
         if (options_.use_dxr10)
         {
@@ -157,30 +173,28 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
 }
 
 bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
-    tex_.basis_parameter =
-        gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
-    tex_.basis_color =
-        gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
-
-    tex_.basis_parameter_gradient = gfxCreateTexture2D(
-        gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
-    tex_.basis_color_gradient = gfxCreateTexture2D(
-        gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
-
-    tex_.radiance_X =
-        gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
-    tex_.radiance_Y =
-        gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
     tex_.update_ray_direction =
         gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R8G8B8A8_UNORM, 1);
     tex_.update_ray_radiance = gfxCreateTexture2D(
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
-    tex_.update_ray_radiance_difference = gfxCreateTexture2D(
+    tex_.update_ray_radiance_difference_wsum = gfxCreateTexture2D(
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
 
     tex_.depth = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_D32_FLOAT);
 
     // Buffers
+    buf_.basis_location        = gfxCreateBuffer<float3>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_parameter       = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation * 4);
+    buf_.basis_flags           = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.free_basis_indices    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.free_basis_indices_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
+    int ssrc_tile_count = options_.width / SSRC_TILE_SIZE * options_.height / SSRC_TILE_SIZE;
+    buf_.tile_basis_count      = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
+    buf_.tile_basis_index_injection = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count * SSRC_MAX_BASIS_PER_TILE);
+    buf_.tile_base_slot_offset = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
+    buf_.tile_basis_index      = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count * (SSRC_MAX_BASIS_PER_TILE + 1));
+
     buf_.dispatch_count        = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.dispatch_command      = gfxCreateBuffer<DispatchCommand>(gfx_, 1);
     buf_.dispatch_rays_command = gfxCreateBuffer<DispatchRaysCommand>(gfx_, 1);
@@ -195,6 +209,8 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
     {
         return false;
     }
+    updateRenderOptions(capsaicin);
+
     if(!initKernels(capsaicin)) {
         return false;
     }
@@ -223,15 +239,21 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.generate_update_tiles_dispatch);
         gfxDestroyKernel(gfx_, kernels_.update_tiles);
         gfxDestroyKernel(gfx_, kernels_.resolve_cells);
-        gfxDestroyKernel(gfx_, kernels_.precompute_cache_update);
-        gfxDestroyKernel(gfx_, kernels_.update_cache_parameters);
-        gfxDestroyKernel(gfx_, kernels_.precompute_channeled_cache_update);
-        gfxDestroyKernel(gfx_, kernels_.update_channeled_cache_params);
-        gfxDestroyKernel(gfx_, kernels_.integrate_ASG);
-        gfxDestroyKernel(gfx_, kernels_.integrate_ASG_with_channeled_cache);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_reproject_and_filter);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_clear_tile_injection_index);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_inject_reprojected_basis);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_clip_overflow_tile_index);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_compress_tile_basis_index);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_precompute_cache_update);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_compute_cache_update_step);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_apply_cache_update);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_spawn_new_basis);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_integrate_ASG);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_reset);
+
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch);
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch_rays);
-        gfxDestroyKernel(gfx_, kernels_.reset_screen_space_cache);
         gfxDestroyKernel(gfx_, kernels_.debug_hash_grid_cells);
 
         gfxDestroyProgram(gfx_, kernels_.program);
@@ -240,16 +262,21 @@ void MIGI::terminate() noexcept
     }
     // Destroy all existing resources
     {
-        gfxDestroyTexture(gfx_, tex_.basis_parameter);
-        gfxDestroyTexture(gfx_, tex_.basis_color);
-        gfxDestroyTexture(gfx_, tex_.basis_parameter_gradient);
-        gfxDestroyTexture(gfx_, tex_.basis_color_gradient);
-        gfxDestroyTexture(gfx_, tex_.radiance_X);
-        gfxDestroyTexture(gfx_, tex_.radiance_Y);
+
         gfxDestroyTexture(gfx_, tex_.update_ray_direction);
         gfxDestroyTexture(gfx_, tex_.update_ray_radiance);
-        gfxDestroyTexture(gfx_, tex_.update_ray_radiance_difference);
+        gfxDestroyTexture(gfx_, tex_.update_ray_radiance_difference_wsum);
         gfxDestroyTexture(gfx_, tex_.depth);
+
+        gfxDestroyBuffer(gfx_, buf_.basis_location);
+        gfxDestroyBuffer(gfx_, buf_.basis_parameter);
+        gfxDestroyBuffer(gfx_, buf_.basis_flags);
+        gfxDestroyBuffer(gfx_, buf_.free_basis_indices);
+        gfxDestroyBuffer(gfx_, buf_.free_basis_indices_count);
+        gfxDestroyBuffer(gfx_, buf_.tile_basis_count);
+        gfxDestroyBuffer(gfx_, buf_.tile_basis_index_injection);
+        gfxDestroyBuffer(gfx_, buf_.tile_base_slot_offset);
+        gfxDestroyBuffer(gfx_, buf_.tile_basis_index);
 
         gfxDestroyBuffer(gfx_, buf_.dispatch_count);
         gfxDestroyBuffer(gfx_, buf_.dispatch_command);
@@ -271,6 +298,9 @@ void MIGI::terminate() noexcept
 std::vector<std::string> MIGI::getShaderCompileDefinitions(const CapsaicinInternal & capsaicin) const
 {
     std::vector<std::string> ret;
+
+    ret.push_back("WAVE_SIZE=" + std::to_string(cfg_.wave_lane_count));
+
     auto                     light_sampler = capsaicin.getComponent<LightSamplerGridStream>();
     std::vector<std::string> light_sampler_defines(std::move(light_sampler->getShaderDefines(capsaicin)));
 

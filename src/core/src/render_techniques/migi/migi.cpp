@@ -11,6 +11,8 @@
 #include "components/light_sampler_grid_stream/light_sampler_grid_stream.h"
 #include "components/stratified_sampler/stratified_sampler.h"
 
+// Special hacking for manipulating the draw topology withing gfx
+extern bool __override_gfx_draw_topology_fans;
 
 namespace Capsaicin
 {
@@ -20,7 +22,6 @@ MIGI::MIGI()
 {}
 
 MIGI::~MIGI() {terminate();}
-
 
 void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
 
@@ -42,7 +43,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
 
         if (need_reload_hash_grid_cache_debug_view_)
         {
-//            gfxDestroyKernel(gfx_, kernels_.debug_screen_probes);
             gfxDestroyKernel(gfx_, kernels_.debug_hash_grid_cells);
 
             GfxDrawState debug_screen_probes_draw_state;
@@ -56,8 +56,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
             GfxDrawState debug_material_draw_state;
             gfxDrawStateSetColorTarget(debug_material_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
 
-//            kernels_.debug_screen_probes = gfxCreateGraphicsKernel(
-//                gfx_, kernels_.program, debug_screen_probes_draw_state, "DebugScreenProbes");
             kernels_.debug_hash_grid_cells = gfxCreateGraphicsKernel(
                 gfx_, kernels_.program, debug_hash_grid_cells_draw_state, "DebugHashGridCells");
             need_reload_hash_grid_cache_debug_view_ = false;
@@ -185,28 +183,40 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     auto gi_output_aov = capsaicin.getAOVBuffer("GlobalIllumination");
     gfxProgramSetTexture(gfx_, kernels_.program, "g_RWGlobalIlluminationOutput", gi_output_aov);
 
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisLocationBuffer", buf_.basis_location);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterBuffer", buf_.basis_parameter);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWQuantilizedBasisStepBuffer", buf_.quantilized_basis_step);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisFlagsBuffer", buf_.basis_flags);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesBuffer", buf_.free_basis_indices);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesCountBuffer", buf_.free_basis_indices_count);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBasisCountBuffer", buf_.tile_basis_count);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBasisIndexInjectionBuffer", buf_.tile_basis_index_injection);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBaseSlotOffsetBuffer", buf_.tile_base_slot_offset);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBasisIndexBuffer", buf_.tile_basis_index);
+
+    assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_TileDimensions", glm::int2(options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE));
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_TileDimensionsInv", glm::vec2(1.f / float(options_.width / SSRC_TILE_SIZE), 1.f / float(options_.height / SSRC_TILE_SIZE)));
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_BasisWInitialRadius", options_.SSRC_initial_W_radius);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_MaxBasisCount", options_.SSRC_max_basis_count);
+
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CR_DiskVertexCount", options_.SSRC_CR_disk_vertex_count);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CR_DiskRadiusMultiplier", 1.f);//options_.SSRC_CR_disk_radius_multiplier);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CR_DiskRadiusBias", 0.f);//options_.SSRC_CR_disk_radius_bias);
+
     gfxProgramSetParameter(gfx_, kernels_.program, "g_NoImportanceSampling", (uint)options_.no_importance_sampling);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FixedStepSize", (uint)options_.fixed_step_size);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_UseBlueNoiseSampleDirection", (uint)options_.use_blue_noise_sample_direction);
 
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterTexture", tex_.basis_parameter);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisColorTexture", tex_.basis_color);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterGradientTexture", tex_.basis_parameter_gradient);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisColorGradientTexture", tex_.basis_color_gradient);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRadianceXTexture", tex_.radiance_X);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRadianceYTexture", tex_.radiance_Y);
-
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RadianceXTexture", tex_.radiance_X);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RadianceYTexture", tex_.radiance_Y);
-
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayDirectionTexture", tex_.update_ray_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceTexture", tex_.update_ray_radiance);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceDifferenceTexture", tex_.update_ray_radiance_difference);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceDifferenceWSumTexture", tex_.update_ray_radiance_difference_wsum);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_ScreenCacheDimensions", glm::int2(options_.width, options_.height));
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdateLearningRate", options_.lr_rate);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_OutputDimensions", glm::int2(options_.width, options_.height));
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_OutputDimensionsInv", glm::vec2(1.f / float(options_.width), 1.f / float(options_.height)));
 
     // Hash grid radiance cache and world space ReSTIR, Raytracing: constant buffers
     {
@@ -347,11 +357,11 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     // Reset the cache if needed
     if(need_reset_screen_space_cache_) {
         TimedSection section_timer(*this, "Reset Screen Space Cache");
-        gfxCommandBindKernel(gfx_, kernels_.reset_screen_space_cache);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.reset_screen_space_cache);
-        assert(threads[2] == 1);
-        uint32_t dispatch_size[] = {(options_.width + threads[0] - 1) / threads[0], (options_.height + threads[1] - 1) / threads[1]};
-        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_reset);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_reset);
+        uint tile_count = (options_.width / SSRC_TILE_SIZE) * (options_.height / SSRC_TILE_SIZE);
+        uint32_t dispatch_size[] = {tile_count / threads[0]};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
         need_reset_screen_space_cache_ = false;
     }
 
@@ -507,68 +517,49 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
-    if(!options_.channeled_cache)
+    // Reproject and filter SSRC from previous frame
     {
-        {
-            const TimedSection timed_section(*this, "PrecomputeCacheUpdate");
-            // Precompute cache update
-            gfxCommandBindKernel(gfx_, kernels_.precompute_cache_update);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_cache_update);
-            uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
-            assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
-            gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-        }
-        {
-            const TimedSection timed_section(*this, "UpdateCacheParameters");
-            // Update cache parameters
-            gfxCommandBindKernel(gfx_, kernels_.update_cache_parameters);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.update_cache_parameters);
-            uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
-            assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
-            gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-        }
-        {
-            // Resolving requires the wrap sampler for material textures
-            gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearWrapSampler());
+        const TimedSection timed_section(*this, "SSRC_ReprojectAndFilter");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_reproject_and_filter);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_reproject_and_filter);
+        uint32_t dispatch_size[] = {options_.SSRC_max_basis_count / threads[0]};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+    }
 
-            const TimedSection timed_section(*this, "IntegrateASG");
-            gfxCommandBindKernel(gfx_, kernels_.integrate_ASG);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.integrate_ASG);
-            uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
-            assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
-            gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-        }
-    } else {
-        {
-            const TimedSection timed_section(*this, "PrecomputeChanneledCacheUpdate");
-            // Precompute cache update
-            gfxCommandBindKernel(gfx_, kernels_.precompute_channeled_cache_update);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_channeled_cache_update);
-            // Cooperative computation.
-            uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
-            assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
-            gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-        }
-        {
-            const TimedSection timed_section(*this, "UpdateChanneledCacheParameters");
-            // Update cache parameters
-            gfxCommandBindKernel(gfx_, kernels_.update_channeled_cache_params);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.update_channeled_cache_params);
-            uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
-            assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
-            gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-        }
-        {
-            // Resolving requires the wrap sampler for material textures
-            gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearWrapSampler());
+    {
+        asdfdasfkasdjklfdjasklfjasdklfjkl
+        const TimedSection timed
+    }
 
-            const TimedSection timed_section(*this, "IntegrateASGWithChanneledCache");
-            gfxCommandBindKernel(gfx_, kernels_.integrate_ASG_with_channeled_cache);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.integrate_ASG_with_channeled_cache);
-            uint32_t dispatch_size[] = {options_.width / threads[0], options_.height / threads[1]};
-            assert(dispatch_size[0] * threads[0] == options_.width && dispatch_size[1] * threads[1] == options_.height);
-            gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-        }
+    // Precompute cache update (calculate ray radiance difference and sum of basis weights)
+    {
+        const TimedSection timed_section(*this, "PrecomputeCacheUpdate");
+        // Precompute cache update
+        gfxCommandBindKernel(gfx_, kernels_.precompute_cache_update);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_cache_update);
+        uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
+        assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    }
+    {
+        const TimedSection timed_section(*this, "UpdateCacheParameters");
+        // Update cache parameters
+        gfxCommandBindKernel(gfx_, kernels_.update_cache_parameters);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.update_cache_parameters);
+        uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
+        assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    }
+    {
+        // Resolving requires the wrap sampler for material textures
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearWrapSampler());
+
+        const TimedSection timed_section(*this, "IntegrateASG");
+        gfxCommandBindKernel(gfx_, kernels_.integrate_ASG);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.integrate_ASG);
+        uint32_t dispatch_size[] = {options_.width / threads[1], options_.height / threads[2]};
+        assert(dispatch_size[0] * threads[1] == options_.width && dispatch_size[1] * threads[2] == options_.height);
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 
     // Visualize basis

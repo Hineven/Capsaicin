@@ -78,14 +78,12 @@ RWTexture2D<float4> g_RWDebugOutput;
 RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 
 // Sparse screen space cache
-RWStructuredBuffer<uint>   g_RWBasisLocationBuffer;  // Screen UV of the basis, short int quantilized
+RWStructuredBuffer<float3>   g_RWBasisLocationBuffer;
 // Color : 16*3, Lambda: 16, Normal: 32packed, WLambda: 16, WAlpha: 16
 RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
 // Color, Lambda, Normal, WLambda, WAlpha (9)
 RWStructuredBuffer<uint>   g_RWQuantilizedBasisStepBuffer; // Step size for atomic accumulation
 RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
-RWStructuredBuffer<float>  g_RWBasisCenterDepthBuffer; // Basis center depth (cached for rasterization in early passes)
-RWStructuredBuffer<uint>   g_RWBasisCountBuffer; // The number of all allocated basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
 // Before compression
@@ -95,13 +93,13 @@ RWStructuredBuffer<uint>   g_RWTileBasisIndexInjectionBuffer;
 // Compressed
 RWStructuredBuffer<uint>   g_RWTileBaseSlotOffsetBuffer;  // Points to the first basis indice index
 RWStructuredBuffer<uint>   g_RWTileBasisIndexBuffer; // Store indices
-RWStructuredBuffer<uint>   g_RWTileBasisParameterStepBuffer; // Cache 
-uint2 g_TileDimensions; // Number of tiles in x and y direction
-float g_ScreenSapaceCacheBorderPaddingUV; // The padding for the border of the screen space cache in UV space
+int2   g_TileDimensions; // Number of tiles in x and y direction
+float2 g_TileDimensionsInv;
 float g_BasisWInitialRadius; // Initial radius of each basis's W in pixels
+float g_MaxBasisCount; // Size of the basis buffer
 
 // Conservative Rasterization for index injection
-uint g_CR_DiskVertexCount; // Number of vertices in the disk when injecting basis
+int g_CR_DiskVertexCount; // Number of vertices in the disk when injecting basis
 float g_CR_DiskRadiusMultiplier; // Multiplier for the disk radius
 float g_CR_DiskRadiusBias; // Bias for the disk radius
 
@@ -109,7 +107,6 @@ float g_CR_DiskRadiusBias; // Bias for the disk radius
 uint g_NoImportanceSampling;
 uint g_FixedStepSize;
 uint g_UseBlueNoiseSampleDirection;
-uint g_EnableIndirect;
 
 // Update rays (currently uniformly distributed across the film)
 RWTexture2D<float4> g_RWRayDirectionTexture;
@@ -121,7 +118,7 @@ float g_CacheUpdateLearningRate;
 
 // Screen resolution
 int2   g_OutputDimensions;
-float2 g_InvOutputDimensions;
+float2 g_OutputDimensionsInv;
 
 // Constant buffers for sub-components
 ConstantBuffer<HashGridCacheConstants>     g_HashGridCacheConstants;

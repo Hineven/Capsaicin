@@ -99,7 +99,7 @@ HashGridCache::~HashGridCache()
 void HashGridCache::ensureMemoryIsAllocated(const MIGIRenderOptions &options)
 {
 
-    uint32_t const max_ray_count        = options.max_SSRC_update_ray_count;
+    uint32_t const max_ray_count        = options.SSRC_max_update_ray_count;
     uint32_t const num_buckets          = 1u << options.hash_grid_cache.num_buckets_l2;
     uint32_t const num_tiles_per_bucket = 1u << options.hash_grid_cache.num_tiles_per_bucket_l2;
     uint32_t const size_tile_mip0       = options.hash_grid_cache.tile_cell_ratio;

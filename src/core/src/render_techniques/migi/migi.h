@@ -43,41 +43,37 @@ public:
 
     struct Config {
         int wave_lane_count {};
+        int basis_buffer_allocation {};
     } cfg_;
     bool initConfig (const CapsaicinInternal &capsaicin);
 
     struct MIGIResources
     {
-        // R16G16B16A16_FLOAT (Direction, Lambda)
-        GfxTexture basis_parameter {};
-        // R16G16B16A16_FLOAT (Color, ...)
-        GfxTexture basis_color {};
-
-        // For debugging only
-        GfxTexture basis_parameter_gradient {};
-        GfxTexture basis_color_gradient {};
-
-        // Albedo * X = diffuse radiance
-        // R16G16B16A16_FLOAT
-        GfxTexture   radiance_X {};
-        // Y = specular radiance
-        // R16G16B16A16_FLOAT
-        GfxTexture   radiance_Y {};
-
         // Ray buffers for cache update
         // R8G8B8A8_UNORM
         GfxTexture   update_ray_direction {};
         // R16G16B16A16_FLOAT
         GfxTexture   update_ray_radiance {};
-        // RayRadiance - CachedRadiance
+        // RayRadiance - CachedRadiance, wsum
         // R16G16B16A16_FLOAT
-        GfxTexture   update_ray_radiance_difference {};
+        GfxTexture   update_ray_radiance_difference_wsum {};
 
         GfxTexture   depth {};
 
     } tex_ {};
 
     struct MIGIBuffers {
+        GfxBuffer basis_location {};
+        GfxBuffer basis_parameter {};
+        GfxBuffer quantilized_basis_step {};
+        GfxBuffer basis_flags {};
+        GfxBuffer free_basis_indices {};
+        GfxBuffer free_basis_indices_count {};
+        GfxBuffer tile_basis_count {};
+        GfxBuffer tile_basis_index_injection {};
+        GfxBuffer tile_base_slot_offset {};
+        GfxBuffer tile_basis_index {};
+
         GfxBuffer dispatch_command {};
         GfxBuffer dispatch_rays_command {};
         GfxBuffer dispatch_count {};
@@ -101,16 +97,22 @@ public:
         GfxKernel  generate_update_tiles_dispatch {};
         GfxKernel  update_tiles {};
         GfxKernel  resolve_cells {};
-        GfxKernel  precompute_cache_update {};
-        GfxKernel  update_cache_parameters {};
-        GfxKernel  precompute_channeled_cache_update {};
-        GfxKernel  update_channeled_cache_params {};
-        GfxKernel  integrate_ASG {};
-        GfxKernel  integrate_ASG_with_channeled_cache {};
+        GfxKernel  SSRC_reproject_and_filter {};
+        GfxKernel  SSRC_clear_tile_injection_index {};
+        GfxKernel  SSRC_inject_reprojected_basis {};
+        GfxKernel  SSRC_clip_overflow_tile_index {};
+        GfxKernel  SSRC_allocate_extra_slot_for_basis_generation {};
+        GfxKernel  SSRC_compress_tile_basis_index {};
+        GfxKernel  SSRC_precompute_cache_update {};
+        GfxKernel  SSRC_compute_cache_update_step {};
+        GfxKernel  SSRC_apply_cache_update {};
+        GfxKernel  SSRC_spawn_new_basis {};
+        GfxKernel  SSRC_integrate_ASG {};
+
+        GfxKernel  SSRC_reset {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};
-        GfxKernel  reset_screen_space_cache {};
 
         GfxKernel  debug_hash_grid_cells {};
 
@@ -127,7 +129,7 @@ public:
 
 protected:
 
-    void updateRenderOptions (CapsaicinInternal & capsaicin);
+    void updateRenderOptions (const CapsaicinInternal & capsaicin);
 
     void generateDispatch (GfxBuffer dispatch_count_buffer, uint threads_per_group);
     void generateDispatchRays (GfxBuffer count_buffer);
