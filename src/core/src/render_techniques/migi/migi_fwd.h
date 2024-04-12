@@ -18,8 +18,8 @@ struct MIGIRenderOptions {
     uint32_t width {};
     uint32_t height {};
 
-    // 0: visualize bsdf, 1: visualize model, 2: training
-    uint32_t visualize_mode = 0;
+    uint32_t debug_visualize_mode = 0;
+    uint32_t debug_visualize_channel = 0;
 
     bool reset_screen_space_cache {true};
 
@@ -29,7 +29,7 @@ struct MIGIRenderOptions {
     // Maximum number of basis active in the screen space radiance cache
     uint32_t SSRC_max_basis_count {256 * 1024};
     // Default initial W radius for newly generated basis
-    float SSRC_initial_W_radius {0.005};
+    float SSRC_initial_W_radius {4.f};
     // Resolution of the disk when doing rasterization for tile index injection
     uint32_t SSRC_CR_disk_vertex_count {12};
 

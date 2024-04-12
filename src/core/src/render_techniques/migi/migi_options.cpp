@@ -15,9 +15,15 @@ namespace Capsaicin {
 RenderOptionList MIGI::getRenderOptions() noexcept
 {
     auto ret = RenderOptionList();
-    ret.emplace("visualize_mode", options_.visualize_mode);
+    ret.emplace("debug_visualize_mode", options_.debug_visualize_mode);
+    ret.emplace("debug_visualize_channel", options_.debug_visualize_channel);
 
     ret.emplace("lr_rate", options_.lr_rate);
+
+    ret.emplace("reset_screen_space_cache", options_.reset_screen_space_cache);
+
+    ret.emplace("SSRC_max_basis_count", options_.SSRC_max_basis_count);
+    ret.emplace("SSRC_initial_W_radius", options_.SSRC_initial_W_radius);
 
     ret.emplace("shading_with_geometry_normal", options_.shading_with_geometry_normal);
     ret.emplace("no_importance_sampling", options_.no_importance_sampling);
@@ -25,7 +31,6 @@ RenderOptionList MIGI::getRenderOptions() noexcept
     ret.emplace("use_blue_noise_sample_direction", options_.use_blue_noise_sample_direction);
     ret.emplace("enable_indirect", options_.enable_indirect);
 
-    ret.emplace("reset_screen_space_cache", options_.reset_screen_space_cache);
     return ret;
 }
 
@@ -52,7 +57,8 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 {
     auto in = capsaicin.getOptions();
 
-    options_.visualize_mode = std::get<uint32_t>(in["visualize_mode"]);
+    options_.debug_visualize_mode = std::get<uint32_t>(in["debug_visualize_mode"]);
+    options_.debug_visualize_channel = std::get<uint32_t>(in["debug_visualize_channel"]);
 
     uint32_t new_width = capsaicin.getWidth();
     uint32_t new_height = capsaicin.getHeight();
@@ -65,6 +71,7 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     // We shoot one update ray per pixel.
     options_.SSRC_max_update_ray_count = options_.width * options_.height;
     options_.SSRC_max_basis_count      = std::min((int)std::get<uint32_t>(in["SSRC_max_basis_count"]), cfg_.basis_buffer_allocation);
+    options_.SSRC_initial_W_radius     = std::get<float>(in["SSRC_initial_W_radius"]);
 
     // Only SSRC update rays request ReSTIR sampling.
     options_.restir.max_query_ray_count = options_.SSRC_max_update_ray_count;
@@ -103,7 +110,8 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 DebugViewList MIGI::getDebugViews() const noexcept
 {
     auto ret = DebugViewList();
-    ret.emplace_back("ScreenSpaceCache");
+    ret.emplace_back("SSRC_Coverage");
+    ret.emplace_back("SSRC_TileOccupancy");
     return ret;
 }
 

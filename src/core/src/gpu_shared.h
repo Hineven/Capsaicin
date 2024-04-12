@@ -87,10 +87,19 @@ struct DispatchCommand
 
 struct DrawCommand
 {
-    uint count;
-    uint first_index;
-    uint base_vertex;
-    uint padding;
+    uint vertex_count_per_instance;
+    uint instance_count;
+    uint vertex_offset;
+    uint instance_offset;
+};
+
+struct DrawIndexedCommand
+{
+    uint index_count_per_instance;
+    uint instance_count;
+    uint index_offset;
+    int  vertex_offset;
+    uint instance_offset;
 };
 
 struct GpuVirtualAddressRange

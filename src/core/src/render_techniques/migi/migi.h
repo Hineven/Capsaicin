@@ -63,6 +63,8 @@ public:
     } tex_ {};
 
     struct MIGIBuffers {
+        GfxBuffer active_basis_count {};
+        GfxBuffer active_basis_index {};
         GfxBuffer basis_location {};
         GfxBuffer basis_parameter {};
         GfxBuffer quantilized_basis_step {};
@@ -78,6 +80,9 @@ public:
         GfxBuffer dispatch_rays_command {};
         GfxBuffer dispatch_count {};
         GfxBuffer draw_command {};
+        GfxBuffer draw_indexed_command {};
+
+        GfxBuffer disk_index_buffer {};
     } buf_{};
 
     bool initResources (const CapsaicinInternal &capsaicin);
@@ -97,8 +102,10 @@ public:
         GfxKernel  generate_update_tiles_dispatch {};
         GfxKernel  update_tiles {};
         GfxKernel  resolve_cells {};
+        GfxKernel  SSRC_clear_active_counter {};
         GfxKernel  SSRC_reproject_and_filter {};
         GfxKernel  SSRC_clear_tile_injection_index {};
+        GfxKernel  SSRC_inject_generate_draw_indexed {};
         GfxKernel  SSRC_inject_reprojected_basis {};
         GfxKernel  SSRC_clip_overflow_tile_index {};
         GfxKernel  SSRC_allocate_extra_slot_for_basis_generation {};
@@ -107,9 +114,13 @@ public:
         GfxKernel  SSRC_compute_cache_update_step {};
         GfxKernel  SSRC_apply_cache_update {};
         GfxKernel  SSRC_spawn_new_basis {};
+        GfxKernel  SSRC_clip_over_allocation {};
         GfxKernel  SSRC_integrate_ASG {};
 
         GfxKernel  SSRC_reset {};
+
+        GfxKernel  DebugSSRC_visualize_coverage {};
+        GfxKernel  DebugSSRC_visualize_tile_occupancy {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};
@@ -124,8 +135,6 @@ public:
     void clearHashGridCache () ;
 
     void clearReservoirs () ;
-
-    void clearScreenSpaceCache () ;
 
 protected:
 

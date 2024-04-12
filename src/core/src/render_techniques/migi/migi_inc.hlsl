@@ -71,18 +71,21 @@ uint g_GroupSize;
 StructuredBuffer<uint> g_CountBuffer;
 RWStructuredBuffer<DispatchCommand>     g_RWDispatchCommandBuffer;
 RWStructuredBuffer<DispatchRaysCommand> g_RWDispatchRaysCommandBuffer;
-RWStructuredBuffer<uint4>               g_RWDrawCommandBuffer;
+RWStructuredBuffer<DrawCommand>         g_RWDrawCommandBuffer;
+RWStructuredBuffer<DrawIndexedCommand>  g_RWDrawIndexedCommandBuffer;
 
 // Outputs & RW Buffers
 RWTexture2D<float4> g_RWDebugOutput;
 RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 
 // Sparse screen space cache
-RWStructuredBuffer<float3>   g_RWBasisLocationBuffer;
+RWStructuredBuffer<uint>   g_RWActiveBasisCountBuffer;
+RWStructuredBuffer<uint>   g_RWActiveBasisIndexBuffer;
+RWStructuredBuffer<float3> g_RWBasisLocationBuffer;
 // Color : 16*3, Lambda: 16, Normal: 32packed, WLambda: 16, WAlpha: 16
 RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
 // Color, Lambda, Normal, WLambda, WAlpha (9)
-RWStructuredBuffer<uint>   g_RWQuantilizedBasisStepBuffer; // Step size for atomic accumulation
+RWStructuredBuffer< int>   g_RWQuantilizedBasisStepBuffer; // Step size for atomic accumulation
 RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
@@ -96,7 +99,7 @@ RWStructuredBuffer<uint>   g_RWTileBasisIndexBuffer; // Store indices
 int2   g_TileDimensions; // Number of tiles in x and y direction
 float2 g_TileDimensionsInv;
 float g_BasisWInitialRadius; // Initial radius of each basis's W in pixels
-float g_MaxBasisCount; // Size of the basis buffer
+int g_MaxBasisCount; // Size of the basis buffer
 
 // Conservative Rasterization for index injection
 int g_CR_DiskVertexCount; // Number of vertices in the disk when injecting basis
@@ -125,5 +128,7 @@ ConstantBuffer<HashGridCacheConstants>     g_HashGridCacheConstants;
 ConstantBuffer<WorldSpaceReSTIRConstants>  g_WorldSpaceReSTIRConstants;
 ConstantBuffer<RTConstants>  g_RTConstants;
 
+uint g_DebugVisualizeMode;
+uint g_DebugVisualizeChannel;
 
 #endif // MIGI_SHARED_PARAMETERS_HLSL

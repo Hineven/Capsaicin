@@ -20,6 +20,8 @@ namespace Capsaicin
 {
 
 bool MIGI::initConfig (const CapsaicinInternal & capsaicin) {
+
+
     (void) capsaicin; // Prevent unused variable warning
     // Check for wave operation support
     {
@@ -86,10 +88,14 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "UpdateTiles", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.resolve_cells = gfxCreateComputeKernel(
             gfx_, kernels_.program, "ResolveCells", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_clear_active_counter = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ClearActiveCounter", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_reproject_and_filter = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ReprojectAndFilter", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_clear_tile_injection_index = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ClearTileInjectionIndex", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_inject_generate_draw_indexed = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_InjectGenerateDrawIndexed", defines_c.data(), (uint32_t)defines_c.size());
         GfxDrawState injection_draw_state = {};
         // No culling
         gfxDrawStateSetCullMode(injection_draw_state, D3D12_CULL_MODE_NONE);
@@ -109,10 +115,17 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_ApplyCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_spawn_new_basis = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_SpawnNewBasis", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_clip_over_allocation = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ClipOverAllocation", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_integrate_ASG = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_reset = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_Reset", defines_c.data(), (uint32_t)defines_c.size());
+
+        kernels_.DebugSSRC_visualize_coverage = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_VisualizeCoverage", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_visualize_tile_occupancy = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_VisualizeTileOccupancy", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
@@ -183,8 +196,11 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.depth = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_D32_FLOAT);
 
     // Buffers
+    buf_.active_basis_count    = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.active_basis_index    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_location        = gfxCreateBuffer<float3>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_parameter       = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation * 4);
+    buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 9);
     buf_.basis_flags           = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
     buf_.free_basis_indices    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
     buf_.free_basis_indices_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
@@ -199,6 +215,17 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.dispatch_command      = gfxCreateBuffer<DispatchCommand>(gfx_, 1);
     buf_.dispatch_rays_command = gfxCreateBuffer<DispatchRaysCommand>(gfx_, 1);
     buf_.draw_command          = gfxCreateBuffer<DrawCommand>(gfx_, 1);
+    buf_.draw_indexed_command  = gfxCreateBuffer<DrawIndexedCommand>(gfx_, 1);
+
+    // Initialize the disk index buffer for injection
+    std::vector<uint32_t> disk_index_buffer;
+    for(int i = 0; i<(int)options_.SSRC_CR_disk_vertex_count - 2; i++)
+    {
+        disk_index_buffer.push_back(0);
+        disk_index_buffer.push_back(i + 1);
+        disk_index_buffer.push_back(i + 2);
+    }
+    buf_.disk_index_buffer     = gfxCreateBuffer<uint32_t>(gfx_, (options_.SSRC_CR_disk_vertex_count - 2) * 3, disk_index_buffer.data());
     return true;
 }
 
@@ -239,8 +266,10 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.generate_update_tiles_dispatch);
         gfxDestroyKernel(gfx_, kernels_.update_tiles);
         gfxDestroyKernel(gfx_, kernels_.resolve_cells);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_clear_active_counter);
         gfxDestroyKernel(gfx_, kernels_.SSRC_reproject_and_filter);
         gfxDestroyKernel(gfx_, kernels_.SSRC_clear_tile_injection_index);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_inject_generate_draw_indexed);
         gfxDestroyKernel(gfx_, kernels_.SSRC_inject_reprojected_basis);
         gfxDestroyKernel(gfx_, kernels_.SSRC_clip_overflow_tile_index);
         gfxDestroyKernel(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
@@ -249,8 +278,12 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.SSRC_compute_cache_update_step);
         gfxDestroyKernel(gfx_, kernels_.SSRC_apply_cache_update);
         gfxDestroyKernel(gfx_, kernels_.SSRC_spawn_new_basis);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_clip_over_allocation);
         gfxDestroyKernel(gfx_, kernels_.SSRC_integrate_ASG);
         gfxDestroyKernel(gfx_, kernels_.SSRC_reset);
+
+        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_coverage);
+        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_tile_occupancy);
 
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch);
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch_rays);
@@ -268,8 +301,11 @@ void MIGI::terminate() noexcept
         gfxDestroyTexture(gfx_, tex_.update_ray_radiance_difference_wsum);
         gfxDestroyTexture(gfx_, tex_.depth);
 
+        gfxDestroyBuffer(gfx_, buf_.active_basis_count);;
+        gfxDestroyBuffer(gfx_, buf_.active_basis_index);
         gfxDestroyBuffer(gfx_, buf_.basis_location);
         gfxDestroyBuffer(gfx_, buf_.basis_parameter);
+        gfxDestroyBuffer(gfx_, buf_.quantilized_basis_step);
         gfxDestroyBuffer(gfx_, buf_.basis_flags);
         gfxDestroyBuffer(gfx_, buf_.free_basis_indices);
         gfxDestroyBuffer(gfx_, buf_.free_basis_indices_count);
@@ -282,6 +318,7 @@ void MIGI::terminate() noexcept
         gfxDestroyBuffer(gfx_, buf_.dispatch_command);
         gfxDestroyBuffer(gfx_, buf_.dispatch_rays_command);
         gfxDestroyBuffer(gfx_, buf_.draw_command);
+        gfxDestroyBuffer(gfx_, buf_.draw_indexed_command);
 
         tex_ = {};
         buf_ = {};
