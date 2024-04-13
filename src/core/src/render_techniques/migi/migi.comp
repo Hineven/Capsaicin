@@ -1346,7 +1346,7 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         if(Depth < 1.f) {
             float InvLinearDepth = 1.f / GetLinearDepth(Depth);
             float Coverage = clamp(g_RWRayRadianceDifferenceWSumTexture[TexCoords].w * InvLinearDepth, 0, 15.99f);
-            MinCoveragePacked = min(MinCoveragePacked, (uint(Coverage * 0xffff) << 12u) | (uint(PixelIndex) ^ TileMask));
+            MinCoveragePacked = min(MinCoveragePacked, ((0xfffffu & uint(Coverage * 0xffff)) << 12u) | (uint(PixelIndex) ^ TileMask));
         }
     }
     MinCoveragePacked = WaveActiveMin(MinCoveragePacked);
