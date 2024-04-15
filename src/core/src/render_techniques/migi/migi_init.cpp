@@ -217,7 +217,7 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.active_basis_index    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_effective_radius= gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_film_position   = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.basis_screen_lambda   = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_effective_radius_film = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_location        = gfxCreateBuffer<float3>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_parameter       = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation * 4);
     buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 9);
@@ -331,7 +331,7 @@ void MIGI::terminate() noexcept
         gfxDestroyBuffer(gfx_, buf_.active_basis_index);
         gfxDestroyBuffer(gfx_, buf_.basis_effective_radius);
         gfxDestroyBuffer(gfx_, buf_.basis_film_position);
-        gfxDestroyBuffer(gfx_, buf_.basis_screen_lambda);
+        gfxDestroyBuffer(gfx_, buf_.basis_effective_radius_film);
         gfxDestroyBuffer(gfx_, buf_.basis_location);
         gfxDestroyBuffer(gfx_, buf_.basis_parameter);
         gfxDestroyBuffer(gfx_, buf_.quantilized_basis_step);

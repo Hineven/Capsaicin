@@ -431,6 +431,9 @@ void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
 float2 UV2NDC2 (float2 UV) {
     return float2(UV.x*2 - 1.f, 1.f - UV.y*2);
 }
+float2 NDC22UV (float2 NDC2) {
+    return float2(NDC2.x*0.5f + 0.5f, 0.5f - NDC2.y*0.5f);
+}
 
 // Approximating SG integration
 

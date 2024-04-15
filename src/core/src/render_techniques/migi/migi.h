@@ -76,7 +76,7 @@ public:
         GfxBuffer active_basis_index {};
         GfxBuffer basis_effective_radius {};
         GfxBuffer basis_film_position {};
-        GfxBuffer basis_screen_lambda {};
+        GfxBuffer basis_effective_radius_film {};
         GfxBuffer basis_location {};
         GfxBuffer basis_parameter {};
         GfxBuffer quantilized_basis_step {};

@@ -1042,9 +1042,8 @@ void SSRC_ReprojectAndFilter (int DispatchID : SV_DispatchThreadID) {
     g_RWBasisFilmPositionBuffer[DispatchID] = packUnorm2x16(CurrentUV);
     // Update screen lambda parameter
     float  BasisLinearDepth = dot(BasisPosition - g_CameraPosition, g_CameraDirection);
-    float  X = BasisEffectiveRadius / (BasisLinearDepth * g_CameraPixelScale);
-    float  BasisScreenLambda = -log(g_MinWeightE / W.Alpha) / (X * X);
-    g_RWBasisScreenLambdaBuffer[DispatchID] = BasisScreenLambda;
+    float  BasisEffectiveRadiusFilm = BasisEffectiveRadius / (BasisLinearDepth * g_CameraPixelScale);
+    g_RWBasisEffectiveRadiusFilmBuffer[DispatchID] = BasisEffectiveRadiusFilm;
 }
 
 // Clear tile injection index
@@ -1128,11 +1127,9 @@ void SSRC_PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_Gro
     // Thread local accumulators
     float3 ThreadSumRadiance[SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
     float  ThreadSumWeight  [SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
-    float  ThreadSumGWeight [SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
     for(int i = 0; i< SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE; i++) {
         ThreadSumRadiance[i] = 0.f.xxx;
         ThreadSumWeight  [i] = 0.f;
-        ThreadSumGWeight [i] = 0.f;
     }
 
     // Omit invalid pixels
@@ -1169,10 +1166,6 @@ void SSRC_PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_Gro
         FetchBasisData_W(BasisIndex, SG, W);
         float3 BasisWorldPosition;
         FetchBasisLocation(BasisIndex, BasisWorldPosition);
-        float2 BasisTilePosition 
-            = unpackUnorm2x16(g_RWBasisFilmPositionBuffer[BasisIndex]) * g_OutputDimensions
-             - float2(TileTextureBaseOffset);
-        float  BasisScreenLambda = g_RWBasisScreenLambdaBuffer[BasisIndex];
         // Cooperatively iterate over all pixels of the grid
         for(int PixelIndexBase = 0; PixelIndexBase < SSRC_TILE_SIZE * SSRC_TILE_SIZE; PixelIndexBase += WAVE_SIZE) {
             int PixelIndex = PixelIndexBase + LocalID;
@@ -1187,14 +1180,11 @@ void SSRC_PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_Gro
 
                 float3 EvaluatedRadiance = EvaluateSG(SG, RayDirection);
                 float3 DeltaPosition     = ThreadRayOrigin[PixelIndexBase / WAVE_SIZE] - BasisWorldPosition;
-                float2 DeltaFilmPosition = BasisTilePosition - float2(PixelX, PixelY);
                 float  EvaluatedW        = EvaluateW(W, DeltaPosition);
-                float  EvaluatedG        = EvaluateG(W, DeltaFilmPosition, BasisScreenLambda);
 
                 // Use thread local registers to accumulate results
                 ThreadSumRadiance[PixelIndexBase / WAVE_SIZE] += EvaluatedRadiance * EvaluatedW;
                 ThreadSumWeight  [PixelIndexBase / WAVE_SIZE] += EvaluatedW;
-                ThreadSumGWeight [PixelIndexBase / WAVE_SIZE] += EvaluatedG;
 
                 if(EvaluatedW > 0) AccessedSG = true;
             }
@@ -1220,7 +1210,7 @@ void SSRC_PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_Gro
                 g_RWRayRadianceDifferenceWSumTexture[TexCoords] = float4(RayRadiance - SumRadiance / SumWeight, SumWeight);
             else 
                 g_RWRayRadianceDifferenceWSumTexture[TexCoords] = float4(RayRadiance, 0.f);
-            g_RWCacheCoverageTexture[TexCoords] = ThreadSumGWeight[PixelIndexBase / WAVE_SIZE];
+            g_RWCacheCoverageTexture[TexCoords].x = 0.f;
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -1426,8 +1416,9 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
             float3 GeometryNormal = normalize(2.f * g_GeometryNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
             float  CorrectionFactor = 1.f / abs(dot(GeometryNormal, ViewDirection));
             float  Coverage3 = g_RWRayRadianceDifferenceWSumTexture[TexCoords].w * CorrectionFactor;
-            float  Coverage2 = g_RWCacheCoverageTexture[TexCoords].x;
-            float Coverage = clamp(sqrt(Coverage2 * Coverage3), 0.f, 0.99f);
+            // float  Coverage2 = g_RWCacheCoverageTexture[TexCoords].x;
+            //float Coverage = clamp(sqrt(Coverage2 * (Coverage3 + 0.02f)), 0.f, 0.99f);
+            float Coverage = clamp(Coverage3, 0.f, 0.99f);
             MinCoveragePacked = min(MinCoveragePacked, ((0xfffff & uint(Coverage * 0xfffff)) << 12) | (uint(PixelIndex) ^ TileMask));
         }
     }
@@ -1436,7 +1427,9 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         int2 BaseTexCoords = int2(GroupID.x * SSRC_TILE_SIZE, GroupID.y * SSRC_TILE_SIZE);
         uint MinPixelIndex = (MinCoveragePacked & 0xfff) ^ TileMask;
         float MinCoverage  = float(MinCoveragePacked >> 12) / 0xfffff;
-        
+        // Pad to prevent over spawnning on surfaces perpendicular to view direction.
+        float PaddingValue = float(TileBasisCount) / SSRC_MAX_BASIS_PER_TILE;
+        MinCoverage += PaddingValue * PaddingValue;
         if(MinCoverage < g_BasisSpawnCoverageThreshold && MinPixelIndex != 0xfff) {
             // New basis is here!
             int2 PixelCoords = int2(MinPixelIndex % SSRC_TILE_SIZE, MinPixelIndex / SSRC_TILE_SIZE);

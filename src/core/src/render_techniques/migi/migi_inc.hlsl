@@ -84,10 +84,10 @@ RWStructuredBuffer<uint>   g_RWActiveBasisCountBuffer;
 RWStructuredBuffer<uint>   g_RWActiveBasisIndexBuffer;
 // Cache per instance effective radius for injection rasterization
 RWStructuredBuffer<float>  g_RWBasisEffectiveRadiusBuffer;
+// Film space effective radius for clipping in injection
+RWStructuredBuffer<float>  g_RWBasisEffectiveRadiusFilmBuffer;
 // Cached basis center projection on screen, unorm 2x16 packed
 RWStructuredBuffer<uint>   g_RWBasisFilmPositionBuffer;
-// Screen lambda for cache coverage evaluation
-RWStructuredBuffer<float>  g_RWBasisScreenLambdaBuffer;
 RWStructuredBuffer<float3> g_RWBasisLocationBuffer;
 // Color : 16*3, Lambda: 16, Normal: 32packed, WLambda: 16, WAlpha: 16
 RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.

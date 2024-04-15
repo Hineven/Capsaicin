@@ -186,7 +186,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWActiveBasisIndexBuffer", buf_.active_basis_index);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisEffectiveRadiusBuffer", buf_.basis_effective_radius);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisFilmPositionBuffer", buf_.basis_film_position);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisScreenLambdaBuffer", buf_.basis_screen_lambda);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisEffectiveRadiusFilmBuffer", buf_.basis_effective_radius_film);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisLocationBuffer", buf_.basis_location);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterBuffer", buf_.basis_parameter);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWQuantilizedBasisStepBuffer", buf_.quantilized_basis_step);
