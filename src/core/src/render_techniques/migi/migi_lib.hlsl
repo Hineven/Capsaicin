@@ -101,8 +101,13 @@ struct WData {
 
 float EvaluateW (WData WD, float3 Delta)
 {
-    float LinearDistance = length(Delta);
-    return max(WD.Alpha - WD.Lambda * LinearDistance, 0);
+    float Sqr = lengthSqr(Delta);
+    return WD.Alpha * exp(-WD.Lambda * Sqr);
+}
+
+float EvaluateG (WData WD, float2 Delta, float ScreenLambda) {
+    float Sqr = dot(Delta, Delta);
+    return WD.Alpha * exp(-ScreenLambda * Sqr);
 }
 
 struct WGradients {
@@ -112,24 +117,16 @@ struct WGradients {
 
 void EvaluateW_Gradients (WData WD, float3 Delta, out WGradients Gradients)
 {
-    float LinearDistance = length(Delta);
-    bool Within = (LinearDistance * WD.Lambda) <= WD.Alpha;
-    Gradients.dLambda = Within ? -LinearDistance : 0;
-    Gradients.dAlpha  = Within ? 1 : 0;
+    Gradients.dAlpha = exp(-WD.Lambda * lengthSqr(Delta));
+    Gradients.dLambda = -WD.Alpha * Gradients.dAlpha * lengthSqr(Delta);
 }
 
-float EvaluateWEffectiveRadius (WData WD) {
-    return max(WD.Alpha / WD.Lambda, 0);
-}
-
-WData ShiftW (WData WD, float3 Delta) {
-    float LinearDistance = length(Delta);
-    WD.Alpha = max(WD.Alpha - LinearDistance * WD.Lambda, 0);
-    return WD;
+float EvaluateW_EffectiveRadius (WData WD, float E) {
+    return sqrt(-log(E / WD.Alpha) / WD.Lambda);
 }
 
 bool IsEmptyW (WData WD) {
-    return WD.Alpha <= 0.f || WD.Lambda >= 10000.f;
+    return false;
 }
 
 float EvaluateBilateralFilterWeight (float PixelScale, float FilmPlaneRadius, float3 DeltaPosition, float3 ShadingPixelNormal, float3 LightingPixelNormal) {
@@ -188,10 +185,10 @@ float RecoverRadianceGradient (int Radiance) {
     return float(Radiance) / 10000.f;
 }
 int QuantilizeLambdaGradient (float dL) {
-    return int(dL * 10000.f);
+    return int(dL * 1000000.f);
 }
 float RecoverLambdaGradient (int dL) {
-    return float(dL) / 10000.f;
+    return float(dL) / 1000000.f;
 }
 
 float SampleSGCosTheta (float u, float lambda) {
@@ -224,7 +221,7 @@ void UnpackBasisData (uint3 Packed, out SGData SG) {
     // unpack normal fails when x / y / z == -1
     // SG.Direction = normalize(unpackNormal(Packed.z));
     uint3 Dir    = uint3(Packed.z & 0x3ff, (Packed.z >> 10) & 0x3ff, (Packed.z >> 20) & 0x3ff);
-    SG.Direction = normalize(float3(Dir) * (1.f / 0x3ff) - 1.f);
+    SG.Direction = (float3(Dir) + (1.f / 0x800)) * (2.f / 0x400) - 1.f;
 }
 
 uint3 PackBasisData (SGData SG) {
@@ -233,7 +230,7 @@ uint3 PackBasisData (SGData SG) {
     Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
     // pack normal fails when x / y / z == -1
     // Packed.z = packNormal(SG.Direction);
-    uint3 Dir = clamp((SG.Direction + 1.f) * 0x3ff, 0, 0x3ff);
+    uint3 Dir = floor(clamp((SG.Direction + 1.f) * (0x200), 0.xxx, 0x3ff.xxx));
     Packed.z = Dir.x | (Dir.y << 10) | (Dir.z << 20);
     return Packed;
 }
@@ -245,27 +242,20 @@ void WriteBasisData (int BasisIndex, SGData SG) {
     g_RWBasisParameterBuffer[BasisIndex * 4 + 2] = Packed.z;
 }
 
-void UnpackBasisLocation (uint Packed, out float2 UV) {
-    UV.x = unpackUnorm1x16(Packed & 0xFFFF) * g_OutputDimensionsInv.x;
-    UV.y = unpackUnorm1x16(Packed >> 16) * g_OutputDimensionsInv.y;
-}
-
 void FetchBasisLocation (int BasisIndex, out float3 Position) {
     Position = g_RWBasisLocationBuffer[BasisIndex];
 }
 
-bool IsBasisActive (int BasisIndex) {
-    uint Flags = g_RWBasisFlagsBuffer[BasisIndex];
-    return Flags != 0;
-}
+
+// There is severe precision loss when using f16 to store WD.Lambda
 
 uint PackWData (WData WD) {
-    return f32tof16(WD.Lambda) | (f32tof16(WD.Alpha) << 16);
+    return asuint(WD.Lambda);//f32tof16(WD.Lambda) | (f32tof16(WD.Alpha) << 16);
 }
 
 void UnpackWData (uint Packed, out WData WD) {
-    WD.Lambda = f16tof32(Packed & 0xFFFFu);
-    WD.Alpha  = f16tof32(Packed >> 16);
+    WD.Lambda = asfloat(Packed);//f16tof32(Packed & 0xFFFFu);
+    WD.Alpha  = 1.f;//f16tof32(Packed >> 16);
 }
 
 void UnpackBasisData_W (uint4 Packed, out SGData SG, out WData WD) {
@@ -407,7 +397,6 @@ float DepthToLinearDepth (float Depth, float Near, float Far) {
 
 float GetLinearDepth(in float depth)
 {
-
     return -g_CameraNear * g_CameraFar / (depth * (g_CameraFar - g_CameraNear) - g_CameraFar);
 }
 
@@ -648,6 +637,14 @@ float3 BasisIndexToColor (int BasisIndex) {
         float3(0.5, 0.5, 1)
     };
     return _BasisIndexColorMap[BasisIndex % 15];
+}
+
+// Resolve directional shift for quantilized normal
+float3 lazyNormalize (float3 n) {
+    if(abs(dot(n, n) - 1.f) < 0.004f) {
+        return n;
+    }
+    return normalize(n);
 }
 
 #endif // MIGI_SHARED_HLSL

@@ -58,6 +58,15 @@ public:
         // R16G16B16A16_FLOAT
         GfxTexture   update_ray_radiance_difference_wsum {};
 
+        // Screen coverage of the cache, used for basis spawn
+        // f16x2
+        GfxTexture   cache_coverage_texture {};
+
+        // Hierarchical z-buffer
+        // R32_FLOAT, 1/2 - 1/8 resolution, 3 mip levels
+        GfxTexture   HiZ_min {};
+        GfxTexture   HiZ_max {};
+
         GfxTexture   depth {};
 
     } tex_ {};
@@ -65,6 +74,9 @@ public:
     struct MIGIBuffers {
         GfxBuffer active_basis_count {};
         GfxBuffer active_basis_index {};
+        GfxBuffer basis_effective_radius {};
+        GfxBuffer basis_film_position {};
+        GfxBuffer basis_screen_lambda {};
         GfxBuffer basis_location {};
         GfxBuffer basis_parameter {};
         GfxBuffer quantilized_basis_step {};
@@ -102,6 +114,10 @@ public:
         GfxKernel  generate_update_tiles_dispatch {};
         GfxKernel  update_tiles {};
         GfxKernel  resolve_cells {};
+
+        GfxKernel  precompute_HiZ_min {};
+        GfxKernel  precompute_HiZ_max {};
+
         GfxKernel  SSRC_clear_active_counter {};
         GfxKernel  SSRC_reproject_and_filter {};
         GfxKernel  SSRC_clear_tile_injection_index {};
@@ -121,6 +137,7 @@ public:
 
         GfxKernel  DebugSSRC_visualize_coverage {};
         GfxKernel  DebugSSRC_visualize_tile_occupancy {};
+        GfxKernel  DebugSSRC_basis {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};

@@ -46,7 +46,7 @@ bool MIGI::initConfig (const CapsaicinInternal & capsaicin) {
         cfg_.wave_lane_count = features.WaveLaneCountMin;
     }
 
-    cfg_.basis_buffer_allocation = 256 * 1024;
+    cfg_.basis_buffer_allocation = 1024 * 1024;
 
     return true;
 }
@@ -88,6 +88,12 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "UpdateTiles", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.resolve_cells = gfxCreateComputeKernel(
             gfx_, kernels_.program, "ResolveCells", defines_c.data(), (uint32_t)defines_c.size());
+        defines_c.push_back("HIZ_MIN");
+        kernels_.precompute_HiZ_min = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "PrecomputeHiZ", defines_c.data(), (uint32_t)defines_c.size());
+        defines_c.pop_back();
+        kernels_.precompute_HiZ_max = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "PrecomputeHiZ", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_clear_active_counter = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ClearActiveCounter", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_reproject_and_filter = gfxCreateComputeKernel(
@@ -126,6 +132,13 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "DebugSSRC_VisualizeCoverage", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_visualize_tile_occupancy = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_VisualizeTileOccupancy", defines_c.data(), (uint32_t)defines_c.size());
+        GfxDrawState debug_basis_draw_state = {};
+        // No culling
+        gfxDrawStateSetCullMode(debug_basis_draw_state, D3D12_CULL_MODE_NONE);
+        gfxDrawStateSetDepthStencilTarget(debug_basis_draw_state, tex_.depth);
+        gfxDrawStateSetColorTarget(debug_basis_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        kernels_.DebugSSRC_basis = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_basis_draw_state,
+            "DebugSSRC_Basis", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
@@ -192,12 +205,19 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
     tex_.update_ray_radiance_difference_wsum = gfxCreateTexture2D(
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
+    tex_.cache_coverage_texture = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, 1);
+    assert(capsaicin.getWidth() % 8 == 0 && capsaicin.getHeight() % 8 == 0);
+    tex_.HiZ_min = gfxCreateTexture2D(gfx_, capsaicin.getWidth() / 2, capsaicin.getHeight() / 2, DXGI_FORMAT_R32_FLOAT, 3);
+    tex_.HiZ_max = gfxCreateTexture2D(gfx_, capsaicin.getWidth() / 2, capsaicin.getHeight() / 2, DXGI_FORMAT_R32_FLOAT, 3);
 
     tex_.depth = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_D32_FLOAT);
 
     // Buffers
     buf_.active_basis_count    = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.active_basis_index    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_effective_radius= gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_film_position   = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_screen_lambda   = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_location        = gfxCreateBuffer<float3>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_parameter       = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation * 4);
     buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 9);
@@ -238,10 +258,11 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
     }
     updateRenderOptions(capsaicin);
 
-    if(!initKernels(capsaicin)) {
+    if(!initResources(capsaicin)) {
         return false;
     }
-    if(!initResources(capsaicin)) {
+
+    if(!initKernels(capsaicin)) {
         return false;
     }
 
@@ -266,6 +287,7 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.generate_update_tiles_dispatch);
         gfxDestroyKernel(gfx_, kernels_.update_tiles);
         gfxDestroyKernel(gfx_, kernels_.resolve_cells);
+        gfxDestroyKernel(gfx_, kernels_.precompute_HiZ_min);
         gfxDestroyKernel(gfx_, kernels_.SSRC_clear_active_counter);
         gfxDestroyKernel(gfx_, kernels_.SSRC_reproject_and_filter);
         gfxDestroyKernel(gfx_, kernels_.SSRC_clear_tile_injection_index);
@@ -284,6 +306,7 @@ void MIGI::terminate() noexcept
 
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_coverage);
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_tile_occupancy);
+        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis);
 
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch);
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch_rays);
@@ -299,10 +322,16 @@ void MIGI::terminate() noexcept
         gfxDestroyTexture(gfx_, tex_.update_ray_direction);
         gfxDestroyTexture(gfx_, tex_.update_ray_radiance);
         gfxDestroyTexture(gfx_, tex_.update_ray_radiance_difference_wsum);
+        gfxDestroyTexture(gfx_, tex_.cache_coverage_texture);
+        gfxDestroyTexture(gfx_, tex_.HiZ_min);
+        gfxDestroyTexture(gfx_, tex_.HiZ_max);
         gfxDestroyTexture(gfx_, tex_.depth);
 
         gfxDestroyBuffer(gfx_, buf_.active_basis_count);;
         gfxDestroyBuffer(gfx_, buf_.active_basis_index);
+        gfxDestroyBuffer(gfx_, buf_.basis_effective_radius);
+        gfxDestroyBuffer(gfx_, buf_.basis_film_position);
+        gfxDestroyBuffer(gfx_, buf_.basis_screen_lambda);
         gfxDestroyBuffer(gfx_, buf_.basis_location);
         gfxDestroyBuffer(gfx_, buf_.basis_parameter);
         gfxDestroyBuffer(gfx_, buf_.quantilized_basis_step);

@@ -298,8 +298,8 @@ void CapsaicinMain::printString(std::string const &text, MessageLevel level) noe
 bool CapsaicinMain::initialise() noexcept
 {
     // Default application settings
-    uint32_t windowWidth  = 1280;
-    uint32_t windowHeight = 720;
+    uint32_t windowWidth  = 1920;
+    uint32_t windowHeight = 1080;
 
     // Command line settings
     CLI::App app(programName.data());

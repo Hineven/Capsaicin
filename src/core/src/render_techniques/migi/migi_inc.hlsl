@@ -74,13 +74,20 @@ RWStructuredBuffer<DispatchRaysCommand> g_RWDispatchRaysCommandBuffer;
 RWStructuredBuffer<DrawCommand>         g_RWDrawCommandBuffer;
 RWStructuredBuffer<DrawIndexedCommand>  g_RWDrawIndexedCommandBuffer;
 
-// Outputs & RW Buffers
+// Outputs
 RWTexture2D<float4> g_RWDebugOutput;
 RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 
+// Buffers
 // Sparse screen space cache
 RWStructuredBuffer<uint>   g_RWActiveBasisCountBuffer;
 RWStructuredBuffer<uint>   g_RWActiveBasisIndexBuffer;
+// Cache per instance effective radius for injection rasterization
+RWStructuredBuffer<float>  g_RWBasisEffectiveRadiusBuffer;
+// Cached basis center projection on screen, unorm 2x16 packed
+RWStructuredBuffer<uint>   g_RWBasisFilmPositionBuffer;
+// Screen lambda for cache coverage evaluation
+RWStructuredBuffer<float>  g_RWBasisScreenLambdaBuffer;
 RWStructuredBuffer<float3> g_RWBasisLocationBuffer;
 // Color : 16*3, Lambda: 16, Normal: 32packed, WLambda: 16, WAlpha: 16
 RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
@@ -98,8 +105,10 @@ RWStructuredBuffer<uint>   g_RWTileBaseSlotOffsetBuffer;  // Points to the first
 RWStructuredBuffer<uint>   g_RWTileBasisIndexBuffer; // Store indices
 int2   g_TileDimensions; // Number of tiles in x and y direction
 float2 g_TileDimensionsInv;
-float g_BasisWInitialRadius; // Initial radius of each basis's W in pixels
-int g_MaxBasisCount; // Size of the basis buffer
+float  g_BasisWInitialRadius; // Initial radius of each basis's W in pixels
+float  g_MinWeightE; // A super parameter for determining the basis effective radius.
+float  g_BasisSpawnCoverageThreshold; // The threshold for spawning new basis.
+int    g_MaxBasisCount; // Size of the basis buffer
 
 // Conservative Rasterization for index injection
 int g_CR_DiskVertexCount; // Number of vertices in the disk when injecting basis
@@ -116,8 +125,21 @@ RWTexture2D<float4> g_RWRayDirectionTexture;
 RWTexture2D<float4> g_RWRayRadianceTexture;
 // RayRadiance - CacheEvaluatedRadiance, WSum
 RWTexture2D<float4> g_RWRayRadianceDifferenceWSumTexture;
+// Coverage texture supplies the cache generation
+RWTexture2D<float4> g_RWCacheCoverageTexture;
+
+// HiZ buffer generation input-outputs
+RWTexture2D<float4> g_RWHiZ_In;
+RWTexture2D<float4> g_RWHiZ_Out;
+
+Texture2D g_TileHiZ_Min;
+Texture2D g_TileHiZ_Max;
 
 float g_CacheUpdateLearningRate;
+uint  g_CacheUpdate_SGColor;
+uint  g_CacheUpdate_SGDirection;
+uint  g_CacheUpdate_SGLambda;
+uint  g_CacheUpdate_WLambda;
 
 // Screen resolution
 int2   g_OutputDimensions;

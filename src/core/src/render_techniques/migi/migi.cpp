@@ -86,7 +86,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     // *          Register the program parameters                *
     // ***********************************************************
 
-    light_sampler->addProgramParameters(capsaicin, kernels_.program);
+light_sampler->addProgramParameters(capsaicin, kernels_.program);
     stratified_sampler->addProgramParameters(capsaicin, kernels_.program);
     blue_noise_sampler->addProgramParameters(capsaicin, kernels_.program);
 
@@ -117,7 +117,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
 
     // Camera
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraPosition", capsaicin.getCamera().eye);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraDirection", capsaicin.getCamera().center - capsaicin.getCamera().eye);
+    // THIS IS  NOT NORMALIZED SOMETIMES!!!!
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraDirection", normalize(capsaicin.getCamera().center - capsaicin.getCamera().eye));
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraFoVY", capsaicin.getCamera().fovY);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraFoVY2", capsaicin.getCamera().fovY * 0.5f);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_AspectRatio", capsaicin.getCamera().aspect);
@@ -183,6 +184,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWActiveBasisCountBuffer", buf_.active_basis_count);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWActiveBasisIndexBuffer", buf_.active_basis_index);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisEffectiveRadiusBuffer", buf_.basis_effective_radius);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisFilmPositionBuffer", buf_.basis_film_position);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisScreenLambdaBuffer", buf_.basis_screen_lambda);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisLocationBuffer", buf_.basis_location);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterBuffer", buf_.basis_parameter);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWQuantilizedBasisStepBuffer", buf_.quantilized_basis_step);
@@ -198,6 +202,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TileDimensions", glm::int2(options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE));
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TileDimensionsInv", glm::vec2(1.f / float(options_.width / SSRC_TILE_SIZE), 1.f / float(options_.height / SSRC_TILE_SIZE)));
     gfxProgramSetParameter(gfx_, kernels_.program, "g_BasisWInitialRadius", options_.SSRC_initial_W_radius);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_BasisSpawnCoverageThreshold", options_.SSRC_basis_spawn_coverage_threshold);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_MinWeightE", options_.SSRC_min_weight_E);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_MaxBasisCount", options_.SSRC_max_basis_count);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CR_DiskVertexCount", options_.SSRC_CR_disk_vertex_count);
@@ -211,9 +217,20 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayDirectionTexture", tex_.update_ray_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceTexture", tex_.update_ray_radiance);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceDifferenceWSumTexture", tex_.update_ray_radiance_difference_wsum);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWCacheCoverageTexture", tex_.cache_coverage_texture);
+
+    static_assert(SSRC_TILE_SIZE == 8);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_TileHiZ_Min", tex_.HiZ_min, 2);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_TileHiZ_Max", tex_.HiZ_max, 2);
+
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_ScreenCacheDimensions", glm::int2(options_.width, options_.height));
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdateLearningRate", options_.lr_rate);
+
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdateLearningRate", options_.cache_update_learing_rate);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_SGColor", (uint32_t)options_.cache_update_SG_color);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_SGDirection", (uint32_t)options_.cache_update_SG_direction);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_SGLambda", (uint32_t)options_.cache_update_SG_lambda);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_WLambda", (uint32_t)options_.cache_update_W_lambda);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_OutputDimensions", glm::int2(options_.width, options_.height));
     gfxProgramSetParameter(gfx_, kernels_.program, "g_OutputDimensionsInv", glm::vec2(1.f / float(options_.width), 1.f / float(options_.height)));
@@ -508,7 +525,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
-    // Resolve our cells into the per-query storage
+    // Resolve cells into the per-query storage
     {
         TimedSection const timed_section(*this, "ResolveRadianceCache");
 
@@ -517,6 +534,51 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
 
         gfxCommandBindKernel(gfx_, kernels_.resolve_cells);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
+    }
+
+    // Precompute HiZ buffer for injection culling
+    {
+        auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
+            return (a + b - 1) / b;
+        };
+        {
+            TimedSection const timed_section(*this, "PrecomputeHiZ_Min");
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 0);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
+            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_HiZ_min);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 2, threads[0]),
+                divideAndRoundUp(options_.height / 2, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_min, 0);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 1);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]),
+                divideAndRoundUp(options_.height / 4, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_min, 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 2);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 8, threads[0]),
+                divideAndRoundUp(options_.height / 8, threads[1]), 1);
+        }
+        {
+            TimedSection const timed_section(*this, "PrecomputeHiZ_Max");
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 0);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
+            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_HiZ_max);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 2, threads[0]),
+                divideAndRoundUp(options_.height / 2, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 0);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 1);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]),
+                divideAndRoundUp(options_.height / 4, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 2);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 8, threads[0]),
+                divideAndRoundUp(options_.height / 8, threads[1]), 1);
+        }
     }
 
     // Clear active counter
@@ -541,7 +603,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_clear_tile_injection_index);
         assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
         int tile_size = options_.width / SSRC_TILE_SIZE * options_.height / SSRC_TILE_SIZE;
-        uint32_t dispatch_size[] = {tile_size / threads[0]};
+        uint32_t dispatch_size[] = {(tile_size + threads[0] - 1) / threads[0]};
         gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
     }
 
@@ -563,7 +625,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
         const TimedSection timed_section(*this, "SSRC_ClipOverflowTileIndex");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_clip_overflow_tile_index);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_clip_overflow_tile_index);
-        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE / threads[0];
+        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        dispatch_size = (dispatch_size + threads[0] - 1) / threads[0];
         gfxCommandDispatch(gfx_, dispatch_size, 1, 1);
     }
 
@@ -576,7 +639,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
         const TimedSection timed_section(*this, "SSRC_AllocateExtraSlotForBasisGeneration");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
-        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE / threads[0];
+        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        dispatch_size = (dispatch_size + threads[0] - 1) / threads[0];
         gfxCommandDispatch(gfx_, dispatch_size, 1, 1);
     }
 
@@ -640,14 +704,22 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
     }
 
     if(options_.active_debug_view == "SSRC_Coverage") {
+        const TimedSection timed_section(*this, "SSRC_Coverage");
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_visualize_coverage);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_visualize_coverage);
         uint dispatch_size[] = {(options_.width + threads[0]-1) / threads[0], (options_.height + threads[1]-1) / threads[1]};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     } else if(options_.active_debug_view == "SSRC_TileOccupancy") {
+        const TimedSection timed_section(*this, "SSRC_TileOccupancy");
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_visualize_tile_occupancy);
         uint dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    } else if(options_.active_debug_view == "SSRC_Basis") {
+        const TimedSection timed_section(*this, "SSRC_Basis");
+        gfxCommandClearTexture(gfx_, capsaicin.getAOVBuffer("Debug"));
+        gfxCommandClearTexture(gfx_, tex_.depth);
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_basis);
+        gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
     }
 
     // Update camera history

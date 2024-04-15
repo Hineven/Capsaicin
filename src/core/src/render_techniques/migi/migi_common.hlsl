@@ -118,10 +118,13 @@ struct RTConstants
     uint2                           padding2;
 };
 
-// The 
+// The screen tile size for indexing basis (in pixels) 
 #define SSRC_TILE_SIZE 8
 // A maximum of 64 basis can be injected into a single tile.
 #define SSRC_MAX_BASIS_PER_TILE 64
+
+// Baisis not accessed for 5 frames are recycled
+#define BASIS_RETIRE_FRAME_COUNT 5u
 
 #ifdef __cplusplus
 }// namespace Capsaicin

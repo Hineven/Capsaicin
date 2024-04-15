@@ -18,11 +18,17 @@ RenderOptionList MIGI::getRenderOptions() noexcept
     ret.emplace("debug_visualize_mode", options_.debug_visualize_mode);
     ret.emplace("debug_visualize_channel", options_.debug_visualize_channel);
 
-    ret.emplace("lr_rate", options_.lr_rate);
+    ret.emplace("lr_rate", options_.cache_update_learing_rate);
+    ret.emplace("cache_update_SG_color", options_.cache_update_SG_color);
+    ret.emplace("cache_update_SG_direction", options_.cache_update_SG_direction);
+    ret.emplace("cache_update_SG_lambda", options_.cache_update_SG_lambda);
+    ret.emplace("cache_update_W_lambda", options_.cache_update_W_lambda);
 
     ret.emplace("reset_screen_space_cache", options_.reset_screen_space_cache);
 
     ret.emplace("SSRC_max_basis_count", options_.SSRC_max_basis_count);
+    ret.emplace("SSRC_basis_spawn_coverage_threshold", options_.SSRC_basis_spawn_coverage_threshold);
+    ret.emplace("SSRC_min_weight_E", options_.SSRC_min_weight_E);
     ret.emplace("SSRC_initial_W_radius", options_.SSRC_initial_W_radius);
 
     ret.emplace("shading_with_geometry_normal", options_.shading_with_geometry_normal);
@@ -71,6 +77,8 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     // We shoot one update ray per pixel.
     options_.SSRC_max_update_ray_count = options_.width * options_.height;
     options_.SSRC_max_basis_count      = std::min((int)std::get<uint32_t>(in["SSRC_max_basis_count"]), cfg_.basis_buffer_allocation);
+    options_.SSRC_basis_spawn_coverage_threshold = std::get<float>(in["SSRC_basis_spawn_coverage_threshold"]);
+    options_.SSRC_min_weight_E         = std::get<float>(in["SSRC_min_weight_E"]);
     options_.SSRC_initial_W_radius     = std::get<float>(in["SSRC_initial_W_radius"]);
 
     // Only SSRC update rays request ReSTIR sampling.
@@ -79,7 +87,11 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     // GI Parameters
     // Read the options from the render settings and update options_.
     // This is called before rendering.
-    options_.lr_rate = std::get<float>(in["lr_rate"]);
+    options_.cache_update_learing_rate = std::get<float>(in["lr_rate"]);
+    options_.cache_update_SG_color = std::get<bool>(in["cache_update_SG_color"]);
+    options_.cache_update_SG_direction = std::get<bool>(in["cache_update_SG_direction"]);
+    options_.cache_update_SG_lambda = std::get<bool>(in["cache_update_SG_lambda"]);
+    options_.cache_update_W_lambda = std::get<bool>(in["cache_update_W_lambda"]);
 
     options_.shading_with_geometry_normal = std::get<bool>(in["shading_with_geometry_normal"]);
     options_.no_importance_sampling = std::get<bool>(in["no_importance_sampling"]);
@@ -112,6 +124,7 @@ DebugViewList MIGI::getDebugViews() const noexcept
     auto ret = DebugViewList();
     ret.emplace_back("SSRC_Coverage");
     ret.emplace_back("SSRC_TileOccupancy");
+    ret.emplace_back("SSRC_Basis");
     return ret;
 }
 
