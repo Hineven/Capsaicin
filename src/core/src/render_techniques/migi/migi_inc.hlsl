@@ -96,8 +96,8 @@ RWStructuredBuffer< int>   g_RWQuantilizedBasisStepBuffer; // Step size for atom
 RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
-// Before compression
 RWStructuredBuffer<uint>   g_RWTileBasisCountBuffer; // The number of injected basis in each tile
+// Before compression
 // TILE_BASIS_INJECTION_RESERVATION slots are reserved for each tile for injection.
 RWStructuredBuffer<uint>   g_RWTileBasisIndexInjectionBuffer;
 // Compressed
@@ -120,12 +120,12 @@ uint g_NoImportanceSampling;
 uint g_FixedStepSize;
 uint g_UseBlueNoiseSampleDirection;
 
-// Update rays (currently uniformly distributed across the film)
+// Update rays (currently uniformly distributed across the film) and inverse of sample pdf on the sphere
 RWTexture2D<float4> g_RWRayDirectionTexture;
 RWTexture2D<float4> g_RWRayRadianceTexture;
 // RayRadiance - CacheEvaluatedRadiance, WSum
 RWTexture2D<float4> g_RWRayRadianceDifferenceWSumTexture;
-// Coverage texture supplies the cache generation
+// Coverage texture supplies the cache generation, currently unused
 RWTexture2D<float4> g_RWCacheCoverageTexture;
 
 // HiZ buffer generation input-outputs

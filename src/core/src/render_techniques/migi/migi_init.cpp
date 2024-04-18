@@ -200,7 +200,7 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
 
 bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.update_ray_direction =
-        gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R8G8B8A8_UNORM, 1);
+        gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
     tex_.update_ray_radiance = gfxCreateTexture2D(
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
     tex_.update_ray_radiance_difference_wsum = gfxCreateTexture2D(

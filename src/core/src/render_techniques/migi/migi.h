@@ -50,7 +50,7 @@ public:
     struct MIGIResources
     {
         // Ray buffers for cache update
-        // R8G8B8A8_UNORM
+        // R16G16B16A16_FLOAT
         GfxTexture   update_ray_direction {};
         // R16G16B16A16_FLOAT
         GfxTexture   update_ray_radiance {};

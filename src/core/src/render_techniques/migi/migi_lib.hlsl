@@ -375,6 +375,11 @@ float3 UniformSampleSphere(float2 u)
     return float3(R * SinCos.y, R * SinCos.x, Z);
 }
 
+float UniformSampleSpherePdf ()
+{
+    return 1.f / (4.f * PI);
+}
+
 float3 CosineWeightedSampleHemisphere (float2 u) {
     float2 SinCos;
     sincos(2.f * PI * u.x, SinCos.x, SinCos.y);

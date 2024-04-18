@@ -301,23 +301,23 @@ void TraceUpdateRays (uint2 DispatchID) {
         u_b = randomNG.rand2();
     }
     float3 RayDirection;
+    float Pdf;
 
     RayDirection = UniformSampleSphere(u_b);//UniformSampleHemisphere(u_b);//CosineWeightedSampleHemisphere(u_b);
+    Pdf          = UniformSampleSpherePdf();
+
     float3 PixelTangent, PixelBitangent;
     TangentVectors(ShadingNormal, PixelTangent, PixelBitangent);
     RayDirection = normalize(RayDirection.x * PixelTangent + RayDirection.y * PixelBitangent + RayDirection.z * ShadingNormal);
 
     // Record trace ray direction for later hit position recovery
-    g_RWRayDirectionTexture[DispatchID.xy] = float4(RayDirection * 0.5f + 0.5f, 0);
+    g_RWRayDirectionTexture[DispatchID.xy] = float4(RayDirection, 1.f / Pdf);
 
     if(dot(RayDirection, GeometryNormal) < 0.0f) {
         // Learn negative samples.
-        g_RWRayRadianceTexture[DispatchID.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        g_RWRayRadianceTexture[DispatchID.xy] = float4(0.0f, 0.0f, 0.0f, 0.f);
         return ;
     }
-
-    // g_RWRayRadianceTexture[DispatchID.xy] = float4(dot(RayDirection, float3(1, -1, 0)).xxx, 0.0f);
-    // return ;
 
     // Trace a visibility ray only.
     RayDesc VisibilityRayDesc;
@@ -1145,7 +1145,7 @@ void SSRC_PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_Gro
         ThreadValidPixel[i] = g_DepthTexture.Load(int3(TexCoords, 0)).x < 1.f;
         {
             int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
-            float3 RayDirection = normalize(2.f * g_RWRayDirectionTexture[TexCoords].xyz - 1.f);
+            float3 RayDirection = g_RWRayDirectionTexture[TexCoords].xyz;
             float3 RayRadiance  = g_RWRayRadianceTexture[TexCoords].xyz;
             float  Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
             float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
@@ -1210,7 +1210,6 @@ void SSRC_PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_Gro
                 g_RWRayRadianceDifferenceWSumTexture[TexCoords] = float4(RayRadiance - SumRadiance / SumWeight, SumWeight);
             else 
                 g_RWRayRadianceDifferenceWSumTexture[TexCoords] = float4(RayRadiance, 0.f);
-            g_RWCacheCoverageTexture[TexCoords].x = 0.f;
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -1245,7 +1244,7 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
         int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
         {   
             int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
-            float3 RayDirection = normalize(2.f * g_RWRayDirectionTexture[TexCoords].xyz - 1.f);
+            float3 RayDirection = g_RWRayDirectionTexture[TexCoords].xyz;
             float4 RayRadianceDifferenceSum  = g_RWRayRadianceDifferenceWSumTexture[TexCoords];
             float  Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
             float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
@@ -1356,9 +1355,9 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     float NormalizationFactor = 1.f / sqrt(
         dot(Step_SG.dColor, Step_SG.dColor) +
         dot(Step_SG.dDirection, Step_SG.dDirection) +
-        // dot(Step_SG.dLambda, Step_SG.dLambda) +
-        // Step_W.dAlpha * Step_W.dAlpha +
-        // Step_W.dLambda * Step_W.dLambda + 
+        dot(Step_SG.dLambda, Step_SG.dLambda) +
+        Step_W.dAlpha * Step_W.dAlpha +
+        Step_W.dLambda * Step_W.dLambda + 
         0.00001f
     );
     NormalizationFactor = 1.f;
@@ -1381,7 +1380,7 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     // W.Alpha      = clamp(W.Alpha, 0.0001f, 1000.f); // Alpha is in [0.0, 1000.f]
     if(g_CacheUpdate_WLambda) {
         W.Lambda     += Step_W.dLambda     * g_CacheUpdateLearningRate * NormalizationFactor;
-        W.Lambda     = clamp(W.Lambda, 100.f, 1e5f); // Lambda is in [1e3, 1e7]
+        W.Lambda     = clamp(W.Lambda, 100.f, 1e6f); // Lambda is in [1e3, 1e7]
     }
     // Write back the data
     WriteBasisData_W(BasisIndex, SG, W);
@@ -1416,62 +1415,152 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
             float3 GeometryNormal = normalize(2.f * g_GeometryNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
             float  CorrectionFactor = 1.f / abs(dot(GeometryNormal, ViewDirection));
             float  Coverage3 = g_RWRayRadianceDifferenceWSumTexture[TexCoords].w * CorrectionFactor;
-            // float  Coverage2 = g_RWCacheCoverageTexture[TexCoords].x;
-            //float Coverage = clamp(sqrt(Coverage2 * (Coverage3 + 0.02f)), 0.f, 0.99f);
             float Coverage = clamp(Coverage3, 0.f, 0.99f);
             MinCoveragePacked = min(MinCoveragePacked, ((0xfffff & uint(Coverage * 0xfffff)) << 12) | (uint(PixelIndex) ^ TileMask));
         }
     }
     MinCoveragePacked = WaveActiveMin(MinCoveragePacked);
+    int BasisIndex = kGI10_InvalidId;
+    float3 WorldPosition, SurfaceNormal;
+    int2 SpawnTexCoords;
+    float WLambda;
     if(WaveIsFirstLane()) {
         int2 BaseTexCoords = int2(GroupID.x * SSRC_TILE_SIZE, GroupID.y * SSRC_TILE_SIZE);
         uint MinPixelIndex = (MinCoveragePacked & 0xfff) ^ TileMask;
         float MinCoverage  = float(MinCoveragePacked >> 12) / 0xfffff;
         // Pad to prevent over spawnning on surfaces perpendicular to view direction.
         float PaddingValue = float(TileBasisCount) / SSRC_MAX_BASIS_PER_TILE;
-        MinCoverage += PaddingValue * PaddingValue;
+        // We assume that each basis injects to 8 adjacent tiles
+        MinCoverage += PaddingValue * PaddingValue * g_BasisSpawnCoverageThreshold * 8.f;
         if(MinCoverage < g_BasisSpawnCoverageThreshold && MinPixelIndex != 0xfff) {
             // New basis is here!
             int2 PixelCoords = int2(MinPixelIndex % SSRC_TILE_SIZE, MinPixelIndex / SSRC_TILE_SIZE);
-            int2 TexCoords = BaseTexCoords + PixelCoords;
+            SpawnTexCoords = BaseTexCoords + PixelCoords;
             uint BasisAllocIndex;
             InterlockedAdd(g_RWFreeBasisIndicesCountBuffer[0], -1, BasisAllocIndex);
             BasisAllocIndex = BasisAllocIndex - 1;
             if(BasisAllocIndex < 0x7fffffffu) {
                 // Allocation succeeded
-                int BasisIndex = g_RWFreeBasisIndicesBuffer[BasisAllocIndex];
-
+                BasisIndex = g_RWFreeBasisIndicesBuffer[BasisAllocIndex];
                 // The last slot for each tile is reserved for the newly allocated basis
                 // Inject it to the tile basis index
                 g_RWTileBasisIndexBuffer[g_RWTileBaseSlotOffsetBuffer[TileID] + TileBasisCount] = BasisIndex;
                 g_RWTileBasisCountBuffer[TileID] = TileBasisCount + 1;
-
-                // Initialize the basis
-                SGData SG = (SGData)0;
-                WData  W  = (WData)0;
-                float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
-                float  PixelDepth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
-                float3 PixelNormal = normalize(2.f * g_ShadingNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
-                float3 WorldPosition = InverseProject(g_CameraProjViewInv, UV, PixelDepth);
-                
-                // TODO better initialization
-                SG.Direction = PixelNormal;
-                SG.Lambda    = 0.85f;
-                SG.Color     = 0.5f.xxx;
-
-                // Initialize the weight kernel parameters to make the effective
-                // radius of the basis to be the same as the initial radius
+                float2 UV = (SpawnTexCoords + 0.5f) / g_OutputDimensions;
+                float  PixelDepth = g_DepthTexture.Load(int3(SpawnTexCoords, 0)).x;
+                float3 PixelNormal = normalize(2.f * g_ShadingNormalTexture.Load(int3(SpawnTexCoords, 0)).xyz - 1.f);
+                WorldPosition = InverseProject(g_CameraProjViewInv, UV, PixelDepth);
+                float U = BlueNoise_Sample1D(GroupID.xy + int2(8271, 2983), g_FrameIndex).x;
+                // Randomize radius
                 float X  = GetLinearDepth(PixelDepth) * g_CameraPixelScale * g_BasisWInitialRadius;
-                W.Lambda = -log(g_MinWeightE) / (X * X);
-                W.Alpha  = 1.f;
-
-                // Write the basis data
-                WriteBasisData_W(BasisIndex, SG, W);
-                WriteBasisLocation(BasisIndex, WorldPosition);
-                // Mark the basis as active
-                g_RWBasisFlagsBuffer[BasisIndex] = g_FrameIndex;
-            } 
+                X = X * lerp(0.5f, 4.5f, U);
+                WLambda = -log(g_MinWeightE) / (X * X);
+                SurfaceNormal = PixelNormal;
+            }
         }
+    }
+
+    BasisIndex = WaveReadLaneFirst(BasisIndex);
+    // Quit the wave if no new basis is allocated
+    [branch]
+    if(BasisIndex == kGI10_InvalidId) return ;
+
+    WorldPosition  = WaveReadLaneFirst(WorldPosition);
+    SpawnTexCoords = WaveReadLaneFirst(SpawnTexCoords);
+    SurfaceNormal  = WaveReadLaneFirst(SurfaceNormal);
+    WData W = (WData)0;
+    W.Lambda       = WaveReadLaneFirst(WLambda);
+    W.Alpha        = 1.f;
+
+    float  SumInitWeight    = 0.f;
+    float3 SumInitRadiance  = 0.f.xxx;
+    float3 SumInitDirection = 0.f.xxx;
+
+    // Guess the SG direction with a heuristic
+    for(int PixelBaseOffset = 0; 
+        PixelBaseOffset < SSRC_TILE_SIZE * SSRC_TILE_SIZE; 
+        PixelBaseOffset += WAVE_SIZE) {
+        int  PixelIndex  = PixelBaseOffset + LocalID;
+        int2 PixelCoords = int2(PixelIndex % SSRC_TILE_SIZE, PixelIndex / SSRC_TILE_SIZE);
+        int2 TexCoords   = SpawnTexCoords + PixelCoords - (SSRC_TILE_SIZE / 2).xx;
+        if(all(TexCoords >= 0) && all(TexCoords < g_OutputDimensions)) {
+            float CurrentPixelDepth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
+            if(CurrentPixelDepth < 1.f) {
+                float2 CurrentUV = (TexCoords + 0.5f) / g_OutputDimensions; 
+                float3 CurrentWorldPos = InverseProject(g_CameraProjViewInv, CurrentUV, CurrentPixelDepth);
+                float3 CurrentOutRayDirection  = g_RWRayDirectionTexture[TexCoords].xyz;
+                float3 CurrentOutRayDifference = g_RWRayRadianceDifferenceWSumTexture[TexCoords].xyz;
+                // Normalize probability for choosing different directions by dividing
+                // ray direction pdf in sample weight averaging
+                float  InvPdf = g_RWRayDirectionTexture[TexCoords].w;
+                float3 DeltaPosition = CurrentWorldPos - WorldPosition;
+                // Clamp W to provide enough samples for the initial guess
+                float EvaluatedW = EvaluateW(W, DeltaPosition) + 0.01f;
+                // Find the direction with maximum difference (no matter positive or negative)
+                float DifferenceWeight = dot(abs(CurrentOutRayDifference), 1.f.xxx);
+                // Omit the direction with negative dot product with the surface normal
+                if(dot(CurrentOutRayDirection, SurfaceNormal) < 0) continue ;
+                SumInitDirection += CurrentOutRayDirection * DifferenceWeight * EvaluatedW * InvPdf;
+            }
+        }
+    }
+    SumInitDirection = WaveActiveSum(SumInitDirection);
+    
+    SGData SG;
+    if(length(SumInitDirection) != 0.f)
+        SG.Direction = normalize(SumInitDirection);
+    else SG.Direction = SurfaceNormal;
+    // TODO better initialization of lambda
+    float M      = BlueNoise_Sample1D(GroupID.xy + int2(3817, 4905), g_FrameIndex).x;
+    SG.Direction = SurfaceNormal;
+    SG.Lambda    = 0.85f;//lerp(0.35f, 1.2f, M);
+    SG.Color     = 1.f.xxx;
+
+    SumInitWeight = 0.f;
+    // Initialize the Color of SG according to ray differences
+    for(int PixelBaseOffset = 0; 
+        PixelBaseOffset < SSRC_TILE_SIZE * SSRC_TILE_SIZE; 
+        PixelBaseOffset += WAVE_SIZE) {
+        int  PixelIndex  = PixelBaseOffset + LocalID;
+        int2 PixelCoords = int2(PixelIndex % SSRC_TILE_SIZE, PixelIndex / SSRC_TILE_SIZE);
+        int2 TexCoords   = SpawnTexCoords + PixelCoords - (SSRC_TILE_SIZE / 2).xx;
+        if(all(TexCoords >= 0) && all(TexCoords < g_OutputDimensions)) {
+            float CurrentPixelDepth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
+            if(CurrentPixelDepth < 1.f) {
+                float2 CurrentUV = (TexCoords + 0.5f) / g_OutputDimensions; 
+                float3 CurrentWorldPos = InverseProject(g_CameraProjViewInv, CurrentUV, CurrentPixelDepth);
+                float3 CurrentOutRayDirection  = g_RWRayDirectionTexture[TexCoords].xyz;
+                float3 CurrentOutRayRadiance   = g_RWRayRadianceTexture[TexCoords].xyz;
+                float  InvPdf = g_RWRayDirectionTexture[TexCoords].w;
+                float3 DeltaPosition = CurrentWorldPos - WorldPosition;
+                // Clamp W to provide enough samples for the initial guess
+                float EvaluatedW = EvaluateW(W, DeltaPosition) + 0.01f;
+                float  F          = EvaluateSG(SG, CurrentOutRayDirection).x;
+                float  B          = EvaluatedW * InvPdf;
+                float3 T          = CurrentOutRayRadiance;
+                // Want minimize \sum B * |F * alpha - T| for alpha
+                float3 BestAlpha  = T / F;
+                float  DiffAlpha  = B * F;
+                // Simply do an average
+
+                SumInitWeight    += DiffAlpha;
+                SumInitRadiance  += BestAlpha * DiffAlpha;
+            }
+        }
+    }
+    SumInitWeight   = WaveActiveSum(SumInitWeight);
+    SumInitRadiance = WaveActiveSum(SumInitRadiance);
+
+    if(LocalID == 0) {
+        // Fall back to 1.f.xxx if the guessing provides an invalid color
+        if(SumInitWeight != 0.f) {
+            SG.Color = SumInitRadiance / SumInitWeight;
+        } else SG.Color = float3(1.f, 0.f, 0.f);
+        // Write the basis data
+        WriteBasisData_W(BasisIndex, SG, W);
+        WriteBasisLocation(BasisIndex, WorldPosition);
+        // Mark the basis as active
+        g_RWBasisFlagsBuffer[BasisIndex] = g_FrameIndex;
     }
 }
 

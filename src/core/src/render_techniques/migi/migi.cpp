@@ -217,6 +217,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayDirectionTexture", tex_.update_ray_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceTexture", tex_.update_ray_radiance);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceDifferenceWSumTexture", tex_.update_ray_radiance_difference_wsum);
+    // Currently unused
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWCacheCoverageTexture", tex_.cache_coverage_texture);
 
     static_assert(SSRC_TILE_SIZE == 8);

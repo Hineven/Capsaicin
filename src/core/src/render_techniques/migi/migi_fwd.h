@@ -29,11 +29,11 @@ struct MIGIRenderOptions {
     // Maximum number of basis active in the screen space radiance cache
     uint32_t SSRC_max_basis_count {256 * 1024};
     // Min coverage for basis spawn
-    float SSRC_basis_spawn_coverage_threshold {0.15f};
+    float SSRC_basis_spawn_coverage_threshold {2.f};
     // Radius control for basis injection
-    float SSRC_min_weight_E {0.01f};
+    float SSRC_min_weight_E {0.08f};
     // Default initial W radius for newly generated basis
-    float SSRC_initial_W_radius {4.f};
+    float SSRC_initial_W_radius {8.f};
     // Resolution of the disk when doing rasterization for tile index injection
     uint32_t SSRC_CR_disk_vertex_count {12};
 
