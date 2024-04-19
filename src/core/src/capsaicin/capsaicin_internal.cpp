@@ -665,13 +665,13 @@ std::string_view CapsaicinInternal::getCurrentDebugView() const noexcept
 bool CapsaicinInternal::setDebugView(std::string_view const &name) noexcept
 {
     auto debugView = std::find_if(
-        debug_views_.cbegin(), debug_views_.cend(), [this](auto val) { return debug_view_ == val.first; });
+        debug_views_.cbegin(), debug_views_.cend(), [this, name](auto val) { return name == val.first; });
     if (debugView == debug_views_.cend())
     {
         GFX_PRINTLN("Error: Requested invalid debug view: %s", name.data());
         return false;
     }
-    debug_view_ = name;
+    debug_view_ = debugView->first;
     return true;
 }
 

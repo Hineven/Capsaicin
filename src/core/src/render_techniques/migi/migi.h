@@ -41,6 +41,8 @@ public:
 
     [[nodiscard]] std::vector<std::string> getShaderCompileDefinitions (const CapsaicinInternal &) const ;
 
+    void renderGUI(CapsaicinInternal &capsaicin) const noexcept override;
+
     struct Config {
         int wave_lane_count {};
         int basis_buffer_allocation {};
@@ -95,6 +97,8 @@ public:
         GfxBuffer draw_indexed_command {};
 
         GfxBuffer disk_index_buffer {};
+
+        GfxBuffer readback[kGfxConstant_BackBufferCount] {};
     } buf_{};
 
     bool initResources (const CapsaicinInternal &capsaicin);
@@ -138,6 +142,8 @@ public:
         GfxKernel  DebugSSRC_visualize_coverage {};
         GfxKernel  DebugSSRC_visualize_tile_occupancy {};
         GfxKernel  DebugSSRC_basis {};
+        GfxKernel  DebugSSRC_basis_3D {};
+        GfxKernel  DebugSSRC_generate_draw_indexed {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};
@@ -160,7 +166,8 @@ protected:
     void generateDispatch (GfxBuffer dispatch_count_buffer, uint threads_per_group);
     void generateDispatchRays (GfxBuffer count_buffer);
 
-    MIGIRenderOptions options_ {};
+    // We need to modify it in the GUI rendering
+    mutable MIGIRenderOptions options_ {};
 
     WorldSpaceReSTIR world_space_restir_;
     HashGridCache   hash_grid_cache_;
@@ -181,8 +188,15 @@ protected:
     // If the reservoirs need to be reset.
     bool need_reset_world_space_reservoirs_ {true};
     // If the screen space cache needs to be reset.
-    bool need_reset_screen_space_cache_ {true};
+    mutable bool need_reset_screen_space_cache_ {true};
     bool on_first_frame_ {true};
+
+    bool readback_pending_ [kGfxConstant_BackBufferCount] {};
+    struct {
+        uint32_t active_basis_count {};
+    } readback_values_;
+
+    uint32_t internal_frame_index_ {};
 };
 }
 

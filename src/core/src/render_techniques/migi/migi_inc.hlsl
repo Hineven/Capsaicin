@@ -119,6 +119,7 @@ float g_CR_DiskRadiusBias; // Bias for the disk radius
 uint g_NoImportanceSampling;
 uint g_FixedStepSize;
 uint g_UseBlueNoiseSampleDirection;
+uint g_FreezeBasisAllocation;
 
 // Update rays (currently uniformly distributed across the film) and inverse of sample pdf on the sphere
 RWTexture2D<float4> g_RWRayDirectionTexture;

@@ -27,7 +27,6 @@ MIGI::MIGI()
 MIGI::~MIGI() {terminate();}
 
 void MIGI::render(CapsaicinInternal &capsaicin) noexcept {
-
     // Prepar settings
     updateRenderOptions(capsaicin);
 
@@ -213,6 +212,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_NoImportanceSampling", (uint)options_.no_importance_sampling);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FixedStepSize", (uint)options_.fixed_step_size);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_UseBlueNoiseSampleDirection", (uint)options_.use_blue_noise_sample_direction);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_FreezeBasisAllocation", (uint)options_.freeze_basis_allocation);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayDirectionTexture", tex_.update_ray_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceTexture", tex_.update_ray_radiance);
@@ -721,10 +721,38 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandClearTexture(gfx_, tex_.depth);
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_basis);
         gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
+    } else if(options_.active_debug_view == "SSRC_Basis3D") {
+        const TimedSection timed_section(*this, "SSRC_Basis3D");
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_generate_draw_indexed);
+        gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+        gfxCommandClearTexture(gfx_, tex_.depth);
+        // Reuse the index buffer for the disk {0, 1, 2, ...} and wireframe draw mode for just 3 points
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_basis_3D);
+        gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
+    }
+
+    {
+        const TimedSection timed_section(*this, "ReadbackStats");
+        auto frame_index = internal_frame_index_;
+        auto copy_idx = frame_index % kGfxConstant_BackBufferCount;
+        assert(!readback_pending_[copy_idx]);
+        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 0, buf_.active_basis_count, 0, sizeof(uint32_t));
+        readback_pending_[copy_idx] = true;
+    }
+    {
+        auto frame_index = internal_frame_index_;
+        auto readback_idx = (frame_index + 1) % kGfxConstant_BackBufferCount;
+        if(readback_pending_[readback_idx]){
+            // Readback
+            readback_values_.active_basis_count = gfxBufferGetData<uint32_t>(gfx_, buf_.readback[readback_idx])[0];
+            readback_pending_[readback_idx] = false;
+        }
     }
 
     // Update camera history
     previous_camera_ = capsaicin.getCamera();
+    // Increment internal frame index, which is different from the frame index in Capsaicin
+    internal_frame_index_ ++;
 }
 
 void MIGI::clearHashGridCache () {

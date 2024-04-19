@@ -649,7 +649,7 @@ float3 BasisIndexToColor (int BasisIndex) {
 
 // Resolve directional shift for quantilized normal
 float3 lazyNormalize (float3 n) {
-    if(abs(dot(n, n) - 1.f) < 0.004f) {
+    if(abs(dot(n, n) - 1.f) < 0.001f) {
         return n;
     }
     return normalize(n);

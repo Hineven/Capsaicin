@@ -980,6 +980,10 @@ void SSRC_ReprojectAndFilter (int DispatchID : SV_DispatchThreadID) {
     if(g_FrameIndex - Flags > BASIS_RETIRE_FRAME_COUNT) {
         return ;
     }
+    if(g_FreezeBasisAllocation) {
+        // Refresh all basis every frame if the freezing mode is on
+        g_RWBasisFlagsBuffer[DispatchID] = g_FrameIndex;
+    }
 
     // Clear the step size for step accumulation
     ScreenCache_ResetStepSize(DispatchID);
@@ -1016,7 +1020,7 @@ void SSRC_ReprojectAndFilter (int DispatchID : SV_DispatchThreadID) {
     //     ActiveFlag = 0;
     // }
 
-    if(ActiveFlag == 0) {
+    if(ActiveFlag == 0 && !g_FreezeBasisAllocation) {
         uint Slot;
         InterlockedAdd(g_RWFreeBasisIndicesCountBuffer[0], 1, Slot);
         g_RWFreeBasisIndicesBuffer[Slot] = DispatchID;
@@ -1041,9 +1045,14 @@ void SSRC_ReprojectAndFilter (int DispatchID : SV_DispatchThreadID) {
     // Update the center projection for this basis
     g_RWBasisFilmPositionBuffer[DispatchID] = packUnorm2x16(CurrentUV);
     // Update screen lambda parameter
-    float  BasisLinearDepth = dot(BasisPosition - g_CameraPosition, g_CameraDirection);
-    float  BasisEffectiveRadiusFilm = BasisEffectiveRadius / (BasisLinearDepth * g_CameraPixelScale);
-    g_RWBasisEffectiveRadiusFilmBuffer[DispatchID] = BasisEffectiveRadiusFilm;
+    if(ActiveFlag) {
+        float  BasisLinearDepth = dot(BasisPosition - g_CameraPosition, g_CameraDirection);
+        float  BasisEffectiveRadiusFilm = BasisEffectiveRadius / (BasisLinearDepth * g_CameraPixelScale);
+        g_RWBasisEffectiveRadiusFilmBuffer[DispatchID] = BasisEffectiveRadiusFilm;
+    } else {
+        // Make sure we do inject correctly when the basis is inactive under freeze mode
+        g_RWBasisEffectiveRadiusFilmBuffer[DispatchID] = 0.1f;
+    }
 }
 
 // Clear tile injection index
@@ -1432,7 +1441,7 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         float PaddingValue = float(TileBasisCount) / SSRC_MAX_BASIS_PER_TILE;
         // We assume that each basis injects to 8 adjacent tiles
         MinCoverage += PaddingValue * PaddingValue * g_BasisSpawnCoverageThreshold * 8.f;
-        if(MinCoverage < g_BasisSpawnCoverageThreshold && MinPixelIndex != 0xfff) {
+        if(MinCoverage < g_BasisSpawnCoverageThreshold && MinPixelIndex != 0xfff && !g_FreezeBasisAllocation) {
             // New basis is here!
             int2 PixelCoords = int2(MinPixelIndex % SSRC_TILE_SIZE, MinPixelIndex / SSRC_TILE_SIZE);
             SpawnTexCoords = BaseTexCoords + PixelCoords;
@@ -1453,7 +1462,7 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
                 float U = BlueNoise_Sample1D(GroupID.xy + int2(8271, 2983), g_FrameIndex).x;
                 // Randomize radius
                 float X  = GetLinearDepth(PixelDepth) * g_CameraPixelScale * g_BasisWInitialRadius;
-                X = X * lerp(0.5f, 4.5f, U);
+                X = X;// * lerp(0.8f, 6.5f, U * U * U);
                 WLambda = -log(g_MinWeightE) / (X * X);
                 SurfaceNormal = PixelNormal;
             }
@@ -1717,12 +1726,18 @@ void DebugSSRC_VisualizeTileOccupancy (uint2 DispatchID : SV_DispatchThreadID, u
             int BasisIndex = g_RWTileBasisIndexBuffer[g_RWTileBaseSlotOffsetBuffer[TileID] + LocalRank];
             float3 BasisWorldPosition;
             FetchBasisLocation(BasisIndex, BasisWorldPosition);
-
-            if(g_DebugVisualizeChannel == 0) {
-                g_RWDebugOutput[DispatchID] = 1.f.xxxx;
-            } else if(g_DebugVisualizeChannel == 1) {
-                g_RWDebugOutput[DispatchID] = float4(BasisWorldPosition, 1.f);
-            }
+            g_RWDebugOutput[DispatchID] = 1.f.xxxx;
+        } else {
+            g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 1.f);
+        }
+    } else if(g_DebugVisualizeMode == 2) {
+                int TileBasisCount = g_RWTileBasisCountBuffer[TileID];
+        int LocalRank = LocalID.x + LocalID.y * SSRC_TILE_SIZE;
+        if(LocalRank < TileBasisCount) {
+            int BasisIndex = g_RWTileBasisIndexBuffer[g_RWTileBaseSlotOffsetBuffer[TileID] + LocalRank];
+            float3 BasisWorldPosition;
+            FetchBasisLocation(BasisIndex, BasisWorldPosition);
+            g_RWDebugOutput[DispatchID] = float4(BasisWorldPosition, 1.f);
         } else {
             g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 1.f);
         }
@@ -1742,6 +1757,17 @@ void SSRC_Reset (uint DispatchID : SV_DispatchThreadID) {
         g_RWFreeBasisIndicesBuffer[DispatchID] = DispatchID;
         g_RWBasisFlagsBuffer[DispatchID] = g_FrameIndex - BASIS_RETIRE_FRAME_COUNT;
     }
+}
+
+[numthreads(1, 1, 1)]
+void DebugSSRC_GenerateDrawIndexed (uint DispatchID : SV_DispatchThreadID) {
+    DrawIndexedCommand draw_command;
+    draw_command.index_count_per_instance = 3;
+    draw_command.instance_count  = g_RWActiveBasisCountBuffer[0];
+    draw_command.index_offset    = 0;
+    draw_command.vertex_offset   = 0;
+    draw_command.instance_offset = 0;
+    g_RWDrawIndexedCommandBuffer[0] = draw_command;
 }
 
 // New line required for termination.

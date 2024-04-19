@@ -136,9 +136,14 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         // No culling
         gfxDrawStateSetCullMode(debug_basis_draw_state, D3D12_CULL_MODE_NONE);
         gfxDrawStateSetDepthStencilTarget(debug_basis_draw_state, tex_.depth);
+        gfxDrawStateSetFillMode(debug_basis_draw_state, D3D12_FILL_MODE_WIREFRAME);
         gfxDrawStateSetColorTarget(debug_basis_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
         kernels_.DebugSSRC_basis = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_basis_draw_state,
             "DebugSSRC_Basis", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_basis_3D = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_basis_draw_state,
+            "DebugSSRC_Basis3D", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_generate_draw_indexed = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_GenerateDrawIndexed", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
@@ -201,42 +206,68 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
 bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.update_ray_direction =
         gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
+    tex_.update_ray_direction.setName("UpdateRayDirection");
     tex_.update_ray_radiance = gfxCreateTexture2D(
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
+    tex_.update_ray_radiance.setName("UpdateRayRadiance");
     tex_.update_ray_radiance_difference_wsum = gfxCreateTexture2D(
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
+    tex_.update_ray_radiance_difference_wsum.setName("UpdateRayRadianceDifferenceWSum");
     tex_.cache_coverage_texture = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, 1);
+    tex_.cache_coverage_texture.setName("CacheCoverageTexture");
     assert(capsaicin.getWidth() % 8 == 0 && capsaicin.getHeight() % 8 == 0);
     tex_.HiZ_min = gfxCreateTexture2D(gfx_, capsaicin.getWidth() / 2, capsaicin.getHeight() / 2, DXGI_FORMAT_R32_FLOAT, 3);
+    tex_.HiZ_min.setName("HiZMin");
     tex_.HiZ_max = gfxCreateTexture2D(gfx_, capsaicin.getWidth() / 2, capsaicin.getHeight() / 2, DXGI_FORMAT_R32_FLOAT, 3);
+    tex_.HiZ_max.setName("HiZMax");
 
     tex_.depth = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_D32_FLOAT);
+    tex_.depth.setName("Depth (MIGI)");
 
     // Buffers
     buf_.active_basis_count    = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.active_basis_count.setName("ActiveBasisCount");
     buf_.active_basis_index    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.active_basis_index.setName("ActiveBasisIndex");
     buf_.basis_effective_radius= gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_effective_radius.setName("BasisEffectiveRadius");
     buf_.basis_film_position   = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_film_position.setName("BasisFilmPosition");
     buf_.basis_effective_radius_film = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_effective_radius_film.setName("BasisEffectiveRadiusFilm");
     buf_.basis_location        = gfxCreateBuffer<float3>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_location.setName("BasisLocation");
     buf_.basis_parameter       = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation * 4);
+    buf_.basis_parameter.setName("BasisParameter");
     buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 9);
+    buf_.quantilized_basis_step.setName("QuantilizedBasisStep");
     buf_.basis_flags           = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.basis_flags.setName("BasisFlags");
     buf_.free_basis_indices    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
+    buf_.free_basis_indices.setName("FreeBasisIndices");
     buf_.free_basis_indices_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.free_basis_indices_count.setName("FreeBasisIndicesCount");
     assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
     int ssrc_tile_count = options_.width / SSRC_TILE_SIZE * options_.height / SSRC_TILE_SIZE;
     buf_.tile_basis_count      = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
+    buf_.tile_basis_count.setName("TileBasisCount");
     buf_.tile_basis_index_injection = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count * SSRC_MAX_BASIS_PER_TILE);
+    buf_.tile_basis_index_injection.setName("TileBasisIndexInjection");
     buf_.tile_base_slot_offset = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
+    buf_.tile_base_slot_offset.setName("TileBaseSlotOffset");
     buf_.tile_basis_index      = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count * (SSRC_MAX_BASIS_PER_TILE + 1));
+    buf_.tile_basis_index.setName("TileBasisIndex");
 
     buf_.dispatch_count        = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.dispatch_count.setName("DispatchCount");
     buf_.dispatch_command      = gfxCreateBuffer<DispatchCommand>(gfx_, 1);
+    buf_.dispatch_command.setName("DispatchCommand");
     buf_.dispatch_rays_command = gfxCreateBuffer<DispatchRaysCommand>(gfx_, 1);
+    buf_.dispatch_rays_command.setName("DispatchRaysCommand");
     buf_.draw_command          = gfxCreateBuffer<DrawCommand>(gfx_, 1);
+    buf_.draw_command.setName("DrawCommand");
     buf_.draw_indexed_command  = gfxCreateBuffer<DrawIndexedCommand>(gfx_, 1);
-
+    buf_.draw_indexed_command.setName("DrawIndexedCommand");
     // Initialize the disk index buffer for injection
     std::vector<uint32_t> disk_index_buffer;
     for(int i = 0; i<(int)options_.SSRC_CR_disk_vertex_count - 2; i++)
@@ -246,6 +277,13 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
         disk_index_buffer.push_back(i + 2);
     }
     buf_.disk_index_buffer     = gfxCreateBuffer<uint32_t>(gfx_, (options_.SSRC_CR_disk_vertex_count - 2) * 3, disk_index_buffer.data());
+    buf_.disk_index_buffer.setName("DiskIndexBuffer");
+
+    for(auto & e : buf_.readback)
+    {
+        e = gfxCreateBuffer<uint32_t>(gfx_, 32, nullptr, GfxCpuAccess::kGfxCpuAccess_Read);
+        e.setName((std::string("ReadbackBuffer[") + std::to_string(&e - buf_.readback) + "]").c_str());
+    }
     return true;
 }
 
@@ -268,6 +306,14 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
 
     auto light_sampler = capsaicin.getComponent<LightSamplerGridStream>();
     light_sampler->reserveBoundsValues(capsaicin.getWidth() * capsaicin.getHeight(), this);
+    memset(readback_pending_, 0, sizeof(readback_pending_));
+
+    internal_frame_index_ = 0;
+
+    need_reset_screen_space_cache_ = true;
+    need_reset_world_space_reservoirs_ = true;
+    need_reset_hash_grid_cache_ = true;
+
     return true;
 }
 
@@ -307,6 +353,8 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_coverage);
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_tile_occupancy);
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis);
+        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis_3D);
+        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_generate_draw_indexed);
 
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch);
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch_rays);
@@ -342,6 +390,10 @@ void MIGI::terminate() noexcept
         gfxDestroyBuffer(gfx_, buf_.tile_basis_index_injection);
         gfxDestroyBuffer(gfx_, buf_.tile_base_slot_offset);
         gfxDestroyBuffer(gfx_, buf_.tile_basis_index);
+        for(const auto & i : buf_.readback)
+        {
+            gfxDestroyBuffer(gfx_, i);
+        }
 
         gfxDestroyBuffer(gfx_, buf_.dispatch_count);
         gfxDestroyBuffer(gfx_, buf_.dispatch_command);

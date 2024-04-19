@@ -21,7 +21,7 @@ struct MIGIRenderOptions {
     uint32_t debug_visualize_mode = 0;
     uint32_t debug_visualize_channel = 0;
 
-    bool reset_screen_space_cache {true};
+    bool reset_screen_space_cache {false};
 
     // Maximum number of update rays for the screen space radiance cache
     // Set to screen resolution automatically
@@ -29,11 +29,11 @@ struct MIGIRenderOptions {
     // Maximum number of basis active in the screen space radiance cache
     uint32_t SSRC_max_basis_count {256 * 1024};
     // Min coverage for basis spawn
-    float SSRC_basis_spawn_coverage_threshold {2.f};
+    float SSRC_basis_spawn_coverage_threshold {3.f};
     // Radius control for basis injection
     float SSRC_min_weight_E {0.08f};
     // Default initial W radius for newly generated basis
-    float SSRC_initial_W_radius {8.f};
+    float SSRC_initial_W_radius {16.f};
     // Resolution of the disk when doing rasterization for tile index injection
     uint32_t SSRC_CR_disk_vertex_count {12};
 
@@ -69,6 +69,8 @@ struct MIGIRenderOptions {
     bool use_blue_noise_sample_direction = false;
     // Whether to render indirect lighting (using the hash grid cache)
     bool enable_indirect = true;
+    // Whether to freeze the allocation and deallocation of basis for visualization
+    bool freeze_basis_allocation {false};
 
     float cache_update_learing_rate = 0.02f;
     bool  cache_update_SG_color {true};
