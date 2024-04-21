@@ -76,6 +76,7 @@ struct MIGIRenderOptions {
     bool  cache_update_SG_color {true};
     bool  cache_update_SG_direction {false};
     bool  cache_update_SG_lambda {false};
+    bool  cache_update_W_alpha {false};
     bool  cache_update_W_lambda {false};
 
     // Whether to shade with geometry normals only

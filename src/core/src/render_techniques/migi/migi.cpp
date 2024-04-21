@@ -174,6 +174,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDispatchCommandBuffer", buf_.dispatch_command);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDrawCommandBuffer", buf_.draw_command);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDrawIndexedCommandBuffer", buf_.draw_indexed_command);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWReduceCountBuffer", buf_.reduce_count);
 
     // Params
     auto debug_output_aov = capsaicin.getAOVBuffer("Debug");
@@ -189,6 +190,8 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisLocationBuffer", buf_.basis_location);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterBuffer", buf_.basis_parameter);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWQuantilizedBasisStepBuffer", buf_.quantilized_basis_step);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateStepScaleSumsBuffer", buf_.update_step_scale_sums);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateStepScaleBuffer", buf_.update_step_scale);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisFlagsBuffer", buf_.basis_flags);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesBuffer", buf_.free_basis_indices);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesCountBuffer", buf_.free_basis_indices_count);
@@ -231,6 +234,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_SGColor", (uint32_t)options_.cache_update_SG_color);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_SGDirection", (uint32_t)options_.cache_update_SG_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_SGLambda", (uint32_t)options_.cache_update_SG_lambda);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_WAlpha", (uint32_t)options_.cache_update_W_alpha);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CacheUpdate_WLambda", (uint32_t)options_.cache_update_W_lambda);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_OutputDimensions", glm::int2(options_.width, options_.height));
@@ -669,6 +673,20 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     }
 
     {
+        const TimedSection timed_section(*this, "SSRC_NormalizeCacheUpdate");
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_CountBuffer", buf_.active_basis_count);
+        gfxCommandBindKernel(gfx_, kernels_.generate_dispatch);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_normalize_cache_update);
+        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
+
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_normalize_cache_update_set_reduce_count);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+
+        gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Float, buf_.update_step_scale, buf_.update_step_scale_sums, &buf_.reduce_count);
+    }
+
+    {
         const TimedSection timed_section(*this, "SSRC_ApplyCacheUpdate");
         gfxProgramSetParameter(gfx_, kernels_.program, "g_CountBuffer", buf_.active_basis_count);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
@@ -732,11 +750,12 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     }
 
     {
-        const TimedSection timed_section(*this, "ReadbackStats");
+        const TimedSection timed_section(*this, "ReadBackStats");
         auto frame_index = internal_frame_index_;
         auto copy_idx = frame_index % kGfxConstant_BackBufferCount;
         assert(!readback_pending_[copy_idx]);
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 0, buf_.active_basis_count, 0, sizeof(uint32_t));
+        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], sizeof(uint32_t), buf_.update_step_scale, 0, sizeof(float));
         readback_pending_[copy_idx] = true;
     }
     {
@@ -744,7 +763,9 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         auto readback_idx = (frame_index + 1) % kGfxConstant_BackBufferCount;
         if(readback_pending_[readback_idx]){
             // Readback
-            readback_values_.active_basis_count = gfxBufferGetData<uint32_t>(gfx_, buf_.readback[readback_idx])[0];
+            auto readback_values = gfxBufferGetData<uint32_t>(gfx_, buf_.readback[readback_idx]);
+            readback_values_.active_basis_count = readback_values[0];
+            readback_values_.sum_step_scale     = reinterpret_cast<float const *>(readback_values + 1)[0];
             readback_pending_[readback_idx] = false;
         }
     }

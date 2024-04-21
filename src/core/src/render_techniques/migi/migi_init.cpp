@@ -117,6 +117,10 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_PrecomputeCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_compute_cache_update_step = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ComputeCacheUpdateStep", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_normalize_cache_update = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_NormalizeCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_normalize_cache_update_set_reduce_count = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_NormalizeCacheUpdateSetReduceCount", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_apply_cache_update = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ApplyCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_spawn_new_basis = gfxCreateComputeKernel(
@@ -204,6 +208,10 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
 }
 
 bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
+    auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
+        return (a + b - 1) / b;
+    };
+
     tex_.update_ray_direction =
         gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
     tex_.update_ray_direction.setName("UpdateRayDirection");
@@ -241,6 +249,10 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.basis_parameter.setName("BasisParameter");
     buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 9);
     buf_.quantilized_basis_step.setName("QuantilizedBasisStep");
+    buf_.update_step_scale_sums= gfxCreateBuffer<float>(gfx_, divideAndRoundUp(cfg_.basis_buffer_allocation, cfg_.wave_lane_count));
+    buf_.update_step_scale_sums.setName("UpdateStepScaleSums");
+    buf_.update_step_scale     = gfxCreateBuffer<float>(gfx_, 1);
+    buf_.update_step_scale.setName("UpdateStepScale");
     buf_.basis_flags           = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_flags.setName("BasisFlags");
     buf_.free_basis_indices    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
@@ -268,6 +280,8 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.draw_command.setName("DrawCommand");
     buf_.draw_indexed_command  = gfxCreateBuffer<DrawIndexedCommand>(gfx_, 1);
     buf_.draw_indexed_command.setName("DrawIndexedCommand");
+    buf_.reduce_count          = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.reduce_count.setName("ReduceCount");
     // Initialize the disk index buffer for injection
     std::vector<uint32_t> disk_index_buffer;
     for(int i = 0; i<(int)options_.SSRC_CR_disk_vertex_count - 2; i++)
@@ -344,6 +358,8 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.SSRC_compress_tile_basis_index);
         gfxDestroyKernel(gfx_, kernels_.SSRC_precompute_cache_update);
         gfxDestroyKernel(gfx_, kernels_.SSRC_compute_cache_update_step);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_normalize_cache_update);
+        gfxDestroyKernel(gfx_, kernels_.SSRC_normalize_cache_update_set_reduce_count);
         gfxDestroyKernel(gfx_, kernels_.SSRC_apply_cache_update);
         gfxDestroyKernel(gfx_, kernels_.SSRC_spawn_new_basis);
         gfxDestroyKernel(gfx_, kernels_.SSRC_clip_over_allocation);
@@ -400,6 +416,7 @@ void MIGI::terminate() noexcept
         gfxDestroyBuffer(gfx_, buf_.dispatch_rays_command);
         gfxDestroyBuffer(gfx_, buf_.draw_command);
         gfxDestroyBuffer(gfx_, buf_.draw_indexed_command);
+        gfxDestroyBuffer(gfx_, buf_.reduce_count);
 
         tex_ = {};
         buf_ = {};

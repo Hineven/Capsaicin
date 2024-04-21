@@ -247,15 +247,15 @@ void FetchBasisLocation (int BasisIndex, out float3 Position) {
 }
 
 
-// There is severe precision loss when using f16 to store WD.Lambda
+// There is severe precision loss when using f16 to store WD.Lambda??
 
 uint PackWData (WData WD) {
-    return asuint(WD.Lambda);//f32tof16(WD.Lambda) | (f32tof16(WD.Alpha) << 16);
+    return f32tof16(WD.Lambda) | (f32tof16(WD.Alpha) << 16);
 }
 
 void UnpackWData (uint Packed, out WData WD) {
-    WD.Lambda = asfloat(Packed);//f16tof32(Packed & 0xFFFFu);
-    WD.Alpha  = 1.f;//f16tof32(Packed >> 16);
+    WD.Lambda = f16tof32(Packed & 0xFFFFu);
+    WD.Alpha  = f16tof32(Packed >> 16);
 }
 
 void UnpackBasisData_W (uint4 Packed, out SGData SG, out WData WD) {

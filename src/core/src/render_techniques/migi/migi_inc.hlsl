@@ -73,6 +73,7 @@ RWStructuredBuffer<DispatchCommand>     g_RWDispatchCommandBuffer;
 RWStructuredBuffer<DispatchRaysCommand> g_RWDispatchRaysCommandBuffer;
 RWStructuredBuffer<DrawCommand>         g_RWDrawCommandBuffer;
 RWStructuredBuffer<DrawIndexedCommand>  g_RWDrawIndexedCommandBuffer;
+RWStructuredBuffer<uint>                g_RWReduceCountBuffer;
 
 // Outputs
 RWTexture2D<float4> g_RWDebugOutput;
@@ -93,6 +94,8 @@ RWStructuredBuffer<float3> g_RWBasisLocationBuffer;
 RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
 // Color, Lambda, Normal, WLambda, WAlpha (9)
 RWStructuredBuffer< int>   g_RWQuantilizedBasisStepBuffer; // Step size for atomic accumulation
+RWStructuredBuffer<float>  g_RWUpdateStepScaleSumsBuffer; // Sums of the step scale among waves.
+RWStructuredBuffer<float>  g_RWUpdateStepScaleBuffer;
 RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
@@ -140,6 +143,7 @@ float g_CacheUpdateLearningRate;
 uint  g_CacheUpdate_SGColor;
 uint  g_CacheUpdate_SGDirection;
 uint  g_CacheUpdate_SGLambda;
+uint  g_CacheUpdate_WAlpha;
 uint  g_CacheUpdate_WLambda;
 
 // Screen resolution

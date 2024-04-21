@@ -1214,7 +1214,7 @@ void SSRC_PrecomputeCacheUpdate (int3 GroupID : SV_GroupID, int LocalID : SV_Gro
             int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
             float3 RayRadiance = ThreadRayRadiance[PixelIndexBase / WAVE_SIZE];
             float3 SumRadiance = ThreadSumRadiance[PixelIndexBase / WAVE_SIZE];
-            float SumWeight    = ThreadSumWeight  [PixelIndexBase / WAVE_SIZE];
+            float  SumWeight   = ThreadSumWeight  [PixelIndexBase / WAVE_SIZE];
             if(SumWeight != 0)
                 g_RWRayRadianceDifferenceWSumTexture[TexCoords] = float4(RayRadiance - SumRadiance / SumWeight, SumWeight);
             else 
@@ -1346,6 +1346,43 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
 }
 
 [numthreads(WAVE_SIZE, 1, 1)]
+void SSRC_NormalizeCacheUpdate (int DispatchID : SV_DispatchThreadID, int GroupID : SV_GroupID) {
+    if(DispatchID >= g_RWActiveBasisCountBuffer[0]) {
+        return;
+    }
+    uint BasisIndex = g_RWActiveBasisIndexBuffer[DispatchID];
+    SGGradients Step_SG;
+    WGradients  Step_W;
+    // Compute the step size
+    ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
+    float Scale = 0.f;
+    if(g_CacheUpdate_SGColor) {
+        Scale += dot(Step_SG.dColor, Step_SG.dColor);
+    }
+    if(g_CacheUpdate_SGDirection) {
+        Scale += dot(Step_SG.dDirection, Step_SG.dDirection);
+    }
+    if(g_CacheUpdate_SGLambda) {
+        Scale += dot(Step_SG.dLambda, Step_SG.dLambda);
+    }
+    if(g_CacheUpdate_WAlpha) {
+        Scale += Step_W.dAlpha * Step_W.dAlpha;
+    }
+    if(g_CacheUpdate_WLambda) {
+        Scale += Step_W.dLambda * Step_W.dLambda;
+    }
+    float ScaleWave = WaveActiveSum(Scale);
+    if(WaveIsFirstLane()) {
+        g_RWUpdateStepScaleSumsBuffer[GroupID] = ScaleWave;
+    }
+}
+
+[numthreads(1, 1, 1)]
+void SSRC_NormalizeCacheUpdateSetReduceCount () {
+    g_RWReduceCountBuffer[0] = (g_RWActiveBasisCountBuffer[0] + WAVE_SIZE - 1) / WAVE_SIZE;
+}
+
+[numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     if(DispatchID >= g_RWActiveBasisCountBuffer[0]) {
         return;
@@ -1361,32 +1398,36 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     // Compute the step size
     ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
     // TODO global normalization
-    float NormalizationFactor = 1.f / sqrt(
-        dot(Step_SG.dColor, Step_SG.dColor) +
-        dot(Step_SG.dDirection, Step_SG.dDirection) +
-        dot(Step_SG.dLambda, Step_SG.dLambda) +
-        Step_W.dAlpha * Step_W.dAlpha +
-        Step_W.dLambda * Step_W.dLambda + 
-        0.00001f
-    );
-    NormalizationFactor = 1.f;
-    float RandomStride = 0.5f * (frac(sin(DispatchID) * 43758.5453f) + 0.5f);
+    float NormalizationFactor;
+    // NormalizationFactor = 1.f / sqrt(
+    //     dot(Step_SG.dColor, Step_SG.dColor) +
+    //     dot(Step_SG.dDirection, Step_SG.dDirection) +
+    //     dot(Step_SG.dLambda, Step_SG.dLambda) +
+    //     Step_W.dAlpha * Step_W.dAlpha +
+    //     Step_W.dLambda * Step_W.dLambda + 
+    //     0.00001f
+    // );
+    NormalizationFactor = float(g_RWActiveBasisCountBuffer[0]) / max(g_RWUpdateStepScaleBuffer[0], 1e-6f);
+    // NormalizationFactor = 1.f;
+    float RandomStride = 0.3f;//0.5f * (frac(sin(DispatchID + g_FrameIndex * 71838.3f) * 43758.5453f) + 0.5f);
     NormalizationFactor *= RandomStride;
     // Update the basis
     if(g_CacheUpdate_SGColor) {
         SG.Color     += Step_SG.dColor     * g_CacheUpdateLearningRate * NormalizationFactor;
-        SG.Color     = max(SG.Color, 0.0001f.xxx); // Color is in [0.0001, inf)
+        SG.Color     = max(SG.Color, 0.002f.xxx); // Color is in [0.002, inf)
     }
     if(g_CacheUpdate_SGDirection) {
         SG.Direction += Step_SG.dDirection * g_CacheUpdateLearningRate * NormalizationFactor;
         SG.Direction =  lazyNormalize(SG.Direction);
     }
     if(g_CacheUpdate_SGLambda) {
-        SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactor;
+        SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactor * 0.02;
         SG.Lambda    = clamp(SG.Lambda, 0.5f, 50.f); // Lambda is in [0.5, 50]
     }
-    // W.Alpha      += Step_W.dAlpha      * g_CacheUpdateLearningRate * NormalizationFactor;
-    // W.Alpha      = clamp(W.Alpha, 0.0001f, 1000.f); // Alpha is in [0.0, 1000.f]
+    if(g_CacheUpdate_WAlpha) {
+        W.Alpha      += Step_W.dAlpha      * g_CacheUpdateLearningRate * NormalizationFactor;
+        W.Alpha      = clamp(W.Alpha, 0.02f, 10.f); // Alpha is in [0.02f, 10.f]
+    }
     if(g_CacheUpdate_WLambda) {
         W.Lambda     += Step_W.dLambda     * g_CacheUpdateLearningRate * NormalizationFactor;
         W.Lambda     = clamp(W.Lambda, 100.f, 1e6f); // Lambda is in [1e3, 1e7]
@@ -1665,7 +1706,7 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
             float3 Jitter = 0.f.xxx;//BlueNoise_Sample2D(RealCoord, g_FrameIndex, 2) * 2.f - 1.f;
             float3 DeltaPosition = PixelPosition - BasisWorldPosition;
             // Pad the weight to make all pixels are shaded
-            float EvaluatedW = EvaluateW(W, DeltaPosition + Jitter) + 1e-9f;
+            float EvaluatedW = EvaluateW(W, DeltaPosition + Jitter);
             ThreadSumRadiance[PixelIndexBase / WAVE_SIZE] += (GGXIntegrationApprox + LambertIntegration) * EvaluatedW;
             ThreadSumWeight  [PixelIndexBase / WAVE_SIZE] += EvaluatedW;
         }

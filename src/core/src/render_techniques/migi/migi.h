@@ -15,6 +15,11 @@
 namespace Capsaicin
 {
 
+struct MIGIReadBackValues {
+    uint32_t active_basis_count {};
+    float    sum_step_scale {};
+};
+
 class MIGI : public RenderTechnique
 {
 public:
@@ -82,6 +87,8 @@ public:
         GfxBuffer basis_location {};
         GfxBuffer basis_parameter {};
         GfxBuffer quantilized_basis_step {};
+        GfxBuffer update_step_scale_sums {};
+        GfxBuffer update_step_scale {};
         GfxBuffer basis_flags {};
         GfxBuffer free_basis_indices {};
         GfxBuffer free_basis_indices_count {};
@@ -95,6 +102,7 @@ public:
         GfxBuffer dispatch_count {};
         GfxBuffer draw_command {};
         GfxBuffer draw_indexed_command {};
+        GfxBuffer reduce_count {};
 
         GfxBuffer disk_index_buffer {};
 
@@ -132,6 +140,8 @@ public:
         GfxKernel  SSRC_compress_tile_basis_index {};
         GfxKernel  SSRC_precompute_cache_update {};
         GfxKernel  SSRC_compute_cache_update_step {};
+        GfxKernel  SSRC_normalize_cache_update {};
+        GfxKernel  SSRC_normalize_cache_update_set_reduce_count {};
         GfxKernel  SSRC_apply_cache_update {};
         GfxKernel  SSRC_spawn_new_basis {};
         GfxKernel  SSRC_clip_over_allocation {};
@@ -192,9 +202,7 @@ protected:
     bool on_first_frame_ {true};
 
     bool readback_pending_ [kGfxConstant_BackBufferCount] {};
-    struct {
-        uint32_t active_basis_count {};
-    } readback_values_;
+    MIGIReadBackValues readback_values_;
 
     uint32_t internal_frame_index_ {};
 };
