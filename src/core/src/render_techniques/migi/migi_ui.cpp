@@ -18,7 +18,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::LabelText("Active Basis", "%d", readback_values_.active_basis_count);
             ImGui::LabelText("Sum Step Scale", "%.4f (%.4f)", readback_values_.sum_step_scale, readback_values_.sum_step_scale / readback_values_.active_basis_count);
         }
-        std::vector<std::string> debug_views = {"None", "SSRC_Coverage", "SSRC_TileOccupancy", "SSRC_Basis", "SSRC_Basis3D"};
+        std::vector<std::string> debug_views = {"None", "SSRC_Coverage", "SSRC_TileOccupancy", "SSRC_Basis", "SSRC_Basis3D", "SSRC_Difference"};
         auto view_it = std::find(debug_views.begin(), debug_views.end(), options_.active_debug_view);
         if(view_it == debug_views.end())
         {
@@ -30,7 +30,6 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             {
                 if (ImGui::Selectable(e.c_str()))
                 {
-                    options_.active_debug_view = e;
                     capsaicin.setDebugView(e);
                 }
             }
@@ -51,6 +50,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         }
         else if(options_.active_debug_view == "SSRC_Basis3D") {
             debug_visualize_mode_names = {"Intensity", "Lambda", "WAlpha", "ERadius"};
+        } else if(options_.active_debug_view == "SSRC_Difference") {
+            debug_visualize_mode_names = {"Difference"};
         }
         if (debug_visualize_mode_names.empty())
         {

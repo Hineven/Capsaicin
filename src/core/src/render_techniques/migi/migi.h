@@ -65,6 +65,8 @@ public:
         // R16G16B16A16_FLOAT
         GfxTexture   update_ray_radiance_difference_wsum {};
 
+        GfxTexture   difference_accumulation {};
+
         // Screen coverage of the cache, used for basis spawn
         // f16x2
         GfxTexture   cache_coverage_texture {};
@@ -154,6 +156,7 @@ public:
         GfxKernel  DebugSSRC_basis {};
         GfxKernel  DebugSSRC_basis_3D {};
         GfxKernel  DebugSSRC_generate_draw_indexed {};
+        GfxKernel  DebugSSRC_accumulate_and_show_difference {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};

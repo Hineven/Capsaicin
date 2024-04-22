@@ -1,6 +1,8 @@
 #ifndef MIGI_SHARED_HLSL
 #define MIGI_SHARED_HLSL
 
+#define HEURISTIC_DIRECTION_UPDATE
+
 #include "migi_inc.hlsl"
 
 #include "../../materials/material_sampling.hlsl"
@@ -102,6 +104,7 @@ struct WData {
 float EvaluateW (WData WD, float3 Delta)
 {
     float Sqr = lengthSqr(Delta);
+    // asreturn WD.Alpha * min(exp(-WD.Lambda * Sqr), 0.5f);
     return WD.Alpha * exp(-WD.Lambda * Sqr);
 }
 
@@ -122,6 +125,7 @@ void EvaluateW_Gradients (WData WD, float3 Delta, out WGradients Gradients)
 }
 
 float EvaluateW_EffectiveRadius (WData WD, float E) {
+    if(WD.Alpha <= E) return 0.f;
     return sqrt(-log(E / WD.Alpha) / WD.Lambda);
 }
 
@@ -160,7 +164,7 @@ struct SGGradients {
 //     Gradients.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
 // }
 
-void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients) {
+void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients, out float3 dColorExtra) {
     // Compute the Gradients for SG parameters
     // Targeting at the remaining radiance after subtracting all other SH and SGs
     float W1 = dot(SG.Direction, TargetDirection) - 1;
@@ -169,26 +173,52 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
     float SGColorScale = dot(SG.Color, float3(1, 1, 1));
     Gradients.dLambda    = W3 * SGColorScale;
     Gradients.dColor     = W2.xxx;
+
+#ifdef HEURISTIC_DIRECTION_UPDATE
+    Gradients.dDirection = 0.f.xxx;
+    dColorExtra = 0.f.xxx;
+    return ;
+#endif
     Gradients.dDirection = TargetDirection * W2 * SGColorScale * SG.Lambda;
+    // We need to accumulate the gradients of Direction that are parallel
+    // to the current Direction on dColor.
+    float dZ = W2 * SGColorScale * SG.Lambda * dot(SG.Direction, TargetDirection);
+    dColorExtra = SG.Color * dZ;
 }
 
 int QuantilizeNormGradient (float V) {
-    return V * 100000.f;
+#ifndef HEURISTIC_DIRECTION_UPDATE
+    return V * 1000000.f;
+#else
+    return V * 1000.f;
+#endif
 }
 float RecoverNormGradient (int V) {
-    return float(V) / 100000.f;
+#ifndef HEURISTIC_DIRECTION_UPDATE
+    return float(V) / 1000000.f;
+#else
+    return float(V) / 1000.f;
+#endif
 }
 int QuantilizeRadianceGradient (float Radiance) {
+    Radiance = min(abs(Radiance), 5000.f) * sign(Radiance);
     return int(Radiance * 10000.f);
 }
 float RecoverRadianceGradient (int Radiance) {
     return float(Radiance) / 10000.f;
 }
 int QuantilizeLambdaGradient (float dL) {
-    return int(dL * 1000000.f);
+    return int(dL * 100000.f);
 }
 float RecoverLambdaGradient (int dL) {
-    return float(dL) / 1000000.f;
+    return float(dL) / 100000.f;
+}
+
+int QuantilizeAlphaGradient (float Alpha) {
+    return int(Alpha * 10000.f);
+}
+float RecoverAlphaGradient (int Alpha) {
+    return float(Alpha) / 10000.f;
 }
 
 float SampleSGCosTheta (float u, float lambda) {
@@ -250,12 +280,12 @@ void FetchBasisLocation (int BasisIndex, out float3 Position) {
 // There is severe precision loss when using f16 to store WD.Lambda??
 
 uint PackWData (WData WD) {
-    return f32tof16(WD.Lambda) | (f32tof16(WD.Alpha) << 16);
+    return f32tof16(WD.Lambda) | (packUnorm1x16(WD.Alpha) << 16);
 }
 
 void UnpackWData (uint Packed, out WData WD) {
     WD.Lambda = f16tof32(Packed & 0xFFFFu);
-    WD.Alpha  = f16tof32(Packed >> 16);
+    WD.Alpha  = unpackUnorm1x16(Packed >> 16);
 }
 
 void UnpackBasisData_W (uint4 Packed, out SGData SG, out WData WD) {
@@ -323,7 +353,7 @@ void ScreenCache_AccumulateStepSize (int BasisIndex, SGGradients Step_SG, WGradi
     int P5 = QuantilizeNormGradient(Step_SG.dDirection.y);
     int P6 = QuantilizeNormGradient(Step_SG.dDirection.z);
     int P7 = QuantilizeLambdaGradient(Step_W.dLambda);
-    int P8 = QuantilizeLambdaGradient(Step_W.dAlpha);
+    int P8 = QuantilizeAlphaGradient(Step_W.dAlpha);
     if(P0) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0], P0);
     if(P1) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1], P1);
     if(P2) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2], P2);
@@ -353,7 +383,7 @@ void ScreenCache_GetStepSize (int BasisIndex, out SGGradients Step_SG, out WGrad
     Step_SG.dDirection.y = RecoverNormGradient(P5);
     Step_SG.dDirection.z = RecoverNormGradient(P6);
     Step_W.dLambda = RecoverLambdaGradient(P7);
-    Step_W.dAlpha = RecoverLambdaGradient(P8);
+    Step_W.dAlpha = RecoverAlphaGradient(P8);
 }
 
 // Misc

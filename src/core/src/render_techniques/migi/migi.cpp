@@ -220,6 +220,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayDirectionTexture", tex_.update_ray_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceTexture", tex_.update_ray_radiance);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceDifferenceWSumTexture", tex_.update_ray_radiance_difference_wsum);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDifferenceAccumulationTexture", tex_.difference_accumulation);
     // Currently unused
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWCacheCoverageTexture", tex_.cache_coverage_texture);
 
@@ -674,8 +675,8 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
 
     {
         const TimedSection timed_section(*this, "SSRC_NormalizeCacheUpdate");
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_CountBuffer", buf_.active_basis_count);
-        gfxCommandBindKernel(gfx_, kernels_.generate_dispatch);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_normalize_cache_update);
+        generateDispatch(buf_.active_basis_count, threads[0]);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_normalize_cache_update);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
@@ -688,10 +689,8 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
 
     {
         const TimedSection timed_section(*this, "SSRC_ApplyCacheUpdate");
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_CountBuffer", buf_.active_basis_count);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_GroupSize", threads[0]);
-        gfxCommandBindKernel(gfx_, kernels_.generate_dispatch);
+        generateDispatch(buf_.active_basis_count, threads[0]);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_apply_cache_update);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
@@ -722,6 +721,15 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 
+    bool camera_moved = true;
+    {
+        if (camera.aspect == previous_camera_.aspect && camera.center == previous_camera_.center
+            && camera.eye == previous_camera_.eye && camera.farZ == previous_camera_.farZ
+            && camera.fovY == previous_camera_.fovY && camera.nearZ == previous_camera_.nearZ
+            && camera.type == previous_camera_.type && camera.up == previous_camera_.up)
+            camera_moved = false;
+    }
+
     if(options_.active_debug_view == "SSRC_Coverage") {
         const TimedSection timed_section(*this, "SSRC_Coverage");
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_visualize_coverage);
@@ -747,6 +755,15 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         // Reuse the index buffer for the disk {0, 1, 2, ...} and wireframe draw mode for just 3 points
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_basis_3D);
         gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
+    } else if(options_.active_debug_view == "SSRC_Difference") {
+        if(camera_moved || options_.debug_view_switched) {
+            gfxCommandClearTexture(gfx_, tex_.difference_accumulation);
+        }
+        const TimedSection timed_section(*this, "SSRC_Difference");
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);
+        uint dispatch_size[] = {(options_.width + threads[0]-1) / threads[0], (options_.height + threads[1]-1) / threads[1]};
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 
     {

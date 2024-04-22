@@ -83,6 +83,7 @@ struct MIGIRenderOptions {
     bool shading_with_geometry_normal {false};
 
     std::string active_debug_view {};
+    bool debug_view_switched {false};
 };
 
 namespace MIGIRT {

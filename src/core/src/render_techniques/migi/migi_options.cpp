@@ -101,6 +101,7 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 
 
     // Debugging
+    options_.debug_view_switched = options_.active_debug_view != capsaicin.getCurrentDebugView();
     options_.active_debug_view = capsaicin.getCurrentDebugView();
 
     // Reload flags
@@ -122,6 +123,7 @@ DebugViewList MIGI::getDebugViews() const noexcept
     ret.emplace_back("SSRC_TileOccupancy");
     ret.emplace_back("SSRC_Basis");
     ret.emplace_back("SSRC_Basis3D");
+    ret.emplace_back("SSRC_Difference");
     return ret;
 }
 

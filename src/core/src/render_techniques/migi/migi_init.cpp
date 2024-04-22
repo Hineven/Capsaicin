@@ -140,14 +140,16 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         // No culling
         gfxDrawStateSetCullMode(debug_basis_draw_state, D3D12_CULL_MODE_NONE);
         gfxDrawStateSetDepthStencilTarget(debug_basis_draw_state, tex_.depth);
-        gfxDrawStateSetFillMode(debug_basis_draw_state, D3D12_FILL_MODE_WIREFRAME);
         gfxDrawStateSetColorTarget(debug_basis_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
         kernels_.DebugSSRC_basis = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_basis_draw_state,
             "DebugSSRC_Basis", defines_c.data(), (uint32_t)defines_c.size());
+        gfxDrawStateSetFillMode(debug_basis_draw_state, D3D12_FILL_MODE_WIREFRAME);
         kernels_.DebugSSRC_basis_3D = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_basis_draw_state,
             "DebugSSRC_Basis3D", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_generate_draw_indexed = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_GenerateDrawIndexed", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_accumulate_and_show_difference = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_AccumulateAndShowDifference", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
@@ -221,6 +223,11 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.update_ray_radiance_difference_wsum = gfxCreateTexture2D(
         gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
     tex_.update_ray_radiance_difference_wsum.setName("UpdateRayRadianceDifferenceWSum");
+    float clear_value_0[] = {0.f, 0.f, 0.f, 0.f};
+    tex_.difference_accumulation = gfxCreateTexture2D(
+        gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT, 1, clear_value_0);
+    tex_.difference_accumulation.setName("DifferenceAccumulation");
+
     tex_.cache_coverage_texture = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, 1);
     tex_.cache_coverage_texture.setName("CacheCoverageTexture");
     assert(capsaicin.getWidth() % 8 == 0 && capsaicin.getHeight() % 8 == 0);
@@ -371,6 +378,7 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis);
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis_3D);
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_generate_draw_indexed);
+        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);
 
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch);
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch_rays);
@@ -386,6 +394,7 @@ void MIGI::terminate() noexcept
         gfxDestroyTexture(gfx_, tex_.update_ray_direction);
         gfxDestroyTexture(gfx_, tex_.update_ray_radiance);
         gfxDestroyTexture(gfx_, tex_.update_ray_radiance_difference_wsum);
+        gfxDestroyTexture(gfx_, tex_.difference_accumulation);
         gfxDestroyTexture(gfx_, tex_.cache_coverage_texture);
         gfxDestroyTexture(gfx_, tex_.HiZ_min);
         gfxDestroyTexture(gfx_, tex_.HiZ_max);

@@ -162,7 +162,7 @@ DebugBasis3D_Output DebugSSRC_Basis3D (
         } else if(g_DebugVisualizeMode == 1) {
             VecLength = SG.Lambda * 0.02f;
         } else if(g_DebugVisualizeMode == 2) {
-            VecLength = W.Alpha * 0.1f;
+            VecLength = W.Alpha * 0.02f;
         } else if(g_DebugVisualizeMode == 3) {
             VecLength = g_RWBasisEffectiveRadiusFilmBuffer[BasisID] * 0.01f;
         }

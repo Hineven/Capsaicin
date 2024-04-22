@@ -129,6 +129,9 @@ RWTexture2D<float4> g_RWRayDirectionTexture;
 RWTexture2D<float4> g_RWRayRadianceTexture;
 // RayRadiance - CacheEvaluatedRadiance, WSum
 RWTexture2D<float4> g_RWRayRadianceDifferenceWSumTexture;
+// Debugging texture for difference accumulation to visualize the 
+// error of incoming radiance field of primary vertices.
+RWTexture2D<float4> g_RWDifferenceAccumulationTexture;
 // Coverage texture supplies the cache generation, currently unused
 RWTexture2D<float4> g_RWCacheCoverageTexture;
 

@@ -313,6 +313,10 @@ void TraceUpdateRays (uint2 DispatchID) {
     // Record trace ray direction for later hit position recovery
     g_RWRayDirectionTexture[DispatchID.xy] = float4(RayDirection, 1.f / Pdf);
 
+
+    // g_RWRayRadianceTexture[DispatchID.xy] = float4(max(dot(RayDirection, normalize(float3(0.f, 1.f, -1.f))) - 0.8f, 0.f).xxx * 12.f, 0.f);
+    // return ;
+
     if(dot(RayDirection, GeometryNormal) < 0.0f) {
         // Learn negative samples.
         g_RWRayRadianceTexture[DispatchID.xy] = float4(0.0f, 0.0f, 0.0f, 0.f);
@@ -1020,6 +1024,13 @@ void SSRC_ReprojectAndFilter (int DispatchID : SV_DispatchThreadID) {
     //     ActiveFlag = 0;
     // }
 
+    
+    float BasisEffectiveRadius = EvaluateW_EffectiveRadius(W, g_MinWeightE);
+    // The basis is too small for injection, remove it right on the way
+    if(BasisEffectiveRadius == 0) {
+        ActiveFlag = 0;
+    }
+
     if(ActiveFlag == 0 && !g_FreezeBasisAllocation) {
         uint Slot;
         InterlockedAdd(g_RWFreeBasisIndicesCountBuffer[0], 1, Slot);
@@ -1040,7 +1051,6 @@ void SSRC_ReprojectAndFilter (int DispatchID : SV_DispatchThreadID) {
     g_RWActiveBasisIndexBuffer[Offset + Rank] = DispatchID;
 
     // Cache per instance effective radius for later injection rasterization
-    float BasisEffectiveRadius = EvaluateW_EffectiveRadius(W, g_MinWeightE);
     g_RWBasisEffectiveRadiusBuffer[DispatchID] = BasisEffectiveRadius;
     // Update the center projection for this basis
     g_RWBasisFilmPositionBuffer[DispatchID] = packUnorm2x16(CurrentUV);
@@ -1245,7 +1255,7 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
     float3 ThreadRayRadianceDifference[SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
     float  ThreadSumWeight[SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
     float3 ThreadRayOrigin[SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
-    float3 ThreadSumEvaluatedRadiance[SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
+    float3 ThreadWeightedSumEvaluatedRadiance[SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE];
     for(int i = 0; i< SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE; i++) {
         int PixelIndex = i * WAVE_SIZE + LocalID;
         int PixelX = PixelIndex % SSRC_TILE_SIZE;
@@ -1263,7 +1273,7 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
             ThreadSumWeight[i]             = RayRadianceDifferenceSum.w;
             ThreadRayOrigin[i]             = RayOrigin;
             float3 RayRadiance = g_RWRayRadianceTexture[TexCoords].xyz;
-            ThreadSumEvaluatedRadiance[i]  = RayRadiance - RayRadianceDifferenceSum.xyz;
+            ThreadWeightedSumEvaluatedRadiance[i]  = (RayRadiance - RayRadianceDifferenceSum.xyz) * RayRadianceDifferenceSum.w;
         }
         ThreadValidPixel[i] = 
             g_DepthTexture.Load(int3(TexCoords, 0)).x < 1.f 
@@ -1281,6 +1291,9 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
         FetchBasisData_W(BasisIndex, SG, W);
         float3 BasisWorldPosition;
         FetchBasisLocation(BasisIndex, BasisWorldPosition);
+#ifdef HEURISTIC_DIRECTION_UPDATE
+        float SumContrib = 0.f;
+#endif
         // Cooperatively iterate over all pixels of the grid
         for(int PixelIndexBase = 0; PixelIndexBase < SSRC_TILE_SIZE * SSRC_TILE_SIZE; PixelIndexBase += WAVE_SIZE) {
             int PixelIndex = PixelIndexBase + LocalID;
@@ -1293,37 +1306,49 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
                 float3 RayDirection          = ThreadRayDirection[PixelIndexBase / WAVE_SIZE];
                 float3 RayRadianceDifference = ThreadRayRadianceDifference[PixelIndexBase / WAVE_SIZE];
                 float  SumWeight             = ThreadSumWeight[PixelIndexBase / WAVE_SIZE];
-                float  InvSumWeight          = 1.f / max(SumWeight, 1e-6f);
+                float  InvSumWeight          = 1.f / SumWeight;
 
                 float3 SGEvaluatedRadiance   = EvaluateSG(SG, RayDirection);
-                // float  SGEvaluatedRadianceSum= dot(SGEvaluatedRadiance, 1.f.xxx);
                 float3 DeltaPosition         = ThreadRayOrigin[PixelIndexBase / WAVE_SIZE] - BasisWorldPosition;
                 float  EvaluatedW            = EvaluateW(W, DeltaPosition);
 
                 float  RestWeight             = SumWeight - EvaluatedW;
-                float3 SumEvaluatedRadiance   = ThreadSumEvaluatedRadiance[PixelIndexBase / WAVE_SIZE];
-
-                float3 A3 = 
-                    (RestWeight * SGEvaluatedRadiance - (SumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW))
-                     / (SumWeight * SumWeight);
-                float  A = dot(A3, 1.f.xxx);
+                float3 WeightedSumEvaluatedRadiance   = ThreadWeightedSumEvaluatedRadiance[PixelIndexBase / WAVE_SIZE];
+                
+                // float3 A3 = 
+                //     (RestWeight * SGEvaluatedRadiance - (SumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW))
+                //      / (SumWeight * SumWeight);
+                // float  A = dot(A3, 1.f.xxx);
+                float3 A3 = (SGEvaluatedRadiance * RestWeight - (WeightedSumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW)) * (1.f / (SumWeight * SumWeight));
+                float  A  = dot(A3, 1.f.xxx);
 
                 // Compute gradients
                 SGGradients Gradients;
                 WGradients  Gradients_W;
-                EvaluateSG_Gradients(SG, RayDirection, Gradients);
+                float3 dColorExtra;
+                EvaluateSG_Gradients(SG, RayDirection, Gradients, dColorExtra);
+                Gradients.dColor += dColorExtra;
                 float3 DeltaRadiance    = RayRadianceDifference;
                 float  DeltaRadianceSum = dot(DeltaRadiance, 1.f.xxx);
-                float  Weight           = EvaluatedW * InvSumWeight;
+                // The weight of SG for the current shading point (SP)
+                float  SGWeightForSP    = EvaluatedW * InvSumWeight;
                 EvaluateW_Gradients(W, DeltaPosition, Gradients_W);
                 // Accumulate and combine gradients for optimal descending
                 // TODO adaptive learning rate based on the magnitude of the gradients
-                SumStepSize.dColor     += DeltaRadiance    * Gradients.dColor     * Weight;
-                SumStepSize.dDirection += DeltaRadianceSum * Gradients.dDirection * Weight;
-                SumStepSize.dLambda    += DeltaRadianceSum * Gradients.dLambda    * Weight;
+                SumStepSize.dColor     += DeltaRadiance    * Gradients.dColor     * SGWeightForSP;
+#ifdef HEURISTIC_DIRECTION_UPDATE
+                // Approximate direction directly using the radiance difference
+                SumStepSize.dDirection += DeltaRadianceSum * RayDirection         * SGWeightForSP;
+#else
+                SumStepSize.dDirection += DeltaRadianceSum * Gradients.dDirection * SGWeightForSP;
+#endif
+                SumStepSize.dLambda    += DeltaRadianceSum * Gradients.dLambda    * SGWeightForSP;
                 // F = W / (S+W) * f, so the step size of W is calculated by the followings
-                SumStepSize_W.dLambda  += Gradients_W.dLambda * A * DeltaRadianceSum;
-                SumStepSize_W.dAlpha   += Gradients_W.dAlpha  * A * DeltaRadianceSum;
+                SumStepSize_W.dLambda  += DeltaRadianceSum * A * Gradients_W.dLambda;
+                SumStepSize_W.dAlpha   += DeltaRadianceSum * A * Gradients_W.dAlpha;
+#ifdef HEURISTIC_DIRECTION_UPDATE
+                SumContrib += SGWeightForSP;
+#endif
             }
         }
         // Wave reduce the gradients
@@ -1332,6 +1357,9 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
         SumStepSize.dLambda    = WaveActiveSum(SumStepSize.dLambda);
         SumStepSize_W.dLambda  = WaveActiveSum(SumStepSize_W.dLambda);
         SumStepSize_W.dAlpha   = WaveActiveSum(SumStepSize_W.dAlpha);
+#ifdef HEURISTIC_DIRECTION_UPDATE
+        SumContrib             = WaveActiveSum(SumContrib);
+#endif
         if(WaveIsFirstLane()) {
             // Accumulate the gradients with atomic operations.
             // Note: Performance for atomic operations drops drastically when the quantlilized step buffer 
@@ -1340,6 +1368,14 @@ void SSRC_ComputeCacheUpdateStep (int3 GroupID : SV_GroupID, int LocalID : SV_Gr
             // However, if we kept some locallity in the accumulation (by processing adjacent tiles at one time), 
             // the performance is still acceptable.
             // (No L2 overflow: 200us)
+#ifdef HEURISTIC_DIRECTION_UPDATE
+            // Divide by total SG contribution to SPs to make adjacent SP more significant
+            SumStepSize.dDirection = SumStepSize.dDirection / SumContrib;
+#else
+            // Here we accumulate the orthogonal gradients for the direction only
+            // dColorExtra is already accumulated in the dColor
+            SumStepSize.dDirection = SumStepSize.dDirection - dot(SumStepSize.dDirection, SG.Direction) * SG.Direction;
+#endif
             ScreenCache_AccumulateStepSize(BasisIndex, SumStepSize, SumStepSize_W);
         }
     }
@@ -1359,9 +1395,15 @@ void SSRC_NormalizeCacheUpdate (int DispatchID : SV_DispatchThreadID, int GroupI
     if(g_CacheUpdate_SGColor) {
         Scale += dot(Step_SG.dColor, Step_SG.dColor);
     }
+    SGData SG;
+    WData  W;
+    FetchBasisData_W(BasisIndex, SG, W);
+#ifndef  HEURISTIC_DIRECTION_UPDATE
+    float3 Ortho = Step_SG.dDirection - dot(Step_SG.dDirection, SG.Direction) * SG.Direction;
     if(g_CacheUpdate_SGDirection) {
-        Scale += dot(Step_SG.dDirection, Step_SG.dDirection);
+        Scale += dot(Ortho, Ortho);
     }
+#endif
     if(g_CacheUpdate_SGLambda) {
         Scale += dot(Step_SG.dLambda, Step_SG.dLambda);
     }
@@ -1398,35 +1440,36 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     // Compute the step size
     ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
     // TODO global normalization
-    float NormalizationFactor;
-    // NormalizationFactor = 1.f / sqrt(
-    //     dot(Step_SG.dColor, Step_SG.dColor) +
-    //     dot(Step_SG.dDirection, Step_SG.dDirection) +
-    //     dot(Step_SG.dLambda, Step_SG.dLambda) +
-    //     Step_W.dAlpha * Step_W.dAlpha +
-    //     Step_W.dLambda * Step_W.dLambda + 
-    //     0.00001f
-    // );
-    NormalizationFactor = float(g_RWActiveBasisCountBuffer[0]) / max(g_RWUpdateStepScaleBuffer[0], 1e-6f);
+    float NormalizationFactor = 1000.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
     // NormalizationFactor = 1.f;
-    float RandomStride = 0.3f;//0.5f * (frac(sin(DispatchID + g_FrameIndex * 71838.3f) * 43758.5453f) + 0.5f);
+    float RandomStride = sin(DispatchID * 4.13f + g_FrameIndex * 71838.3f) * 0.5f + 0.5f;
     NormalizationFactor *= RandomStride;
     // Update the basis
+    if(g_CacheUpdate_SGDirection) {
+#ifndef HEURISTIC_DIRECTION_UPDATE
+        float3 Ortho = Step_SG.dDirection - dot(Step_SG.dDirection, SG.Direction) * SG.Direction;
+        SG.Direction += Ortho * g_CacheUpdateLearningRate * NormalizationFactor;
+        SG.Direction =  lazyNormalize(SG.Direction);
+#else
+        float DstWeight     = length(Step_SG.dDirection);
+        float3 DstDirection = Step_SG.dDirection / DstWeight;
+        float SrcWeight     = dot(SG.Color, 1.f.xxx) * 10.f;
+        float3 SrcDirection = SG.Direction;
+        float3 Direction    = SrcDirection * SrcWeight + DstDirection * DstWeight;
+        SG.Direction = lazyNormalize(Direction);
+#endif
+    }
     if(g_CacheUpdate_SGColor) {
         SG.Color     += Step_SG.dColor     * g_CacheUpdateLearningRate * NormalizationFactor;
-        SG.Color     = max(SG.Color, 0.002f.xxx); // Color is in [0.002, inf)
-    }
-    if(g_CacheUpdate_SGDirection) {
-        SG.Direction += Step_SG.dDirection * g_CacheUpdateLearningRate * NormalizationFactor;
-        SG.Direction =  lazyNormalize(SG.Direction);
+        SG.Color     = max(SG.Color, 0.01f.xxx); // Color is in [0.01, inf)
     }
     if(g_CacheUpdate_SGLambda) {
-        SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactor * 0.02;
-        SG.Lambda    = clamp(SG.Lambda, 0.5f, 50.f); // Lambda is in [0.5, 50]
+        SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactor;
+        SG.Lambda    = clamp(SG.Lambda, 0.85f, 5.f); // Lambda is in [0.85f, 5.f]
     }
     if(g_CacheUpdate_WAlpha) {
         W.Alpha      += Step_W.dAlpha      * g_CacheUpdateLearningRate * NormalizationFactor;
-        W.Alpha      = clamp(W.Alpha, 0.02f, 10.f); // Alpha is in [0.02f, 10.f]
+        W.Alpha      = clamp(W.Alpha, 0.02f, 0.9999f); // Alpha is in [0.02f, 1.f)
     }
     if(g_CacheUpdate_WLambda) {
         W.Lambda     += Step_W.dLambda     * g_CacheUpdateLearningRate * NormalizationFactor;
@@ -1482,7 +1525,10 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         float PaddingValue = float(TileBasisCount) / SSRC_MAX_BASIS_PER_TILE;
         // We assume that each basis injects to 8 adjacent tiles
         MinCoverage += PaddingValue * PaddingValue * g_BasisSpawnCoverageThreshold * 8.f;
-        if(MinCoverage < g_BasisSpawnCoverageThreshold && MinPixelIndex != 0xfff && !g_FreezeBasisAllocation) {
+        bool ShouldSpawn = MinCoverage < g_BasisSpawnCoverageThreshold;
+        // FIXME
+        ShouldSpawn = TileBasisCount < 16;
+        if(ShouldSpawn && MinPixelIndex != 0xfff && !g_FreezeBasisAllocation) {
             // New basis is here!
             int2 PixelCoords = int2(MinPixelIndex % SSRC_TILE_SIZE, MinPixelIndex / SSRC_TILE_SIZE);
             SpawnTexCoords = BaseTexCoords + PixelCoords;
@@ -1562,8 +1608,9 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
     else SG.Direction = SurfaceNormal;
     // TODO better initialization of lambda
     float M      = BlueNoise_Sample1D(GroupID.xy + int2(3817, 4905), g_FrameIndex).x;
+    // FIXME
     SG.Direction = SurfaceNormal;
-    SG.Lambda    = 0.85f;//lerp(0.35f, 1.2f, M);
+    SG.Lambda    = 1.85f;//lerp(0.35f, 1.2f, M);
     SG.Color     = 1.f.xxx;
 
     SumInitWeight = 0.f;
@@ -1782,6 +1829,28 @@ void DebugSSRC_VisualizeTileOccupancy (uint2 DispatchID : SV_DispatchThreadID, u
         } else {
             g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 1.f);
         }
+    }
+}
+
+[numthreads(8, 8, 1)]
+void DebugSSRC_AccumulateAndShowDifference (uint2 DispatchID : SV_DispatchThreadID) {
+    if(any(DispatchID >= g_OutputDimensions)) {
+        return;
+    }
+    float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+    if(Depth < 1.f) {
+        float3 Difference = g_RWRayRadianceDifferenceWSumTexture[DispatchID].xyz;
+        float4 PrevDifferenceW = g_RWDifferenceAccumulationTexture[DispatchID];
+        if(PrevDifferenceW.w > 511.f) {
+            PrevDifferenceW.xyz *= 511.f / PrevDifferenceW.w;
+            PrevDifferenceW.w = 511.f;
+        }
+        float3 Current = PrevDifferenceW.xyz + Difference;
+        float  Weight  = PrevDifferenceW.w + 1.f;
+        g_RWDifferenceAccumulationTexture[DispatchID] = float4(Current, Weight);
+        g_RWDebugOutput[DispatchID] = float4(abs(Current) / Weight, 1.0f);
+    } else {
+        g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
     }
 }
 
