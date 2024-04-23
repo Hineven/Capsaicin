@@ -245,13 +245,22 @@ uint4 FetchBasisData_W_Packed (int BasisIndex) {
     return uint4(P0, P1, P2, P3);
 }
 
+float3 UnpackNormal (uint Packed) {
+    uint3 Dir = uint3(Packed & 0x3ff, (Packed >> 10) & 0x3ff, (Packed >> 20) & 0x3ff);
+    return (float3(Dir) + (1.f / 0x800)) * (2.f / 0x400) - 1.f;
+}
+
+uint PackNormal (float3 Normal) {
+    uint3 Dir = floor(clamp((Normal + 1.f) * (0x200), 0.xxx, 0x3ff.xxx));
+    return Dir.x | (Dir.y << 10) | (Dir.z << 20);
+}
+
 void UnpackBasisData (uint3 Packed, out SGData SG) {
     SG.Color     = float3(f16tof32(Packed.x & 0xFFFF), f16tof32(Packed.x >> 16), f16tof32(Packed.y & 0xFFFF));
     SG.Lambda    = f16tof32(Packed.y >> 16);
     // unpack normal fails when x / y / z == -1
-    // SG.Direction = normalize(unpackNormal(Packed.z));
-    uint3 Dir    = uint3(Packed.z & 0x3ff, (Packed.z >> 10) & 0x3ff, (Packed.z >> 20) & 0x3ff);
-    SG.Direction = (float3(Dir) + (1.f / 0x800)) * (2.f / 0x400) - 1.f;
+    // SG.Direction = normalize(unpackNormal(Packed.z));   
+    SG.Direction = UnpackNormal(Packed.z);
 }
 
 uint3 PackBasisData (SGData SG) {
@@ -260,8 +269,7 @@ uint3 PackBasisData (SGData SG) {
     Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
     // pack normal fails when x / y / z == -1
     // Packed.z = packNormal(SG.Direction);
-    uint3 Dir = floor(clamp((SG.Direction + 1.f) * (0x200), 0.xxx, 0x3ff.xxx));
-    Packed.z = Dir.x | (Dir.y << 10) | (Dir.z << 20);
+    Packed.z = PackNormal(SG.Direction);
     return Packed;
 }
 
@@ -275,7 +283,6 @@ void WriteBasisData (int BasisIndex, SGData SG) {
 void FetchBasisLocation (int BasisIndex, out float3 Position) {
     Position = g_RWBasisLocationBuffer[BasisIndex];
 }
-
 
 // There is severe precision loss when using f16 to store WD.Lambda??
 
@@ -683,6 +690,14 @@ float3 lazyNormalize (float3 n) {
         return n;
     }
     return normalize(n);
+}
+
+// Packing and unpacking misc
+float3 UnpackFp16x3 (uint2 v) {
+    return float3(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF));
+}
+float4 UnpackFp16x4 (uint2 v) {
+    return float4(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF), f16tof32(v.y >> 16));
 }
 
 #endif // MIGI_SHARED_HLSL

@@ -100,6 +100,13 @@ RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
 RWStructuredBuffer<uint>   g_RWTileBasisCountBuffer; // The number of injected basis in each tile
+RWStructuredBuffer<uint>   g_RWTileBasisCountOldBuffer; // Mark the number of injected basis for each tile before basis generation
+RWStructuredBuffer<uint>   g_RWTileRayCountBuffer; // The number of update rays allocated per tile
+RWStructuredBuffer<uint>   g_RWTileRayOffsetBuffer; // Offset of update ray index for each tile
+RWStructuredBuffer<uint>   g_RWUpdateRayDirectionBuffer; // Sampled update ray direction
+RWStructuredBuffer<uint2>  g_RWUpdateRayRadianceOriginBuffer; // Sampled update ray radiance, fp16x3 packed + ray origin sub-tile jitter
+RWStructuredBuffer<uint2>  g_RWUpdateRayCacheBuffer; // Cache evaluated radiance + wsum, fp16x4 packed
+RWStructuredBuffer<float>  g_RWTileErrorAccumulationBuffer; // Error metrics for each tile, guiding the update ray allocation and basis spawnning
 // Before compression
 // TILE_BASIS_INJECTION_RESERVATION slots are reserved for each tile for injection.
 RWStructuredBuffer<uint>   g_RWTileBasisIndexInjectionBuffer;

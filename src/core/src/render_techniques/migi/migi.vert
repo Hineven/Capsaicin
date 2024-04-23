@@ -160,7 +160,7 @@ DebugBasis3D_Output DebugSSRC_Basis3D (
         if(g_DebugVisualizeMode == 0) {
             VecLength = dot(SG.Color, 1.f.xxx) * 0.02f;
         } else if(g_DebugVisualizeMode == 1) {
-            VecLength = SG.Lambda * 0.02f;
+            VecLength = SG.Lambda * 0.006f;
         } else if(g_DebugVisualizeMode == 2) {
             VecLength = W.Alpha * 0.02f;
         } else if(g_DebugVisualizeMode == 3) {

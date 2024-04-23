@@ -126,6 +126,10 @@ struct RTConstants
 // Baisis not accessed for 5 frames are recycled
 #define BASIS_RETIRE_FRAME_COUNT 5u
 
+// Default number of rays to batch processing per thread in a wave
+// Increasing this number drastically increases the register usage
+#define WAVE_RAY_SIZE 4
+
 #ifdef __cplusplus
 }// namespace Capsaicin
 #endif
