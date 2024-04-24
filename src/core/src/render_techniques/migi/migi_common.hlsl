@@ -120,6 +120,10 @@ struct RTConstants
 
 // The screen tile size for indexing basis (in pixels) 
 #define SSRC_TILE_SIZE 8
+#define SSRC_TILE_SIZE_L2 3
+#ifdef __cplusplus
+static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<SSRC_TILE_SIZE_L2.");
+#endif
 // A maximum of 64 basis can be injected into a single tile.
 #define SSRC_MAX_BASIS_PER_TILE 64
 

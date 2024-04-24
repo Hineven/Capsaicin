@@ -427,13 +427,219 @@ void SSRC_CompressTileBasisIndex (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
     }
 }
 
-groupshared float3 LocalSGWeight[WAVE_SIZE];
+[numthreads(SSRC_TILE_SIZE, SSRC_TILE_SIZE, 1)]
+void ReprojectPreviousUpdateError (int2 DispatchID : SV_DispatchThreadID) {
+    if(any(DispatchID >= g_OutputDimensions)) {
+        return;
+    }
+    // Reproject the update error texture from previous frame to current frame
+    {
+        float2 UV     = (DispatchID + 0.5f) * g_OutputDimensionsInv;
+        float  Depth  = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+        float3 Normal = normalize(2.f * g_GeometryNormalTexture.Load(int3(DispatchID, 0)) - 1.f);
+
+        if (all(UV > 0.0f) && all(UV < 1.0f) && Depth > 0.0f && Depth < 1.0f)
+        {
+            float2 previous_uv = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0.0f).xy;
+
+            if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
+            {
+                float3 homogeneous2 = transformPointProjection(float3(2.0f * float2(UV.x, 1.0f - UV.y) - 1.0f, depth), g_Reprojection);
+                homogeneous2.z      = GetLinearDepth(homogeneous2.z);
+
+                float  previous_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
+                float3 previous_normal = normalize(2.0f * g_PreviousGeometryNormalTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
+
+                if (dot(previous_normal, Normal) > 5e-1f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
+                {
+                    float PreviousError = g_PreviousUpdateErrorSplatTexture.SampleLevel(g_LinearSampler, previous_uv, 0).x;
+                    g_RWUpdateErrorSplatTexture[DispatchID] = float4(PreviousError, 0.0f, 0.0f, 0.0f);
+                    return; 
+                }
+            }
+        }
+    }
+    // TODO allocate a initial weight for the update error
+    // FIXME
+    g_RWUpdateErrorSplatTexture[DispatchID] = 0.f.xxxx;
+}
+
+// UpdateErrorSplatTexture is later blurred into mipmaps.
+
 [numthreads(WAVE_SIZE, 1, 1)]
-void SampleUpdateRays (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
-    int TileID = GroupID.x + GroupID.y * g_TileDimensions.x;
-    int TileBasisSlotOffset = g_RWTileBaseSlotOffsetBuffer[TileID];
-    int TileBasisCount      = g_RWTileBasisCountBuffer[TileID];
-    
+void PreomputeRayBudgetForTiles (int DispatchID : SV_DispatchThreadID, int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    int  TileID = DispatchID;
+    if(TileID > g_TileDimensions.x * g_TileDimensions.y) {
+        return;
+    }
+    int2 TileCoords = int2(TileID % g_TileDimensions.x, TileID / g_TileDimensions.x);
+    float TileAvgUpdateError = g_UpdateErrorSplatTexture.Load(int3(TileCoords, SSRC_TILE_SIZE_L2)).x;
+
+    int   WaveActiveLaneCount       = WaveActiveSum(1);
+    float WaveTileAvgUpdateErrorSum = WaveActiveSum(TileAvgUpdateError);
+    if(LocalID == 0) {;
+        g_RWTileUpdateErrorSumsBuffer[GroupID] = WaveTileAvgUpdateErrorSum;
+    }
+}
+
+// A reduce sum is performed to accumulate g_RWTileUpdateErrorSumsBuffer into g_RWUpdateErrorBuffer
+
+// Allocate update rays for each tile
+// To achieve maximum parallelism, we allocate rays by WAVE_SIZE * X for each tile (X <= WAVE_RAY_SIZE)
+// Using russian roulette to round the number of rays to one of the nearest multiples of WAVE_SIZE
+[numthreads(WAVE_SIZE, 1, 1)]
+void AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
+    int TileID = DispatchID;
+    if(TileID >= g_TileDimensions.x * g_TileDimensions.y) {
+        return;
+    }
+    int2 TileCoords          = int2(TileID % g_TileDimensions.x, TileID / g_TileDimensions.x);
+    float TileAvgUpdateError = g_UpdateErrorSplatTexture.Load(int3(TileCoords, SSRC_TILE_SIZE_L2)).x;
+    float Fraction           = TileAvgUpdateError / max(g_RWUpdateErrorBuffer[0], 1e-4f);
+    float ExpectedRayCount   = Fraction * g_RWTileUpdateErrorSumsBuffer[TileID];
+    // RR
+    int X                    = int(ExpectedRayCount / WAVE_SIZE);
+    float Remainder          = (ExpectedRayCount - X * WAVE_SIZE) / WAVE_SIZE;
+    Random rng = MakeRandom(97462891 + DispatchID, g_FrameIndex).rand();
+    if(rng.rand() < Remainder) {
+        X++;
+    }
+    g_RWTileRayCountBuffer[TileID] = min(X, WAVE_RAY_SIZE) * WAVE_SIZE;
+}
+
+// A scan sum is performed to accumulate g_RWTileRayCountBuffer into g_RWTileRayBaseOffsetBuffer
+
+// Importance sample the allocated update rays for each tile
+float LocalUpdateErrorMip0[SSRC_TILE_SIZE][SSRC_TILE_SIZE];
+float LocalUpdateErrorMip1[SSRC_TILE_SIZE / 2][SSRC_TILE_SIZE / 2];
+float LocalUpdateErrorMip2[SSRC_TILE_SIZE / 4][SSRC_TILE_SIZE / 4];
+[numthreads(WAVE_SIZE, 1, 1)]
+void SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    int TileID = GroupID;
+    if(TileID >= g_TileDimensions.x * g_TileDimensions.y) {
+        return;
+    }
+    int2 TileCoords = int2(TileID % g_TileDimensions.x, TileID / g_TileDimensions.x);
+    int2 TileBaseTextureOffset = TileCoords * SSRC_TILE_SIZE;
+    // Cooperatively load the update error mipmaps
+    int L0PixelCount = SSRC_TILE_SIZE * SSRC_TILE_SIZE;
+    for(int i = 0; i < L0PixelCount; i += WAVE_SIZE) {
+        int PixelIndex = i + LocalID;
+        if(PixelIndex < L0PixelCount) {
+            int  PixelX = PixelIndex % SSRC_TILE_SIZE;
+            int  PixelY = PixelIndex / SSRC_TILE_SIZE;
+            int2 TexCoords = TileBaseTextureOffset + int2(PixelX, PixelY);
+            LocalUpdateErrorMip0[PixelY][PixelX] = g_UpdateErrorSplatTexture.Load(int3(TexCoords, 0)).x;
+        }
+    }
+    int L1PixelCount = (SSRC_TILE_SIZE * SSRC_TILE_SIZE) / 4;
+    for(int i = 0; i < L1PixelCount; i += WAVE_SIZE) {
+        int PixelIndex = i + LocalID;
+        if(PixelIndex < L1PixelCount) {
+            int  PixelX = PixelIndex % (SSRC_TILE_SIZE / 2);
+            int  PixelY = PixelIndex / (SSRC_TILE_SIZE / 2);
+            int2 TexCoords = TileBaseTextureOffset / 2 + int2(PixelX, PixelY);
+            LocalUpdateErrorMip0[PixelY][PixelX] = g_UpdateErrorSplatTexture.Load(int3(TexCoords, 1)).x;
+        }
+    }
+    int L2PixelCount = (SSRC_TILE_SIZE * SSRC_TILE_SIZE) / 16;
+    for(int i = 0; i < L2PixelCount; i += WAVE_SIZE) {
+        int PixelIndex = i + LocalID;
+        if(PixelIndex < L2PixelCount) {
+            int  PixelX = PixelIndex % (SSRC_TILE_SIZE / 4);
+            int  PixelY = PixelIndex / (SSRC_TILE_SIZE / 4);
+            int2 TexCoords = TileBaseTextureOffset / 4 + int2(PixelX, PixelY);
+            LocalUpdateErrorMip0[PixelY][PixelX] = g_UpdateErrorSplatTexture.Load(int3(TexCoords, 2)).x;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    int TileRayCount  = g_RWTileRayCountBuffer[TileID];
+    int TileRayOffset = g_RWTileRayOffsetBuffer[TileID];
+    int REPEAT        = (TileRayCount + WAVE_SIZE - 1) / WAVE_SIZE;
+    Random rng        = MakeRandom(34622891 + TileID * WAVE_SIZE + LocalID, g_FrameIndex);
+    for(int i = 0; i < REPEAT; i++) {
+        int RayIndex = i * WAVE_SIZE + LocalID;
+        if(RayIndex < TileRayCount) {
+            float u = rng.rand();
+            int2  Offset = 0;
+            // Assume the tile size is 8x8
+            // 8x8 sub tile sampling
+            {
+                float X00 = LocalUpdateErrorMip2[Offset.y][Offset.x];
+                float X01 = LocalUpdateErrorMip2[Offset.y][Offset.x + 1];
+                float X10 = LocalUpdateErrorMip2[Offset.y + 1][Offset.x];
+                float X11 = LocalUpdateErrorMip2[Offset.y + 1][Offset.x + 1];
+                float S   = X00 + X01 + X10 + X11;
+                float P00 = X00 / S;
+                float P01 = X01 / S;
+                float P10 = X10 / S;
+                float P11 = X11 / S;
+                if(u < P00) {
+                    u = u / P00;
+                } else if(u < P00 + P01) {
+                    Offset.x ++;
+                    u = (u - P00) / P01;
+                } else if(u < P00 + P01 + P10) {
+                    Offset.y ++;
+                    u = (u - (P00 + P01)) / P10;
+                } else {
+                    Offset += int2(1, 1);
+                    u = (u - (P00 + P01 + P10)) / P11;
+                }
+            }
+            Offset = Offset * 2;
+            // 4x4 sub tile sampling
+            {
+                float X00 = LocalUpdateErrorMip1[Offset.y][Offset.x];
+                float X01 = LocalUpdateErrorMip1[Offset.y][Offset.x + 1];
+                float X10 = LocalUpdateErrorMip1[Offset.y + 1][Offset.x];
+                float X11 = LocalUpdateErrorMip1[Offset.y + 1][Offset.x + 1];
+                float S   = X00 + X01 + X10 + X11;
+                float P00 = X00 / S;
+                float P01 = X01 / S;
+                float P10 = X10 / S;
+                float P11 = X11 / S;
+                if(u < P00) {
+                    u = u / P00;
+                } else if(u < P00 + P01) {
+                    Offset.x ++;
+                    u = (u - P00) / P01;
+                } else if(u < P00 + P01 + P10) {
+                    Offset.y ++;
+                    u = (u - (P00 + P01)) / P10;
+                } else {
+                    Offset += int2(1, 1);
+                    u = (u - (P00 + P01 + P10)) / P11;
+                }
+            }
+            Offset = Offset * 2;
+            // 2x2 sub tile sampling
+            {
+                float X00 = LocalUpdateErrorMip0[Offset.y][Offset.x];
+                float X01 = LocalUpdateErrorMip0[Offset.y][Offset.x + 1];
+                float X10 = LocalUpdateErrorMip0[Offset.y + 1][Offset.x];
+                float X11 = LocalUpdateErrorMip0[Offset.y + 1][Offset.x + 1];
+                float S   = X00 + X01 + X10 + X11;
+                float P00 = X00 / S;
+                float P01 = X01 / S;
+                float P10 = X10 / S;
+                float P11 = X11 / S;
+                if(u < P00) {
+
+                } else if(u < P00 + P01) {
+                    Offset.x ++;
+                } else if(u < P00 + P01 + P10) {
+                    Offset.y ++;
+                } else {
+                    Offset += int2(1, 1);
+                }
+            }
+            // Sample film position
+            g_RWRay????
+        }
+    }
+
 }
 
 // Trace visibility rays to generate intersections for secondary vertices
