@@ -64,9 +64,6 @@ struct MIGIRenderOptions {
     bool no_importance_sampling = true;
     // If we use fixed step size in gradient descent.
     bool fixed_step_size = false;
-    // Whether to use blue noise to sample the direction of the update rays
-    // (Note: it can cause artifacts due to the limited number of possible sample)
-    bool use_blue_noise_sample_direction = false;
     // Whether to render indirect lighting (using the hash grid cache)
     bool enable_indirect = true;
     // Whether to freeze the allocation and deallocation of basis for visualization

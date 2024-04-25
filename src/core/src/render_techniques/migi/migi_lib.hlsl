@@ -81,6 +81,11 @@ float OneSubExpNeg2Lambda (float lambda) {
     return lambda < 24.f ? (1.f - exp(-2.f * lambda)) : 1.f;
 }
 
+// Return the integral of a SG
+float SGIntegrate (float lambda) {
+    return (TWO_PI * OneSubExpNeg2Lambda(lambda)) / lambda;
+}
+
 float SGNormalizationFactor (float lambda) {
     return lambda / (TWO_PI * OneSubExpNeg2Lambda(lambda));
 }
@@ -143,6 +148,13 @@ float EvaluateBilateralFilterWeight (float PixelScale, float FilmPlaneRadius, fl
     float Radius = 4.f * PixelScale * FilmPlaneRadius;
     float DistanceDecay = exp(- Distance / Radius);
     return DirectionalDecay * DistanceDecay;
+}
+
+// FDist: distance in pixels
+float EvaluateFilmCoverage (float2 FDist) {
+    float Radius = 4.f;
+    float Sqr = dot(FDist, FDist);
+    return exp(- Sqr * (4.f / (Radius * Radius)) );
 }
 
 struct SGGradients {
@@ -698,6 +710,22 @@ float3 UnpackFp16x3 (uint2 v) {
 }
 float4 UnpackFp16x4 (uint2 v) {
     return float4(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF), f16tof32(v.y >> 16));
+}
+
+uint2 PackFp16x3 (float3 v) {
+    return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z));
+}
+
+uint2 PackFp16x4 (float4 v) {
+    return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z) | (f32tof16(v.w) << 16));
+}
+
+uint PackUint16x2 (uint2 v) {
+    return v.x | (v.y << 16);
+}
+
+uint2 UnpackUint16x2 (uint v) {
+    return uint2(v & 0xFFFF, v >> 16);
 }
 
 #endif // MIGI_SHARED_HLSL

@@ -214,7 +214,6 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_NoImportanceSampling", (uint)options_.no_importance_sampling);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FixedStepSize", (uint)options_.fixed_step_size);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_UseBlueNoiseSampleDirection", (uint)options_.use_blue_noise_sample_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FreezeBasisAllocation", (uint)options_.freeze_basis_allocation);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayDirectionTexture", tex_.update_ray_direction);

@@ -104,8 +104,10 @@ RWStructuredBuffer<uint>   g_RWTileBasisCountOldBuffer; // Mark the number of in
 RWStructuredBuffer<uint>   g_RWTileRayCountBuffer; // The number of update rays allocated per tile
 RWStructuredBuffer<uint>   g_RWTileRayOffsetBuffer; // Offset of update ray index for each tile
 RWStructuredBuffer<uint>   g_RWUpdateRayDirectionBuffer; // Sampled update ray direction
-RWStructuredBuffer<uint2>  g_RWUpdateRayRadianceOriginBuffer; // Sampled update ray radiance, fp16x3 packed + ray origin sub-tile jitter
+RWStructuredBuffer<uint>   g_RWUpdateRayOriginBuffer;    // int16x2 packed
+RWStructuredBuffer<uint2>  g_RWUpdateRayRadiancePdfBuffer; // Sampled update ray radiance and directional pdf.
 RWStructuredBuffer<uint2>  g_RWUpdateRayCacheBuffer; // Cache evaluated radiance + wsum, fp16x4 packed
+RWStructuredBuffer<uint>   g_RWUpdateRayCountBuffer; // Count of update rays generated for this frame.
 RWStructuredBuffer<float>  g_RWTileErrorAccumulationBuffer; // Error metrics for each tile, guiding the update ray allocation and basis spawnning
 RWStructuredBuffer<float>  g_RWTileUpdateErrorSumsBuffer; // Sums of update error sums of WAVE_SIZE tiles. Used for precompuation for ray allocation.
 RWStructuredBuffer<float>  g_RWUpdateErrorBuffer; // Sum of all tile update errors.
@@ -131,7 +133,6 @@ float g_CR_DiskRadiusBias; // Bias for the disk radius
 // Misc parameters
 uint g_NoImportanceSampling;
 uint g_FixedStepSize;
-uint g_UseBlueNoiseSampleDirection;
 uint g_FreezeBasisAllocation;
 
 // Update rays (currently uniformly distributed across the film) and inverse of sample pdf on the sphere
