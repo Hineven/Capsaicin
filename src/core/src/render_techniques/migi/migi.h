@@ -56,20 +56,14 @@ public:
 
     struct MIGIResources
     {
-        // Ray buffers for cache update
-        // R16G16B16A16_FLOAT
-        GfxTexture   update_ray_direction {};
-        // R16G16B16A16_FLOAT
-        GfxTexture   update_ray_radiance {};
-        // RayRadiance - CachedRadiance, wsum
-        // R16G16B16A16_FLOAT
-        GfxTexture   update_ray_radiance_difference_wsum {};
-
-        GfxTexture   difference_accumulation {};
 
         // Screen coverage of the cache, used for basis spawn
-        // f16x2
-        GfxTexture   cache_coverage_texture {};
+        // fp16x2
+        GfxTexture cache_coverage {};
+
+        // Update error used to guide update ray spawnning
+        // fp16x2 with mipmaps up to the tile size (1/8 res), reprojection is done across frames
+        GfxTexture   update_error_splat [2]{};
 
         // Hierarchical z-buffer
         // R32_FLOAT, 1/2 - 1/8 resolution, 3 mip levels
@@ -95,6 +89,15 @@ public:
         GfxBuffer free_basis_indices {};
         GfxBuffer free_basis_indices_count {};
         GfxBuffer tile_basis_count {};
+        GfxBuffer tile_ray_count {};
+        GfxBuffer tile_ray_offset {};
+        GfxBuffer update_ray_direction {};
+        GfxBuffer update_ray_origin {};
+        GfxBuffer update_ray_radiance_pdf {};
+        GfxBuffer update_ray_cache {};
+        GfxBuffer update_ray_count {};
+        GfxBuffer tile_update_error_sums {};
+        GfxBuffer tile_update_error {};
         GfxBuffer tile_basis_index_injection {};
         GfxBuffer tile_base_slot_offset {};
         GfxBuffer tile_basis_index {};
@@ -117,18 +120,6 @@ public:
 
         GfxProgram program {};
 
-        GfxKernel  purge_tiles {};
-        GfxKernel  clear_counters {};
-        GfxKernel  trace_update_rays {};
-        GfxKernel  clear_reservoirs {};
-        GfxKernel  generate_reservoirs {};
-        GfxKernel  compact_reservoirs {};
-        GfxKernel  resample_reservoirs {};
-        GfxKernel  populate_cells {};
-        GfxKernel  generate_update_tiles_dispatch {};
-        GfxKernel  update_tiles {};
-        GfxKernel  resolve_cells {};
-
         GfxKernel  precompute_HiZ_min {};
         GfxKernel  precompute_HiZ_max {};
 
@@ -140,6 +131,24 @@ public:
         GfxKernel  SSRC_clip_overflow_tile_index {};
         GfxKernel  SSRC_allocate_extra_slot_for_basis_generation {};
         GfxKernel  SSRC_compress_tile_basis_index {};
+        GfxKernel  SSRC_reproject_previous_update_error {};
+        GfxKernel  SSRC_precompute_ray_budget_for_tiles {};
+        GfxKernel  SSRC_tiles_set_reduce_count_32 {};
+        GfxKernel  SSRC_tiles_set_reduce_count {};
+        GfxKernel  SSRC_allocate_update_rays {};
+        GfxKernel  SSRC_sample_update_rays {};
+        GfxKernel  SSRC_generate_trace_update_rays {};
+        GfxKernel  SSRC_trace_update_rays {};
+        GfxKernel  purge_tiles {};
+        GfxKernel  clear_counters {};
+        GfxKernel  clear_reservoirs {};
+        GfxKernel  generate_reservoirs {};
+        GfxKernel  compact_reservoirs {};
+        GfxKernel  resample_reservoirs {};
+        GfxKernel  populate_cells {};
+        GfxKernel  generate_update_tiles_dispatch {};
+        GfxKernel  update_tiles {};
+        GfxKernel  resolve_cells {};
         GfxKernel  SSRC_precompute_cache_update {};
         GfxKernel  SSRC_compute_cache_update_step {};
         GfxKernel  SSRC_normalize_cache_update {};
@@ -148,6 +157,7 @@ public:
         GfxKernel  SSRC_spawn_new_basis {};
         GfxKernel  SSRC_clip_over_allocation {};
         GfxKernel  SSRC_integrate_ASG {};
+        GfxKernel  SSRC_accumulate_update_error {};
 
         GfxKernel  SSRC_reset {};
 

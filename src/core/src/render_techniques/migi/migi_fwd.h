@@ -23,9 +23,7 @@ struct MIGIRenderOptions {
 
     bool reset_screen_space_cache {false};
 
-    // Maximum number of update rays for the screen space radiance cache
-    // Set to screen resolution automatically
-    uint32_t SSRC_max_update_ray_count {};
+    uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
     // Maximum number of basis active in the screen space radiance cache
     uint32_t SSRC_max_basis_count {256 * 1024};
     // Min coverage for basis spawn
@@ -36,6 +34,14 @@ struct MIGIRenderOptions {
     float SSRC_initial_W_radius {16.f};
     // Resolution of the disk when doing rasterization for tile index injection
     uint32_t SSRC_CR_disk_vertex_count {12};
+
+    // Ray budget for each frame
+    uint32_t SSRC_update_ray_budget {2 * 1024 * 1024};
+    // Used to pad W for cache coverage computation to prevent over allocation on surfaces parallel to the view direction
+    float    SSRC_W_coverage_padding {0.05f};
+
+    // Used to adjust the impact of importance sampling on ray allocation among tiles. 1: avg, 0: importance
+    float    SSRC_tile_fraction_padding {0.2f};
 
     struct {
         uint32_t num_buckets_l2 {12}; // 1<<12 = 4096

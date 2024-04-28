@@ -88,7 +88,7 @@ RWStructuredBuffer<float>  g_RWBasisEffectiveRadiusBuffer;
 // Film space effective radius for clipping in injection
 RWStructuredBuffer<float>  g_RWBasisEffectiveRadiusFilmBuffer;
 // Cached basis center projection on screen, unorm 2x16 packed
-RWStructuredBuffer<uint>   g_RWBasisFilmPositionBuffer;
+// RWStructuredBuffer<uint>   g_RWBasisFilmPositionBuffer;
 RWStructuredBuffer<float3> g_RWBasisLocationBuffer;
 // Color : 16*3, Lambda: 16, Normal: 32packed, WLambda: 16, WAlpha: 16
 RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
@@ -100,15 +100,15 @@ RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
 RWStructuredBuffer<uint>   g_RWTileBasisCountBuffer; // The number of injected basis in each tile
-RWStructuredBuffer<uint>   g_RWTileBasisCountOldBuffer; // Mark the number of injected basis for each tile before basis generation
+// RWStructuredBuffer<uint>   g_RWTileBasisCountOldBuffer; // Mark the number of injected basis for each tile before basis generation
 RWStructuredBuffer<uint>   g_RWTileRayCountBuffer; // The number of update rays allocated per tile
 RWStructuredBuffer<uint>   g_RWTileRayOffsetBuffer; // Offset of update ray index for each tile
 RWStructuredBuffer<uint>   g_RWUpdateRayDirectionBuffer; // Sampled update ray direction
 RWStructuredBuffer<uint>   g_RWUpdateRayOriginBuffer;    // int16x2 packed
+// Pdf: tile pixel pdf (normalized by tile pixel count) * ray direction pdf
 RWStructuredBuffer<uint2>  g_RWUpdateRayRadiancePdfBuffer; // Sampled update ray radiance and directional pdf.
 RWStructuredBuffer<uint2>  g_RWUpdateRayCacheBuffer; // Cache evaluated radiance + wsum, fp16x4 packed
 RWStructuredBuffer<uint>   g_RWUpdateRayCountBuffer; // Count of update rays generated for this frame.
-RWStructuredBuffer<float>  g_RWTileErrorAccumulationBuffer; // Error metrics for each tile, guiding the update ray allocation and basis spawnning
 RWStructuredBuffer<float>  g_RWTileUpdateErrorSumsBuffer; // Sums of update error sums of WAVE_SIZE tiles. Used for precompuation for ray allocation.
 RWStructuredBuffer<float>  g_RWUpdateErrorBuffer; // Sum of all tile update errors.
 // Before compression
@@ -124,6 +124,8 @@ float  g_MinWeightE; // A super parameter for determining the basis effective ra
 float  g_BasisSpawnCoverageThreshold; // The threshold for spawning new basis.
 int    g_MaxBasisCount; // Size of the basis buffer
 int    g_UpdateRayBudget; // Budget for update rays
+float  g_WCoveragePadding; // Padding for W when computing coverage
+float  g_TileFractionPadding; // Pad the tile fraction for ray allocation, 0: fully importance, 1: avg.
 
 // Conservative Rasterization for index injection
 int g_CR_DiskVertexCount; // Number of vertices in the disk when injecting basis
@@ -135,14 +137,6 @@ uint g_NoImportanceSampling;
 uint g_FixedStepSize;
 uint g_FreezeBasisAllocation;
 
-// Update rays (currently uniformly distributed across the film) and inverse of sample pdf on the sphere
-RWTexture2D<float4> g_RWRayDirectionTexture;
-RWTexture2D<float4> g_RWRayRadianceTexture;
-// RayRadiance - CacheEvaluatedRadiance, WSum
-RWTexture2D<float4> g_RWRayRadianceDifferenceWSumTexture;
-// Debugging texture for difference accumulation to visualize the 
-// error of incoming radiance field of primary vertices.
-RWTexture2D<float4> g_RWDifferenceAccumulationTexture;
 // Coverage texture supplies the cache generation, currently unused
 RWTexture2D<float4> g_RWCacheCoverageTexture;
 // The splatted error texture for update rays

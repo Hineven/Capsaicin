@@ -185,7 +185,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWActiveBasisCountBuffer", buf_.active_basis_count);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWActiveBasisIndexBuffer", buf_.active_basis_index);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisEffectiveRadiusBuffer", buf_.basis_effective_radius);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisFilmPositionBuffer", buf_.basis_film_position);
+//    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisFilmPositionBuffer", buf_.basis_film_position);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisEffectiveRadiusFilmBuffer", buf_.basis_effective_radius_film);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisLocationBuffer", buf_.basis_location);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterBuffer", buf_.basis_parameter);
@@ -196,6 +196,16 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesBuffer", buf_.free_basis_indices);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesCountBuffer", buf_.free_basis_indices_count);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBasisCountBuffer", buf_.tile_basis_count);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileRayCountBuffer", buf_.tile_ray_count);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileRayOffsetBuffer", buf_.tile_ray_offset);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayDirectionBuffer", buf_.update_ray_direction);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayOriginBuffer", buf_.update_ray_origin);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayRadiancePdfBuffer", buf_.update_ray_radiance_pdf);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayCacheBuffer", buf_.update_ray_cache);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayCountBuffer", buf_.update_ray_count);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileUpdateErrorSumsBuffer", buf_.tile_update_error_sums);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateErrorBuffer", buf_.tile_update_error);
+
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBasisIndexInjectionBuffer", buf_.tile_basis_index_injection);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBaseSlotOffsetBuffer", buf_.tile_base_slot_offset);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileBasisIndexBuffer", buf_.tile_basis_index);
@@ -207,6 +217,9 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_BasisSpawnCoverageThreshold", options_.SSRC_basis_spawn_coverage_threshold);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_MinWeightE", options_.SSRC_min_weight_E);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_MaxBasisCount", options_.SSRC_max_basis_count);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_UpdateRayBudget", options_.SSRC_update_ray_budget);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_WCoveragePadding", options_.SSRC_W_coverage_padding);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_TileFractionPadding", options_.SSRC_tile_fraction_padding);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CR_DiskVertexCount", options_.SSRC_CR_disk_vertex_count);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CR_DiskRadiusMultiplier", 1.f);//options_.SSRC_CR_disk_radius_multiplier);
@@ -216,12 +229,11 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FixedStepSize", (uint)options_.fixed_step_size);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FreezeBasisAllocation", (uint)options_.freeze_basis_allocation);
 
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayDirectionTexture", tex_.update_ray_direction);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceTexture", tex_.update_ray_radiance);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWRayRadianceDifferenceWSumTexture", tex_.update_ray_radiance_difference_wsum);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDifferenceAccumulationTexture", tex_.difference_accumulation);
-    // Currently unused
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWCacheCoverageTexture", tex_.cache_coverage_texture);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWCacheCoverageTexture", tex_.cache_coverage);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateErrorSplatTexture", tex_.update_error_splat[internal_frame_index_ & 1]);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_UpdateErrorSplatTexture", tex_.update_error_splat[internal_frame_index_ & 1]);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousUpdateErrorSplatTexture", tex_.update_error_splat[!(internal_frame_index_ & 1)]);
+
 
     static_assert(SSRC_TILE_SIZE == 8);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TileHiZ_Min", tex_.HiZ_min, 2);
@@ -408,9 +420,195 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
-    // Sample and Trace update rays
+
+    // Precompute HiZ buffer for injection culling and other purposes
+    {
+        auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
+            return (a + b - 1) / b;
+        };
+        {
+            TimedSection const timed_section(*this, "PrecomputeHiZ_Min");
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 0);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
+            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_HiZ_min);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 2, threads[0]),
+                divideAndRoundUp(options_.height / 2, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_min, 0);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 1);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]),
+                divideAndRoundUp(options_.height / 4, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_min, 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 2);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 8, threads[0]),
+                divideAndRoundUp(options_.height / 8, threads[1]), 1);
+        }
+        {
+            TimedSection const timed_section(*this, "PrecomputeHiZ_Max");
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 0);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
+            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_HiZ_max);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 2, threads[0]),
+                divideAndRoundUp(options_.height / 2, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 0);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 1);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]),
+                divideAndRoundUp(options_.height / 4, threads[1]), 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 1);
+            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 2);
+            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 8, threads[0]),
+                divideAndRoundUp(options_.height / 8, threads[1]), 1);
+        }
+    }
+
+    // Clear the counter for active basis
+    {
+        TimedSection const timed_section(*this, "ClearActiveCounter");
+
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_clear_active_counter);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+    }
+
+    // Reproject and filter out-dated basis from previous frame
+    {
+        const TimedSection timed_section(*this, "SSRC_ReprojectAndFilter");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_reproject_and_filter);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_reproject_and_filter);
+        uint32_t dispatch_size[] = {(options_.SSRC_max_basis_count + threads[0] - 1) / threads[0]};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+    }
+
+    // Clear the tile index for injection
+    {
+        const TimedSection timed_section(*this, "SSRC_ClearTileInjectionIndex");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_clear_tile_injection_index);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_clear_tile_injection_index);
+        assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
+        int tile_size = options_.width / SSRC_TILE_SIZE * options_.height / SSRC_TILE_SIZE;
+        uint32_t dispatch_size[] = {(tile_size + threads[0] - 1) / threads[0]};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+    }
+
+    // Inject tiles
+    {
+        const TimedSection timed_section(*this, "SSRC_InjectReprojectedBasis");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_inject_generate_draw_indexed);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        __override_gfx_null_render_target = true;
+        __override_gfx_null_render_target_width  = int(options_.width)  / SSRC_TILE_SIZE;
+        __override_gfx_null_render_target_height = int(options_.height) / SSRC_TILE_SIZE;
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_inject_reprojected_basis);
+        gfxCommandBindIndexBuffer(gfx_, buf_.disk_index_buffer);
+        gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
+        __override_gfx_null_render_target = false;
+    }
+
+    // Clip over flowing index
+    {
+        const TimedSection timed_section(*this, "SSRC_ClipOverflowTileIndex");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_clip_overflow_tile_index);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_clip_overflow_tile_index);
+        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        dispatch_size = (dispatch_size + threads[0] - 1) / threads[0];
+        gfxCommandDispatch(gfx_, dispatch_size, 1, 1);
+    }
+
+    // Postprocessing for tile indices
+    {
+        const TimedSection timed_section(*this, "SSRC_ScanSumAccumulateTileIndices");
+        gfxCommandScanSum(gfx_, kGfxDataType_Uint, buf_.tile_base_slot_offset, buf_.tile_basis_count);
+    }
+
+    {
+        const TimedSection timed_section(*this, "SSRC_AllocateExtraSlotForBasisGeneration");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
+        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        dispatch_size = (dispatch_size + threads[0] - 1) / threads[0];
+        gfxCommandDispatch(gfx_, dispatch_size, 1, 1);
+    }
+
+    {
+        const TimedSection timed_section(*this, "SSRC_CompressTileBasisIndex");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_compress_tile_basis_index);
+        int dispatch_size[] = {int(options_.width) / SSRC_TILE_SIZE, int(options_.height) / SSRC_TILE_SIZE};
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    }
+
+    // reproject update error from previous frame
+    {
+        const TimedSection timed_section(*this, "SSRC_ReprojectPreviousUpdateError");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_reproject_previous_update_error);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_reproject_previous_update_error);
+        uint32_t dispatch_size[] = {(options_.width + threads[0] - 1) / threads[0], (options_.height + threads[1] - 1) / threads[1]};
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    }
+
+    // Mipmapping the UpdateErrorSplatTexture
+    {
+        const TimedSection timed_section(*this, "SSRC_MipMapUpdateErrorSplat");
+        gfxCommandGenerateMips(gfx_, tex_.update_error_splat[internal_frame_index_ & 1]);
+    }
+
+    auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
+        return (a + b - 1) / b;
+    };
+
+    // Precomputation for ray allocation
+    {
+        const TimedSection timed_section(*this, "SSRC_PreomputeRayBudgetForTiles");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_precompute_ray_budget_for_tiles);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_precompute_ray_budget_for_tiles);
+        auto num_tiles = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        uint32_t dispatch_size[] = {divideAndRoundUp(num_tiles, threads[0])};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+    }
+
+    // Reduce the accumulated error
+    {
+        const TimedSection timed_section(*this, "SSRC_ReduceUpdateError");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_tiles_set_reduce_count_32);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Float, buf_.tile_update_error, buf_.tile_update_error_sums, &buf_.reduce_count);
+    }
+
+    // Allocate rays for each tile
+    {
+        const TimedSection timed_section(*this, "SSRC_AllocateUpdateRays");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_allocate_update_rays);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_allocate_update_rays);
+        auto num_tiles = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        uint32_t dispatch_size[] = {divideAndRoundUp(num_tiles, threads[0])};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_tiles_set_reduce_count);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        // All sum
+        gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Uint, buf_.update_ray_count, buf_.tile_ray_count, &buf_.reduce_count);
+        // Prefix sum
+        gfxCommandScanSum(gfx_, kGfxDataType_Uint, buf_.tile_ray_offset, buf_.tile_ray_count, &buf_.reduce_count);
+    }
+
+    // Sample update rays
+    {
+        const TimedSection timed_section(*this, "SSRC_SampleUpdateRays");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_sample_update_rays);
+        // Allocate a warp (group) for each tile
+        auto num_tiles = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        uint32_t dispatch_size[] = {num_tiles, 1};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+    }
+
+    // Trace update rays
     {
         TimedSection section_timer(*this, "TraceUpdateRays");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_generate_trace_update_rays);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
         if(options_.use_dxr10) {
             gfxSbtSetShaderGroup(
                 gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, MIGIRT::kScreenCacheUpdateRaygenShaderName);
@@ -423,15 +621,12 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
                     i * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
                     MIGIRT::kScreenCacheUpdateHitGroupName);
             }
-            gfxCommandBindKernel(gfx_, kernels_.trace_update_rays);
-            gfxCommandDispatchRays(gfx_, sbt_, options_.width, options_.height, 1);
+            gfxCommandBindKernel(gfx_, kernels_.SSRC_trace_update_rays);
+            gfxCommandDispatchRaysIndirect(gfx_, sbt_, buf_.dispatch_rays_command);
         } else
         {
-            gfxCommandBindKernel(gfx_, kernels_.trace_update_rays);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.trace_update_rays);
-            assert(threads[2] == 1);
-            uint32_t dispatch_size[] = {(options_.width + threads[0] - 1) / threads[0], (options_.height + threads[1] - 1) / threads[1]};
-            gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+            gfxCommandBindKernel(gfx_, kernels_.SSRC_trace_update_rays);
+            gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
         }
     }
 
@@ -541,121 +736,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
-    // Precompute HiZ buffer for injection culling
-    {
-        auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
-            return (a + b - 1) / b;
-        };
-        {
-            TimedSection const timed_section(*this, "PrecomputeHiZ_Min");
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", capsaicin.getAOVBuffer("VisibilityDepth"));
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 0);
-            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_HiZ_min);
-            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 2, threads[0]),
-                divideAndRoundUp(options_.height / 2, threads[1]), 1);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_min, 0);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 1);
-            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
-            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]),
-                divideAndRoundUp(options_.height / 4, threads[1]), 1);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_min, 1);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_min, 2);
-            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_min);
-            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 8, threads[0]),
-                divideAndRoundUp(options_.height / 8, threads[1]), 1);
-        }
-        {
-            TimedSection const timed_section(*this, "PrecomputeHiZ_Max");
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", capsaicin.getAOVBuffer("VisibilityDepth"));
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 0);
-            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
-            auto threads = gfxKernelGetNumThreads(gfx_, kernels_.precompute_HiZ_max);
-            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 2, threads[0]),
-                divideAndRoundUp(options_.height / 2, threads[1]), 1);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 0);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 1);
-            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
-            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]),
-                divideAndRoundUp(options_.height / 4, threads[1]), 1);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 1);
-            gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 2);
-            gfxCommandBindKernel(gfx_, kernels_.precompute_HiZ_max);
-            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 8, threads[0]),
-                divideAndRoundUp(options_.height / 8, threads[1]), 1);
-        }
-    }
-
-    // Clear active counter
-    {
-        TimedSection const timed_section(*this, "ClearActiveCounter");
-
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_clear_active_counter);
-        gfxCommandDispatch(gfx_, 1, 1, 1);
-    }
-    // Reproject and filter SSRC from previous frame
-    {
-        const TimedSection timed_section(*this, "SSRC_ReprojectAndFilter");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_reproject_and_filter);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_reproject_and_filter);
-        uint32_t dispatch_size[] = {(options_.SSRC_max_basis_count + threads[0] - 1) / threads[0]};
-        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
-    }
-
-    {
-        const TimedSection timed_section(*this, "SSRC_ClearTileInjectionIndex");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_clear_tile_injection_index);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_clear_tile_injection_index);
-        assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
-        int tile_size = options_.width / SSRC_TILE_SIZE * options_.height / SSRC_TILE_SIZE;
-        uint32_t dispatch_size[] = {(tile_size + threads[0] - 1) / threads[0]};
-        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
-    }
-
-    // Inject tiles
-    {
-        const TimedSection timed_section(*this, "SSRC_InjectReprojectedBasis");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_inject_generate_draw_indexed);
-        gfxCommandDispatch(gfx_, 1, 1, 1);
-        __override_gfx_null_render_target = true;
-        __override_gfx_null_render_target_width  = int(options_.width)  / SSRC_TILE_SIZE;
-        __override_gfx_null_render_target_height = int(options_.height) / SSRC_TILE_SIZE;
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_inject_reprojected_basis);
-        gfxCommandBindIndexBuffer(gfx_, buf_.disk_index_buffer);
-        gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
-        __override_gfx_null_render_target = false;
-    }
-
-    {
-        const TimedSection timed_section(*this, "SSRC_ClipOverflowTileIndex");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_clip_overflow_tile_index);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_clip_overflow_tile_index);
-        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
-        dispatch_size = (dispatch_size + threads[0] - 1) / threads[0];
-        gfxCommandDispatch(gfx_, dispatch_size, 1, 1);
-    }
-
-    {
-        const TimedSection timed_section(*this, "SSRC_ScanSumAccumulateTileIndices");
-        gfxCommandScanSum(gfx_, kGfxDataType_Uint, buf_.tile_base_slot_offset, buf_.tile_basis_count);
-    }
-
-    {
-        const TimedSection timed_section(*this, "SSRC_AllocateExtraSlotForBasisGeneration");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
-        auto dispatch_size = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
-        dispatch_size = (dispatch_size + threads[0] - 1) / threads[0];
-        gfxCommandDispatch(gfx_, dispatch_size, 1, 1);
-    }
-
-    {
-        const TimedSection timed_section(*this, "SSRC_CompressTileBasisIndex");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_compress_tile_basis_index);
-        int dispatch_size[] = {int(options_.width) / SSRC_TILE_SIZE, int(options_.height) / SSRC_TILE_SIZE};
-        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-    }
-
+    // Start cache update using injection and tracing results
     {
         const TimedSection timed_section(*this, "SSRC_PrecomputeCacheUpdate");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_precompute_cache_update);
@@ -709,6 +790,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatch(gfx_, 1, 1, 1);
     }
 
+    // Finally, integrate the ASG to produce global illumination
     {
         // Resolving requires the wrap sampler for material textures
         gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearWrapSampler());
@@ -718,6 +800,16 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
         assert(dispatch_size[0] * SSRC_TILE_SIZE == options_.width && dispatch_size[1] * SSRC_TILE_SIZE == options_.height);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    }
+
+    // Accumulate the update error for next frame
+    {
+        const TimedSection timed_section(*this, "SSRC_AccumulateUpdateError");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_accumulate_update_error);
+        auto num_tiles = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_accumulate_update_error);
+        // Use 1 thread per tile to avoid atomic operations at the cost of allocation many registers for each thread
+        gfxCommandDispatch(gfx_, divideAndRoundUp(num_tiles, threads[0]), 1, 1);
     }
 
     bool camera_moved = true;
@@ -755,9 +847,11 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_basis_3D);
         gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
     } else if(options_.active_debug_view == "SSRC_Difference") {
-        if(camera_moved || options_.debug_view_switched) {
-            gfxCommandClearTexture(gfx_, tex_.difference_accumulation);
-        }
+        // Unused currently
+
+//        if(camera_moved || options_.debug_view_switched) {
+//            gfxCommandClearTexture(gfx_, tex_.difference_accumulation);
+//        }
         const TimedSection timed_section(*this, "SSRC_Difference");
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);

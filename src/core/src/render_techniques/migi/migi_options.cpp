@@ -32,7 +32,6 @@ RenderOptionList MIGI::getRenderOptions() noexcept
     ret.emplace("shading_with_geometry_normal", options_.shading_with_geometry_normal);
     ret.emplace("no_importance_sampling", options_.no_importance_sampling);
     ret.emplace("fixed_step_size", options_.fixed_step_size);
-    ret.emplace("use_blue_noise_sample_direction", options_.use_blue_noise_sample_direction);
     ret.emplace("enable_indirect", options_.enable_indirect);
 
     return ret;
@@ -69,30 +68,16 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     options_.width = new_width;
     options_.height = new_height;
 
-    // We shoot one update ray per pixel.
-    options_.SSRC_max_update_ray_count = options_.width * options_.height;
+    assert(options_.SSRC_update_ray_budget * 1.5 <= options_.SSRC_max_update_ray_count);
     options_.SSRC_max_basis_count      = std::min((int)std::get<uint32_t>(in["SSRC_max_basis_count"]), cfg_.basis_buffer_allocation);
-//    options_.SSRC_basis_spawn_coverage_threshold = std::get<float>(in["SSRC_basis_spawn_coverage_threshold"]);
-//    options_.SSRC_min_weight_E         = std::get<float>(in["SSRC_min_weight_E"]);
-//    options_.SSRC_initial_W_radius     = std::get<float>(in["SSRC_initial_W_radius"]);
 
     // Only SSRC update rays request ReSTIR sampling.
     options_.restir.max_query_ray_count = options_.SSRC_max_update_ray_count;
 
-    // GI Parameters
-    // Read the options from the render settings and update options_.
-    // This is called before rendering.
-//    options_.cache_update_learing_rate = std::get<float>(in["lr_rate"]);
-//    options_.cache_update_SG_color = std::get<bool>(in["cache_update_SG_color"]);
-//    options_.cache_update_SG_direction = std::get<bool>(in["cache_update_SG_direction"]);
-//    options_.cache_update_SG_lambda = std::get<bool>(in["cache_update_SG_lambda"]);
-//    options_.cache_update_W_lambda = std::get<bool>(in["cache_update_W_lambda"]);
 
     options_.shading_with_geometry_normal = std::get<bool>(in["shading_with_geometry_normal"]);
     options_.no_importance_sampling = std::get<bool>(in["no_importance_sampling"]);
     options_.fixed_step_size = std::get<bool>(in["fixed_step_size"]);
-    options_.use_blue_noise_sample_direction = std::get<bool>(in["use_blue_noise_sample_direction"]);
-//    options_.reset_screen_space_cache = std::get<bool>(in["reset_screen_space_cache"]);
     auto new_enable_indirect = std::get<bool>(in["enable_indirect"]);
     if(options_.enable_indirect != new_enable_indirect) {
         need_reload_kernel_ = true;
