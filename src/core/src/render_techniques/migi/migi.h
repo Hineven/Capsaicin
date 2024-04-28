@@ -166,7 +166,7 @@ public:
         GfxKernel  DebugSSRC_basis {};
         GfxKernel  DebugSSRC_basis_3D {};
         GfxKernel  DebugSSRC_generate_draw_indexed {};
-        GfxKernel  DebugSSRC_accumulate_and_show_difference {};
+        GfxKernel  DebugSSRC_show_difference {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};

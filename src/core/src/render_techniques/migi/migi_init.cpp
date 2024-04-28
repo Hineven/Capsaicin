@@ -167,8 +167,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             "DebugSSRC_Basis3D", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_generate_draw_indexed = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_GenerateDrawIndexed", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.DebugSSRC_accumulate_and_show_difference = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "DebugSSRC_AccumulateAndShowDifference", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_show_difference = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_ShowDifference", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
@@ -406,7 +406,7 @@ void MIGI::terminate() noexcept
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis);
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis_3D);
         gfxDestroyKernel(gfx_, kernels_.DebugSSRC_generate_draw_indexed);
-        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);
+        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_show_difference);
 
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch);
         gfxDestroyKernel(gfx_, kernels_.generate_dispatch_rays);

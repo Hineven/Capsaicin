@@ -668,7 +668,7 @@ float4 GIDenoiser_RemoveNaNs(in float4 color)
 // Color mapping for debugging
 // Map 1 channel to heat (R - G - B)
 float3 ColorHeatMap (float h) {
-    float H = (1.0f - h) * 5.0f;
+    float H = saturate(1.0f - h) * 5.0f;
     float R = saturate(min(H - 1.5f, 4.5f - H));
     float G = saturate(min(H - 0.5f, 3.5f - H));
     float B = saturate(min(H + 0.5f, 2.5f - H));

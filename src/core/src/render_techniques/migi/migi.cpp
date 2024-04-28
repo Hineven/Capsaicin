@@ -147,8 +147,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_CameraPixelScale", 2.f * scale / float(options_.height));
 
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reprojection",
-        glm::dmat4(camera_matrices.view_projection_prev) * glm::inverse(glm::dmat4(camera_matrices.view_projection)));
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reprojection", camera_matrices.reprojection);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_ForwardReprojection",
         glm::dmat4(camera_matrices.view_projection) * glm::inverse(glm::dmat4(camera_matrices.view_projection_prev)));
 
@@ -324,7 +323,14 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugVisualizeMode", options_.debug_visualize_mode);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugVisualizeChannel", options_.debug_visualize_channel);
-
+    {
+        float exposure = 1.f;
+        auto & opts = capsaicin.getOptions();
+        if(opts.contains("tonemap_exposure")) {
+            exposure = std::get<float>(opts.at("tonemap_exposure"));
+        }
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugTonemapExposure", exposure);
+    }
     // Buffers of the hash grid cache
     gfxProgramSetParameter(gfx_, kernels_.program, "g_HashGridCache_BuffersFloat",
         hash_grid_cache_.radiance_cache_hash_buffer_float_,
@@ -540,12 +546,16 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 
+    auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
+        return (a + b - 1) / b;
+    };
+
     // reproject update error from previous frame
     {
         const TimedSection timed_section(*this, "SSRC_ReprojectPreviousUpdateError");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_reproject_previous_update_error);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_reproject_previous_update_error);
-        uint32_t dispatch_size[] = {(options_.width + threads[0] - 1) / threads[0], (options_.height + threads[1] - 1) / threads[1]};
+        uint32_t dispatch_size[] = {divideAndRoundUp(options_.width, threads[0]), divideAndRoundUp(options_.height, threads[1])};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 
@@ -554,10 +564,6 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         const TimedSection timed_section(*this, "SSRC_MipMapUpdateErrorSplat");
         gfxCommandGenerateMips(gfx_, tex_.update_error_splat[internal_frame_index_ & 1]);
     }
-
-    auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
-        return (a + b - 1) / b;
-    };
 
     // Precomputation for ray allocation
     {
@@ -847,15 +853,10 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_basis_3D);
         gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
     } else if(options_.active_debug_view == "SSRC_Difference") {
-        // Unused currently
-
-//        if(camera_moved || options_.debug_view_switched) {
-//            gfxCommandClearTexture(gfx_, tex_.difference_accumulation);
-//        }
         const TimedSection timed_section(*this, "SSRC_Difference");
-        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_accumulate_and_show_difference);
-        uint dispatch_size[] = {(options_.width + threads[0]-1) / threads[0], (options_.height + threads[1]-1) / threads[1]};
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_show_difference);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_show_difference);
+        uint dispatch_size[] = {divideAndRoundUp(options_.width, threads[0]), divideAndRoundUp(options_.height, threads[1])};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 

@@ -142,7 +142,7 @@ RWTexture2D<float4> g_RWCacheCoverageTexture;
 // The splatted error texture for update rays
 // Used for importance sampling update ray pixel positions
 RWTexture2D<float>  g_RWUpdateErrorSplatTexture;
-Texture2D<float>    g_UpdateErrorSplatTexture;
+Texture2D<float>  g_UpdateErrorSplatTexture;
 // Used for reprojection
 Texture2D<float>    g_PreviousUpdateErrorSplatTexture;
 
@@ -171,5 +171,7 @@ ConstantBuffer<RTConstants>  g_RTConstants;
 
 uint g_DebugVisualizeMode;
 uint g_DebugVisualizeChannel;
+
+float g_DebugTonemapExposure;
 
 #endif // MIGI_SHARED_PARAMETERS_HLSL

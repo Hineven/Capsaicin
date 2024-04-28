@@ -31,7 +31,7 @@ struct MIGIRenderOptions {
     // Radius control for basis injection
     float SSRC_min_weight_E {0.08f};
     // Default initial W radius for newly generated basis
-    float SSRC_initial_W_radius {16.f};
+    float SSRC_initial_W_radius {9.f};
     // Resolution of the disk when doing rasterization for tile index injection
     uint32_t SSRC_CR_disk_vertex_count {12};
 
