@@ -212,7 +212,6 @@ protected:
     bool need_reset_world_space_reservoirs_ {true};
     // If the screen space cache needs to be reset.
     mutable bool need_reset_screen_space_cache_ {true};
-    bool on_first_frame_ {true};
 
     bool readback_pending_ [kGfxConstant_BackBufferCount] {};
     MIGIReadBackValues readback_values_;

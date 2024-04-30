@@ -51,7 +51,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         else if(options_.active_debug_view == "SSRC_Basis3D") {
             debug_visualize_mode_names = {"Intensity", "Lambda", "WAlpha", "ERadius"};
         } else if(options_.active_debug_view == "SSRC_Difference") {
-            debug_visualize_mode_names = {"Difference"};
+            debug_visualize_mode_names = {"Difference", "Ray Allocation", "Raw Difference"};
         }
         if (debug_visualize_mode_names.empty())
         {
@@ -77,6 +77,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             need_reset_screen_space_cache_ = true;
         }
         ImGui::Checkbox("Always Reset", &options_.reset_screen_space_cache);
+        ImGui::SliderInt("Ray Budget", (int*)&options_.SSRC_update_ray_budget, 0, 2 * 1024 * 1024);
         ImGui::SliderFloat("Learing Rate", &options_.cache_update_learing_rate, 0.0f, 0.05f);
         ImGui::SliderFloat("W Initial Radius", &options_.SSRC_initial_W_radius, 3.0f, 32.0f);
         ImGui::SliderFloat("Min Coverage", &options_.SSRC_basis_spawn_coverage_threshold, 0.0f, 6.0f);

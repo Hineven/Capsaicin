@@ -169,8 +169,10 @@ ConstantBuffer<HashGridCacheConstants>     g_HashGridCacheConstants;
 ConstantBuffer<WorldSpaceReSTIRConstants>  g_WorldSpaceReSTIRConstants;
 ConstantBuffer<RTConstants>  g_RTConstants;
 
-uint g_DebugVisualizeMode;
-uint g_DebugVisualizeChannel;
+uint  g_DebugVisualizeMode;
+uint  g_DebugVisualizeChannel;
+uint2 g_DebugVisualizePixelCoords;
+uint  g_DebugVisualizeIncidentRadianceNumPoints;
 
 float g_DebugTonemapExposure;
 

@@ -89,8 +89,6 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     stratified_sampler->addProgramParameters(capsaicin, kernels_.program);
     blue_noise_sampler->addProgramParameters(capsaicin, kernels_.program);
 
-    on_first_frame_ = false;
-
     GfxTexture shading_normal_texture;
     if(options_.shading_with_geometry_normal)
         shading_normal_texture = capsaicin.getAOVBuffer("GeometryNormal");
@@ -396,6 +394,11 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     // *          Render the scene                               *
     // ***********************************************************
 
+    if(capsaicin.getFrameIndex() == 0) {
+        // Clear error texture
+        gfxCommandClearTexture(gfx_, tex_.update_error_splat[0]);
+        gfxCommandClearTexture(gfx_, tex_.update_error_splat[1]);
+    }
 
     // Reset the cache if needed
     if(need_reset_screen_space_cache_) {

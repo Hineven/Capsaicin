@@ -462,67 +462,77 @@ void SSRC_ReprojectPreviousUpdateError (int2 DispatchID : SV_DispatchThreadID) {
     if(any(DispatchID >= g_OutputDimensions)) {
         return;
     }
-    // Reproject the update error texture from previous frame to current frame
+
+    float3 NormalPrev = g_GeometryNormalTexture.Load(int3(DispatchID, 0)).xyz;
+    bool   IsSkyPixel = (dot(NormalPrev, NormalPrev) == 0.0f ? true : false);
+
+    if (IsSkyPixel)
     {
+        g_RWUpdateErrorSplatTexture[DispatchID] = 0.f;
+        return;
+    }
+    float3 Normal = normalize(2.f * NormalPrev - 1.f);
 
-        float4 packed_visibility = g_VisibilityTexture.Load(int3(DispatchID, 0));
-        float2 Barycentrics      = packed_visibility.xy;
-        int   InstanceIndex      = asint(packed_visibility.z);
-        int   PrimitiveIndex      = asint(packed_visibility.w);
+    // Reproject the update error texture from previous frame to current frame
+    float4 packed_visibility = g_VisibilityTexture.Load(int3(DispatchID, 0));
+    float2 Barycentrics      = packed_visibility.xy;
+    int   InstanceIndex      = asint(packed_visibility.z);
+    int   PrimitiveIndex      = asint(packed_visibility.w);
 
-        // Reconstruct world-space position and normal
-        Instance instance  = g_InstanceBuffer[InstanceIndex];
-        Mesh     mesh      = g_MeshBuffer[instance.mesh_index];
-        float3x4 transform = g_TransformBuffer[instance.transform_index];
+    // Reconstruct world-space position and normal
+    Instance instance  = g_InstanceBuffer[InstanceIndex];
+    Mesh     mesh      = g_MeshBuffer[instance.mesh_index];
+    float3x4 transform = g_TransformBuffer[instance.transform_index];
 
-        TriangleNormUV vertices = fetchVerticesNormUV(mesh, PrimitiveIndex);
+    TriangleNormUV vertices = fetchVerticesNormUV(mesh, PrimitiveIndex);
 
-        vertices.v0 = transformPoint(vertices.v0, transform);
-        vertices.v1 = transformPoint(vertices.v1, transform);
-        vertices.v2 = transformPoint(vertices.v2, transform);
+    vertices.v0 = transformPoint(vertices.v0, transform);
+    vertices.v1 = transformPoint(vertices.v1, transform);
+    vertices.v2 = transformPoint(vertices.v2, transform);
 
-        vertices.n0 = transformNormal(vertices.n0, transform);
-        vertices.n1 = transformNormal(vertices.n1, transform);
-        vertices.n2 = transformNormal(vertices.n2, transform);
+    vertices.n0 = transformNormal(vertices.n0, transform);
+    vertices.n1 = transformNormal(vertices.n1, transform);
+    vertices.n2 = transformNormal(vertices.n2, transform);
 
-        float3   world    = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
-    
-        float3 homogeneous = transformPointProjection(world, g_CameraProjView);
+    float3   world    = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
 
-        float2 UV          = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
-        float  Depth       = homogeneous.z;
-        float3 Normal = normalize(2.f * g_GeometryNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.f);
+    float3 homogeneous = transformPointProjection(world, g_CameraProjView);
 
-        // Severe error here
-        // float2 UV = (float2(DispatchID) + 0.5f) * g_OutputDimensionsInv;
-        // float Depth = g_DepthTexture.Load(int3(UV, 0)).x;
-        // float3 Normal = normalize(2.f * g_GeometryNormalTexture.Load(int3(UV, 0)).xyz - 1.f);
-        // float3 homogeneous = float3(UV2NDC2(UV), Depth);
+    float2 UV          = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
+    float  Depth       = homogeneous.z;
 
-        if (all(UV > 0.0f) && all(UV < 1.0f) && Depth > 0.0f && Depth < 1.0f)
+    // Severe (precision?) error here
+    // float2 UV = (float2(DispatchID) + 0.5f) * g_OutputDimensionsInv;
+    // float Depth = g_DepthTexture.Load(int3(UV, 0)).x;
+    // float3 Normal = normalize(2.f * g_GeometryNormalTexture.Load(int3(UV, 0)).xyz - 1.f);
+    // float3 homogeneous = float3(UV2NDC2(UV), Depth);
+
+    if (all(UV > 0.0f) && all(UV < 1.0f) && Depth > 0.0f && Depth < 1.0f)
+    {
+        float2 previous_uv = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0.0f).xy;
+
+        if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
         {
-            float2 previous_uv = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0.0f).xy;
+            float3 homogeneous2 = transformPointProjection(homogeneous, g_Reprojection);
+            homogeneous2.z      = GetLinearDepth(homogeneous2.z);
 
-            if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
+            float  previous_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
+            float3 previous_normal = normalize(2.0f * g_PreviousGeometryNormalTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
+
+            if (dot(previous_normal, Normal) > 0.5f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
             {
-                float3 homogeneous2 = transformPointProjection(homogeneous, g_Reprojection);
-                homogeneous2.z      = GetLinearDepth(homogeneous2.z);
-
-                float  previous_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
-                float3 previous_normal = normalize(2.0f * g_PreviousGeometryNormalTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
-
-                if (dot(previous_normal, Normal) > 0.5f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
-                {
-                    float PreviousError = g_PreviousUpdateErrorSplatTexture.SampleLevel(g_LinearSampler, previous_uv, 0).x;
-                    g_RWUpdateErrorSplatTexture[DispatchID] = PreviousError;
-                    return; 
-                }
+                // Using linear sampler in reprojection can significantly increase the reprojected error, why?
+                float PreviousError = g_PreviousUpdateErrorSplatTexture.SampleLevel(g_NearestSampler, previous_uv, 0).x;
+                g_RWUpdateErrorSplatTexture[DispatchID] = PreviousError;
+                return; 
             }
         }
     }
+    
     // TODO allocate a initial weight for the update error
     // FIXME
     g_RWUpdateErrorSplatTexture[DispatchID] = 0.f;
+
 }
 
 // UpdateErrorSplatTexture is later mipmapped.
@@ -571,18 +581,25 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     float Fraction           = lerp(TileAvgUpdateError / Denominator, Mean, g_TileFractionPadding);
     float ExpectedRayCount   = Fraction * g_UpdateRayBudget;
     // RR
-    int X                    = max(int(ExpectedRayCount / WAVE_SIZE), 1);
-    float Remainder          = (ExpectedRayCount - X * WAVE_SIZE) / WAVE_SIZE;
-    Random rng = MakeRandom(97462891 + DispatchID, g_FrameIndex);
-    if(rng.rand() < Remainder) {
-        X++;
+    // Only allocate rays for non-empty tiles
+    int NonEmptyTile         = g_TileHiZ_Min.Load(int3(TileCoords, 0)).x < 1.f;
+    if(NonEmptyTile) {
+        int X                    = max(int(ExpectedRayCount / WAVE_SIZE), 1);
+        float Remainder          = (ExpectedRayCount - X * WAVE_SIZE) / WAVE_SIZE;
+        Random rng = MakeRandom(97462891 + DispatchID, g_FrameIndex);
+        if(rng.rand() < Remainder) {
+            X++;
+        }
+        g_RWTileRayCountBuffer[TileID] = min(X, WAVE_RAY_SIZE) * WAVE_SIZE;
+    } else {
+        g_RWTileRayCountBuffer[TileID] = 0;
     }
-    g_RWTileRayCountBuffer[TileID] = min(X, WAVE_RAY_SIZE) * WAVE_SIZE;
 }
 
 // A scan sum is performed to accumulate g_RWTileRayCountBuffer into g_RWTileRayBaseOffsetBuffer
 
-#define SAMPLE_ORIGIN_ERROR_PADDING (1e-6f)
+#define SAMPLE_ORIGIN_ERROR_PADDING (2e-3f)
+#define ERROR_BLUR_LOD (2.25f)
 
 // Importance sample the allocated update rays for each tile
 groupshared float LocalUpdateErrorMip0[SSRC_TILE_SIZE][SSRC_TILE_SIZE];
@@ -608,9 +625,18 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             int  PixelX = PixelIndex % SSRC_TILE_SIZE;
             int  PixelY = PixelIndex / SSRC_TILE_SIZE;
             int2 TexCoords = TileBaseTextureOffset + int2(PixelX, PixelY);
-            LocalUpdateErrorMip0[PixelY][PixelX] = g_UpdateErrorSplatTexture.Load(int3(TexCoords, 0)).x;
+            float2 UV   = (float2(TexCoords) + 0.5f) * g_OutputDimensionsInv;
+            float Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
+            if(Depth < 1.f) {
+                // Sample mip ERROR_BLUR_LOD to achieve natural blurry effect
+                LocalUpdateErrorMip0[PixelY][PixelX] = 
+                    max(g_UpdateErrorSplatTexture.SampleLevel(g_LinearSampler, UV, ERROR_BLUR_LOD).x, SAMPLE_ORIGIN_ERROR_PADDING);
+            } else { 
+                LocalUpdateErrorMip0[PixelY][PixelX] = 0.f;
+            }
         }
     }
+    GroupMemoryBarrierWithGroupSync();
     int L1PixelCount = (SSRC_TILE_SIZE * SSRC_TILE_SIZE) / 4;
     for(int i = 0; i < L1PixelCount; i += WAVE_SIZE) {
         int PixelIndex = i + LocalID;
@@ -618,9 +644,14 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             int  PixelX = PixelIndex % (SSRC_TILE_SIZE / 2);
             int  PixelY = PixelIndex / (SSRC_TILE_SIZE / 2);
             int2 TexCoords = TileBaseTextureOffset / 2 + int2(PixelX, PixelY);
-            LocalUpdateErrorMip0[PixelY][PixelX] = g_UpdateErrorSplatTexture.Load(int3(TexCoords, 1)).x;
+            LocalUpdateErrorMip1[PixelY][PixelX] = 
+                LocalUpdateErrorMip0[2 * PixelY + 0][2 * PixelX + 0] +
+                LocalUpdateErrorMip0[2 * PixelY + 0][2 * PixelX + 1] +
+                LocalUpdateErrorMip0[2 * PixelY + 1][2 * PixelX + 0] +
+                LocalUpdateErrorMip0[2 * PixelY + 1][2 * PixelX + 1];
         }
     }
+    GroupMemoryBarrierWithGroupSync();
     int L2PixelCount = (SSRC_TILE_SIZE * SSRC_TILE_SIZE) / 16;
     for(int i = 0; i < L2PixelCount; i += WAVE_SIZE) {
         int PixelIndex = i + LocalID;
@@ -628,17 +659,35 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             int  PixelX = PixelIndex % (SSRC_TILE_SIZE / 4);
             int  PixelY = PixelIndex / (SSRC_TILE_SIZE / 4);
             int2 TexCoords = TileBaseTextureOffset / 4 + int2(PixelX, PixelY);
-            LocalUpdateErrorMip0[PixelY][PixelX] = g_UpdateErrorSplatTexture.Load(int3(TexCoords, 2)).x;
+            LocalUpdateErrorMip2[PixelY][PixelX] = 
+                LocalUpdateErrorMip1[2 * PixelY + 0][2 * PixelX + 0] +
+                LocalUpdateErrorMip1[2 * PixelY + 0][2 * PixelX + 1] +
+                LocalUpdateErrorMip1[2 * PixelY + 1][2 * PixelX + 0] +
+                LocalUpdateErrorMip1[2 * PixelY + 1][2 * PixelX + 1];
         }
     }
+    GroupMemoryBarrierWithGroupSync();
+    float SumTileUpdateError = 
+        LocalUpdateErrorMip2[0][0] +
+        LocalUpdateErrorMip2[0][1] +
+        LocalUpdateErrorMip2[1][0] +
+        LocalUpdateErrorMip2[1][1];
     // Compute and load the SG importance to threads
     int TileBasisCount     = g_RWTileBasisCountBuffer[TileID];
     int TileBasisIndexBase = g_RWTileBaseSlotOffsetBuffer[TileID];
     // Jitter the representative sample point within the tile
-    float2 RepresentativeJitter = BlueNoise_Sample2D(TileCoords, g_FrameIndex);
-    float2 RepresentativeUV     = ((float2(TileCoords) + RepresentativeJitter) * g_TileDimensionsInv);
-    float  RepresentativeDepth  = g_DepthTexture.Load(int3(RepresentativeUV, 0)).x;
+    // First use of the blue noise samples, no dimension offset is needed
+    float2 RepresentativeJitter = clamp(BlueNoise_Sample2D(TileCoords, g_FrameIndex), 0.f.xx, 0.999f.xx);
+    int2   RepresentativeCoords = TileCoords * SSRC_TILE_SIZE + RepresentativeJitter * SSRC_TILE_SIZE;
+    float2 RepresentativeUV     = (RepresentativeCoords + 0.5f.xx) * g_OutputDimensionsInv;
+    float  RepresentativeDepth  = g_DepthTexture.Load(int3(RepresentativeCoords, 0)).x;
     float3 WorldPosition_R      = InverseProject(g_CameraProjViewInv, RepresentativeUV, RepresentativeDepth);
+    bool   MeanSample           = false;
+    if(RepresentativeDepth >= 1.f) {
+        // Sampled a sky pixel
+        // Use mean to replace W.
+        MeanSample = true;
+    }
 
     for(int TileBasisRankBase = 0; TileBasisRankBase < TileBasisCount; TileBasisRankBase += WAVE_SIZE) {
         int TileBasisRank = TileBasisRankBase + LocalID;
@@ -650,7 +699,8 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             FetchBasisData_W(BasisIndex, SG, W);
             LocalSG[TileBasisRank] = SG;
             float3 DeltaPosition = BasisPosition - WorldPosition_R;
-            float EvaluatedW_B   = EvaluateW(W, DeltaPosition) + 0.1f;
+            // TODO replace constant 
+            float EvaluatedW_B   = (MeanSample ? 0 : EvaluateW(W, DeltaPosition)) + 0.05f;
             float Intensity      = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx);
             float Weight = EvaluatedW_B * Intensity;
             LocalBasisImportance[TileBasisRank] = Weight;
@@ -678,95 +728,79 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
     int TileRayOffset = g_RWTileRayOffsetBuffer[TileID];
     int REPEAT        = (TileRayCount + WAVE_SIZE - 1) / WAVE_SIZE;
     Random rng        = MakeRandom(34622891 + TileID * WAVE_SIZE + LocalID, g_FrameIndex);
-    float Pdf         = SSRC_TILE_SIZE * SSRC_TILE_SIZE;
     for(int i = 0; i < REPEAT; i++) {
-        int RayIndex = i * WAVE_SIZE + LocalID;
-        if(RayIndex < TileRayCount) {
+        int RayRank = i * WAVE_SIZE + LocalID;
+        if(RayRank < TileRayCount) {
             float u = rng.rand();
+            float U = u * SumTileUpdateError;
             int2  Offset = 0;
             // Assume the tile size is 8x8
             // 8x8 sub tile sampling
             {
-                float X00 = LocalUpdateErrorMip2[Offset.y][Offset.x] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X01 = LocalUpdateErrorMip2[Offset.y][Offset.x + 1] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X10 = LocalUpdateErrorMip2[Offset.y + 1][Offset.x] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X11 = LocalUpdateErrorMip2[Offset.y + 1][Offset.x + 1] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float S   = 1.f / (X00 + X01 + X10 + X11);
-                float P00 = X00 * S;
-                float P01 = X01 * S;
-                float P10 = X10 * S;
-                float P11 = X11 * S;
-                if(u < P00) {
-                    u = u / P00;
-                    Pdf *= P00;
-                } else if(u < P00 + P01) {
-                    Offset.x ++;
-                    u = (u - P00) / P01;
-                    Pdf *= P01;
-                } else if(u < P00 + P01 + P10) {
-                    Offset.y ++;
-                    u = (u - (P00 + P01)) / P10;
-                    Pdf *= P10;
+                float X00 = LocalUpdateErrorMip2[Offset.y][Offset.x];
+                float X01 = LocalUpdateErrorMip2[Offset.y][Offset.x + 1];
+                float X10 = LocalUpdateErrorMip2[Offset.y + 1][Offset.x];
+                float X11 = LocalUpdateErrorMip2[Offset.y + 1][Offset.x + 1];
+                if(U < X00) {
+                    // Do nothing
+                } else if(U < X00 + X01) {
+                    Offset.x += 1;
+                    U -= X00;
+                } else if(U < X00 + X01 + X10) {
+                    Offset.y += 1;
+                    U -= X00 + X01;
                 } else {
-                    Offset += int2(1, 1);
-                    u = (u - (P00 + P01 + P10)) / P11;
-                    Pdf *= P11;
+                    Offset.x += 1;
+                    Offset.y += 1;
+                    U -= X00 + X01 + X10;
                 }
             }
             Offset = Offset * 2;
             // 4x4 sub tile sampling
             {
-                float X00 = LocalUpdateErrorMip1[Offset.y][Offset.x] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X01 = LocalUpdateErrorMip1[Offset.y][Offset.x + 1] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X10 = LocalUpdateErrorMip1[Offset.y + 1][Offset.x] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X11 = LocalUpdateErrorMip1[Offset.y + 1][Offset.x + 1] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float S   = 1.f / (X00 + X01 + X10 + X11);
-                float P00 = X00 * S;
-                float P01 = X01 * S;
-                float P10 = X10 * S;
-                float P11 = X11 * S;
-                if(u < P00) {
-                    u = u / P00;
-                    Pdf = Pdf * P00;
-                } else if(u < P00 + P01) {
-                    Offset.x ++;
-                    u = (u - P00) / P01;
-                    Pdf = Pdf * P01;
-                } else if(u < P00 + P01 + P10) {
-                    Offset.y ++;
-                    u = (u - (P00 + P01)) / P10;
-                    Pdf = Pdf * P10;
+                float X00 = LocalUpdateErrorMip1[Offset.y][Offset.x];
+                float X01 = LocalUpdateErrorMip1[Offset.y][Offset.x + 1];
+                float X10 = LocalUpdateErrorMip1[Offset.y + 1][Offset.x];
+                float X11 = LocalUpdateErrorMip1[Offset.y + 1][Offset.x + 1];
+                if(U < X00) {
+                    // Do nothing
+                } else if(U < X00 + X01) {
+                    Offset.x += 1;
+                    U -= X00;
+                } else if(U < X00 + X01 + X10) {
+                    Offset.y += 1;
+                    U -= X00 + X01;
                 } else {
-                    Offset += int2(1, 1);
-                    u = (u - (P00 + P01 + P10)) / P11;
-                    Pdf = Pdf * P11;
+                    Offset.x += 1;
+                    Offset.y += 1;
+                    U -= X00 + X01 + X10;
                 }
             }
             Offset = Offset * 2;
             // 2x2 sub tile sampling
             {
-                float X00 = LocalUpdateErrorMip0[Offset.y][Offset.x] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X01 = LocalUpdateErrorMip0[Offset.y][Offset.x + 1] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X10 = LocalUpdateErrorMip0[Offset.y + 1][Offset.x] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float X11 = LocalUpdateErrorMip0[Offset.y + 1][Offset.x + 1] + SAMPLE_ORIGIN_ERROR_PADDING;
-                float S   = 1.f / (X00 + X01 + X10 + X11);
-                float P00 = X00 * S;
-                float P01 = X01 * S;
-                float P10 = X10 * S;
-                float P11 = X11 * S;
-                if(u < P00) {
-                    Pdf = Pdf * P00;
-                } else if(u < P00 + P01) {
-                    Offset.x ++;
-                    Pdf = Pdf * P01;
-                } else if(u < P00 + P01 + P10) {
-                    Offset.y ++;
-                    Pdf = Pdf * P10;
+                float X00 = LocalUpdateErrorMip0[Offset.y][Offset.x];
+                float X01 = LocalUpdateErrorMip0[Offset.y][Offset.x + 1];
+                float X10 = LocalUpdateErrorMip0[Offset.y + 1][Offset.x];
+                float X11 = LocalUpdateErrorMip0[Offset.y + 1][Offset.x + 1];
+                if(U < X00) {
+                    // Do nothing
+                } else if(U < X00 + X01) {
+                    Offset.x += 1;
+                    U -= X00;
+                } else if(U < X00 + X01 + X10) {
+                    Offset.y += 1;
+                    U -= X00 + X01;
                 } else {
-                    Offset += int2(1, 1);
-                    Pdf = Pdf * P11;
+                    Offset.x += 1;
+                    Offset.y += 1;
+                    U -= X00 + X01 + X10;
                 }
             }
+            float PixelError = LocalUpdateErrorMip0[Offset.y][Offset.x];
+            // Pdf == 0 means the sample is invalid (sampled a sky pixel)
+            float Pdf = (PixelError / SumTileUpdateError) * (SSRC_TILE_SIZE * SSRC_TILE_SIZE);
+
             // Sample ray origin
             int2   SubTileCoords = Offset;
             // uint2 SampledTexCoords = TileBaseTextureOffset + SubTileCoords;
@@ -794,10 +828,12 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             float3 Tangent, Bitangent;
             TangentVectors(SG.Direction, Tangent, Bitangent);
             RayDirection = normalize(RayDirection.x * Tangent + RayDirection.y * Bitangent + RayDirection.z * SG.Direction);
+            // RayDirection = UniformSampleSphere(u2);
+            // Pdf = 1.f;
             // Record the generated update ray
-            g_RWUpdateRayDirectionBuffer[TileRayOffset + RayIndex] = PackNormal(RayDirection);
-            g_RWUpdateRayOriginBuffer[TileRayOffset + RayIndex] = PackUint16x2(TileCoords * SSRC_TILE_SIZE + SubTileCoords);
-            g_RWUpdateRayRadiancePdfBuffer[TileRayOffset + RayIndex] = PackFp16x4(float4(0.f.xxx, Pdf));
+            g_RWUpdateRayDirectionBuffer[TileRayOffset + RayRank] = PackNormal(RayDirection);
+            g_RWUpdateRayOriginBuffer[TileRayOffset + RayRank] = PackUint16x2(TileCoords * SSRC_TILE_SIZE + SubTileCoords);
+            g_RWUpdateRayRadiancePdfBuffer[TileRayOffset + RayRank] = PackFp16x4(float4(0.f.xxx, Pdf));
         }
     }
 }
@@ -1513,13 +1549,13 @@ void SSRC_PrecomputeCacheUpdate (int2 GroupID : SV_GroupID, int LocalID : SV_Gro
         int PixelRank = i * WAVE_SIZE + LocalID;
         // Assume SSRC_TILE_SIZE ** 2 is a multiple of WAVE_SIZE
         {
-            int2 PixelCoords = TileTextureBaseOffset 
+            int2 TexCoords = TileTextureBaseOffset 
                 + int2(PixelRank % SSRC_TILE_SIZE, PixelRank / SSRC_TILE_SIZE);
-            float2 UV = (float2(PixelCoords) + 0.5f) * g_OutputDimensionsInv;
-            float Depth = g_DepthTexture.Load(int3(PixelCoords, 0)).x;
+            float2 UV = (float2(TexCoords) + 0.5f) * g_OutputDimensionsInv;
+            float Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
             float3 PixelWorldPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
             ThreadPixelPos    [i] = PixelWorldPosition;
-            ThreadPixelValid  [i] = Depth > 0;
+            ThreadPixelValid  [i] = Depth < 1.f;
             ThreadPixelCoverage[i] = 0.f;
         }
     }
@@ -1555,7 +1591,7 @@ void SSRC_PrecomputeCacheUpdate (int2 GroupID : SV_GroupID, int LocalID : SV_Gro
         float2 BasisScreenPosition = transformPointProjection(BasisWorldPosition, g_CameraProjView).xy;
         BasisScreenPosition = NDC22UV(BasisScreenPosition) * g_OutputDimensions;
         // Cooperatively iterate over all pixels of this tile (for coverage computation)
-        for(int i = 0; i < SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE; i++) {
+        for(int i = 0; i < PIXEL_PER_THREAD; i++) {
             int  PixelRank = i * WAVE_SIZE + LocalID;
             int2 PixelCoords = int2(PixelRank % SSRC_TILE_SIZE, PixelRank / SSRC_TILE_SIZE);
             // Assume SSRC_TILE_SIZE ** 2 is a multiple of WAVE_SIZE
@@ -1591,8 +1627,8 @@ void SSRC_PrecomputeCacheUpdate (int2 GroupID : SV_GroupID, int LocalID : SV_Gro
     for(int i = 0; i < PIXEL_PER_THREAD; i++) {
         int PixelRank = i * WAVE_SIZE + LocalID;
         {
-            int2 PixelCoords = TileTextureBaseOffset + int2(PixelRank % SSRC_TILE_SIZE, PixelRank / SSRC_TILE_SIZE);
-            g_RWCacheCoverageTexture[PixelCoords] = ThreadPixelCoverage[i];
+            int2 TexCoords = TileTextureBaseOffset + int2(PixelRank % SSRC_TILE_SIZE, PixelRank / SSRC_TILE_SIZE);
+            g_RWCacheCoverageTexture[TexCoords] = ThreadPixelCoverage[i];
         }
     }
     for(int i = 0; i < REPEAT; i++) {
@@ -1647,7 +1683,7 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
             ThreadRayRadianceDifference[i] = RayRadiance - RayCache.xyz;
             ThreadSumWeight[i]             = RayCache.w;
             ThreadRayOrigin[i]             = RayOrigin;
-            ThreadRayInvPdf[i]             = max(RayInvPdf, 1e-3f);
+            ThreadRayInvPdf[i]             = RayInvPdf;
         }
     }
     
@@ -1679,48 +1715,50 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
                 float  SumWeight             = ThreadSumWeight[i];
                 float  InvSumWeight          = 1.f / SumWeight;
                 float  InvPdf                = ThreadRayInvPdf[i];
+                if(InvPdf > 0.f && SumWeight > 1e-6f) {
 
-                float3 SGEvaluatedRadiance   = EvaluateSG(SG, RayDirection);
-                float3 DeltaPosition         = ThreadRayOrigin[i] - BasisWorldPosition;
-                float  EvaluatedW            = EvaluateW(W, DeltaPosition);
+                    float3 SGEvaluatedRadiance   = EvaluateSG(SG, RayDirection);
+                    float3 DeltaPosition         = ThreadRayOrigin[i] - BasisWorldPosition;
+                    float  EvaluatedW            = EvaluateW(W, DeltaPosition);
 
-                float  RestWeight             = SumWeight - EvaluatedW;
-                float3 WeightedSumEvaluatedRadiance   = ThreadWeightedSumEvaluatedRadiance[i];
-                
-                // float3 A3 = 
-                //     (RestWeight * SGEvaluatedRadiance - (SumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW))
-                //      / (SumWeight * SumWeight);
-                // float  A = dot(A3, 1.f.xxx);
-                float3 A3 = (SGEvaluatedRadiance * RestWeight - (WeightedSumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW)) * (1.f / (SumWeight * SumWeight));
-                float  A  = dot(A3, 1.f.xxx);
+                    float  RestWeight             = SumWeight - EvaluatedW;
+                    float3 WeightedSumEvaluatedRadiance   = ThreadWeightedSumEvaluatedRadiance[i];
+                    
+                    // float3 A3 = 
+                    //     (RestWeight * SGEvaluatedRadiance - (SumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW))
+                    //      / (SumWeight * SumWeight);
+                    // float  A = dot(A3, 1.f.xxx);
+                    float3 A3 = (SGEvaluatedRadiance * RestWeight - (WeightedSumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW)) * (1.f / (SumWeight * SumWeight));
+                    float  A  = dot(A3, 1.f.xxx);
 
-                // Compute gradients
-                SGGradients Gradients;
-                WGradients  Gradients_W;
-                float3 dColorExtra;
-                EvaluateSG_Gradients(SG, RayDirection, Gradients, dColorExtra);
-                Gradients.dColor += dColorExtra;
-                float3 DeltaRadiance    = RayRadianceDifference;
-                float  DeltaRadianceSum = dot(DeltaRadiance, 1.f.xxx);
-                // The weight of SG for the current shading point (SP)
-                float  SGWeightForSP    = EvaluatedW * InvSumWeight * InvPdf * BalanceFactor;
-                EvaluateW_Gradients(W, DeltaPosition, Gradients_W);
-                // Accumulate and combine gradients for optimal descending
-                // TODO adaptive learning rate based on the magnitude of the gradients
-                SumStepSize.dColor     += DeltaRadiance    * Gradients.dColor     * SGWeightForSP;
-#ifdef HEURISTIC_DIRECTION_UPDATE
-                // Approximate direction directly using the radiance difference
-                SumStepSize.dDirection += DeltaRadianceSum * RayDirection         * SGWeightForSP;
-#else
-                SumStepSize.dDirection += DeltaRadianceSum * Gradients.dDirection * SGWeightForSP;
-#endif
-                SumStepSize.dLambda    += DeltaRadianceSum * Gradients.dLambda    * SGWeightForSP;
-                // F = W / (S+W) * f, so the step size of W is calculated by the followings
-                SumStepSize_W.dLambda  += DeltaRadianceSum * A * Gradients_W.dLambda;
-                SumStepSize_W.dAlpha   += DeltaRadianceSum * A * Gradients_W.dAlpha;
-#ifdef HEURISTIC_DIRECTION_UPDATE
-                SumContrib += SGWeightForSP;
-#endif
+                    // Compute gradients
+                    SGGradients Gradients;
+                    WGradients  Gradients_W;
+                    float3 dColorExtra;
+                    EvaluateSG_Gradients(SG, RayDirection, Gradients, dColorExtra);
+                    Gradients.dColor += dColorExtra;
+                    float3 DeltaRadiance    = RayRadianceDifference;
+                    float  DeltaRadianceSum = dot(DeltaRadiance, 1.f.xxx);
+                    // The weight of SG for the current shading point (SP)
+                    float  SGWeightForSP    = EvaluatedW * InvSumWeight * InvPdf * BalanceFactor;
+                    EvaluateW_Gradients(W, DeltaPosition, Gradients_W);
+                    // Accumulate and combine gradients for optimal descending
+                    // TODO adaptive learning rate based on the magnitude of the gradients
+                    SumStepSize.dColor     += DeltaRadiance    * Gradients.dColor     * SGWeightForSP;
+    #ifdef HEURISTIC_DIRECTION_UPDATE
+                    // Approximate direction directly using the radiance difference
+                    SumStepSize.dDirection += DeltaRadianceSum * RayDirection         * SGWeightForSP;
+    #else
+                    SumStepSize.dDirection += DeltaRadianceSum * Gradients.dDirection * SGWeightForSP;
+    #endif
+                    SumStepSize.dLambda    += DeltaRadianceSum * Gradients.dLambda    * SGWeightForSP;
+                    // F = W / (S+W) * f, so the step size of W is calculated by the followings
+                    SumStepSize_W.dLambda  += DeltaRadianceSum * A * Gradients_W.dLambda;
+                    SumStepSize_W.dAlpha   += DeltaRadianceSum * A * Gradients_W.dAlpha;
+    #ifdef HEURISTIC_DIRECTION_UPDATE
+                    SumContrib += SGWeightForSP;
+    #endif
+                }
             }
         }
         // Wave reduce the gradients
@@ -1811,7 +1849,6 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     FetchBasisLocation(BasisIndex, BasisPosition);
     // Compute the step size
     ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
-    // TODO global normalization
     float NormalizationFactor = 1000.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
     // NormalizationFactor = 1.f;
     float RandomStride = sin(DispatchID * 4.13f + g_FrameIndex * 71838.3f) * 0.5f + 0.5f;
@@ -2066,15 +2103,30 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
         float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
         float Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
         if(Depth < 1.f) {
-            float3 WorldPosition = InverseProject(g_CameraProjViewInv, UV, Depth);
+            // Texture coordinates
+            float4 Visibility   = g_VisibilityTexture[TexCoords];
+            float2 Barycentrics = Visibility.xy;
+            uint   InstanceID   = asuint(Visibility.z);
+            uint   PrimitiveID  = asuint(Visibility.w);
+
+            Instance InstanceData = g_InstanceBuffer[InstanceID];
+            Mesh     mesh     = g_MeshBuffer[InstanceData.mesh_index];
+
+            Triangle vertices = fetchVertices(mesh, PrimitiveID);
+
+            // Reconstruct world space position from barycentrics
+            float3x4 transform = g_TransformBuffer[InstanceData.transform_index];
+            vertices.v0 = transformPoint(vertices.v0, transform);
+            vertices.v1 = transformPoint(vertices.v1, transform);
+            vertices.v2 = transformPoint(vertices.v2, transform);
+
+            // Frame
+            float3 WorldPosition = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
             float3 GeometryNormal = normalize(2.f * g_GeometryNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
             float3 ShadingNormal  = normalize(2.f * g_ShadingNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
-            float4 Visbility = g_VisibilityTexture.Load(int3(TexCoords, 0));
-            uint InstanceID = asuint(Visbility.z);
-            uint PrimitiveID = asuint(Visbility.w);
-            Instance InstanceData = g_InstanceBuffer[InstanceID];
+
             UVs PrimitiveUVs = fetchUVs(g_MeshBuffer[InstanceData.mesh_index], PrimitiveID);
-            float2 MeshUV = interpolate(PrimitiveUVs.uv0, PrimitiveUVs.uv1, PrimitiveUVs.uv2, Visbility.xy);
+            float2 MeshUV = interpolate(PrimitiveUVs.uv0, PrimitiveUVs.uv1, PrimitiveUVs.uv2, Barycentrics);
             Material MaterialData = g_MaterialBuffer[InstanceData.material_index];
             MaterialEmissive EmissiveMaterialData = MakeMaterialEmissive(MaterialData, MeshUV);
             MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialData, MeshUV);
@@ -2179,8 +2231,8 @@ void SSRC_AccumulateUpdateError (int DispatchID : SV_DispatchThreadID) {
             ThreadErrorAccumulation[i][j] = 0;
         }
     for(int i = 0; i<SSRC_TILE_SIZE; i++) 
-        for(int j = 0; j<SSRC_TILE_SIZE / 2; j++) {
-            ThreadErrorAccumulationWeightPacked[i][j] = 0;
+        for(int j = 0; j<SSRC_TILE_SIZE/2; j++) {
+            ThreadErrorAccumulationWeightPacked[i][j] = packHalf2(float2(0.f, 0.f));
         }
     int2 TileCoords = int2(DispatchID % g_TileDimensions.x, DispatchID / g_TileDimensions.x);
     int2 TexOffset = TileCoords * SSRC_TILE_SIZE;
@@ -2192,29 +2244,31 @@ void SSRC_AccumulateUpdateError (int DispatchID : SV_DispatchThreadID) {
         int2 TexCoords  = UnpackUint16x2(g_RWUpdateRayOriginBuffer[RayIndex]);
         float3 Eval     = UnpackFp16x3(g_RWUpdateRayCacheBuffer[RayIndex]);
         float4 RadiancePdf = UnpackFp16x4(g_RWUpdateRayRadiancePdfBuffer[RayIndex]);
-        float3 Error    = RadiancePdf.xyz - Eval;
-        float  InvPdf   = 1.f / RadiancePdf.w;
-        float  Contrib  = dot(Error, Error) * InvPdf;
-        // Accumulate the error
-        int2  PixelCoords = TexCoords - TexOffset;
-        ThreadErrorAccumulation[PixelCoords.y][PixelCoords.x] += Contrib;
-        float2 Unpacked    = unpackHalf2(ThreadErrorAccumulationWeightPacked[PixelCoords.y][PixelCoords.x / 2]);
-        if(PixelCoords.x % 2 == 0) {
-            Unpacked.x += InvPdf;
-        } else {
-            Unpacked.y += InvPdf;
+        if(RadiancePdf.w > 0) {
+            float3 Error    = RadiancePdf.xyz - Eval;
+            float  InvPdf   = 1.f / RadiancePdf.w;
+            float  Contrib  = dot(Error, Error) * InvPdf;
+            // Accumulate the error
+            int2  PixelCoords = TexCoords - TexOffset;
+            ThreadErrorAccumulation[PixelCoords.y][PixelCoords.x] += Contrib;
+            float2 Unpacked    = unpackHalf2(ThreadErrorAccumulationWeightPacked[PixelCoords.y][PixelCoords.x / 2]);
+            if(PixelCoords.x % 2 == 0) {
+                Unpacked.x += InvPdf;
+            } else {
+                Unpacked.y += InvPdf;
+            }
+            ThreadErrorAccumulationWeightPacked[PixelCoords.y][PixelCoords.x / 2] = packHalf2(Unpacked);
         }
-        ThreadErrorAccumulationWeightPacked[PixelCoords.y][PixelCoords.x / 2] = packHalf2(Unpacked);
     }
-    for(int i = 0; i<SSRC_TILE_SIZE; i++) {
-        for(int j = 0; j<SSRC_TILE_SIZE; j++) {
+    for(int j = 0; j<SSRC_TILE_SIZE; j++) {
+        for(int i = 0; i<SSRC_TILE_SIZE; i++) {
             int2 TexCoords = TexOffset + int2(i, j);
             float Error = ThreadErrorAccumulation[j][i];
             uint WeightPacked = ThreadErrorAccumulationWeightPacked[j][i / 2];
             float2 W2 = unpackHalf2(WeightPacked);
             float Weight = i % 2 == 0 ? W2.x : W2.y;
             float PrevError = g_RWUpdateErrorSplatTexture[TexCoords];
-            if(Weight > 0) {
+            if(Weight > 0 && !isnan(Error)) {
                 g_RWUpdateErrorSplatTexture[TexCoords] = lerp(PrevError, Error / Weight, 0.1f);
             } else {
                 g_RWUpdateErrorSplatTexture[TexCoords] = lerp(PrevError, 0.f,  0.1f);
@@ -2280,12 +2334,32 @@ void DebugSSRC_ShowDifference (uint2 DispatchID : SV_DispatchThreadID) {
     if(any(DispatchID >= g_OutputDimensions)) {
         return;
     }
-    float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
-    if(Depth < 1.f) {
-        float Difference = g_UpdateErrorSplatTexture.Load(int3(DispatchID, 0)).x;
-        g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(Difference * g_DebugTonemapExposure), 1.f);
-    } else {
-        g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
+    if(g_DebugVisualizeMode == 0) {
+        float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+        if(Depth < 1.f) {
+            float2 UV = (DispatchID + 0.5f.xx) / g_OutputDimensions;
+            float Difference = g_UpdateErrorSplatTexture.SampleLevel(g_LinearSampler, UV, ERROR_BLUR_LOD).x;
+            g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(Difference * g_DebugTonemapExposure), 1.f);
+        } else {
+            g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
+        }
+    } else if(g_DebugVisualizeMode == 1) {
+        int2 TileCoords = DispatchID / SSRC_TILE_SIZE;
+        int TileID = TileCoords.x + TileCoords.y * g_TileDimensions.x;
+        int TileRayCount = g_RWTileRayCountBuffer[TileID];
+        if(TileRayCount == 0) {
+            g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
+        } else {
+            g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(TileRayCount / 128.f), 1.f);
+        }
+    } else if(g_DebugVisualizeMode == 2) {
+        float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+        if(Depth < 1.f) {
+            float Difference = g_UpdateErrorSplatTexture.Load(int3(DispatchID, 0)).x;
+            g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(Difference * g_DebugTonemapExposure), 1.f);
+        } else {
+            g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
+        }
     }
 }
 
@@ -2314,5 +2388,33 @@ void DebugSSRC_GenerateDrawIndexed (uint DispatchID : SV_DispatchThreadID) {
     draw_command.instance_offset = 0;
     g_RWDrawIndexedCommandBuffer[0] = draw_command;
 }
+
+// [numthreads(WAVE_SIZE, 1, 1)]
+// void DebugSSRC_PrecomputeIncidentLighting (uint DispatchID : SV_DispatchThreadID) {
+//     if(DispatchID >= g_DebugVisualizeIncidentRadianceNumPoints) {
+//         return;
+//     }
+//     float3 Direction      = FibonacciSphere(DispatchID, g_DebugVisualizeIncidentRadianceNumPoints);
+//     int2   TileCoords     = int2(g_DebugVisualizePixelCoords.x / SSRC_TILE_SIZE, g_DebugVisualizePixelCoords.y / SSRC_TILE_SIZE);
+//     int    TileID         = TileCoords.x + TileCoords.y * g_TileDimensions.x;
+//     int    TileBasisCount = g_RWTileBasisCountBuffer[TileID];
+//     int    TileBasisOffset= g_RWTileBaseSlotOffsetBuffer[TileID];
+//     float3 SumRadiance = 0.f.xxx;
+//     float  SumWeight   = 0.f;
+//     for(int i = 0; i< TileBasisCount; i++) {
+//         int BasisIndex = g_RWTileBasisIndexBuffer[TileBasisOffset + i];
+//         SGData SG;
+//         WData  W;
+//         FetchBasisData_W(BasisIndex, SG, W);
+//         float3 BasisWorldPosition;
+//         FetchBasisLocation(BasisIndex, BasisWorldPosition);
+//         float3 DeltaPosition = BasisWorldPosition - g_DebugVisualizeWorldPosition;
+//         float EvaluatedW = EvaluateW(W, DeltaPosition);
+//         float3 EvaluatedSG = EvaluateSG(SG, Direction);
+//         SumRadiance += EvaluatedSG * EvaluatedW;
+//         SumWeight   += EvaluatedW;
+//     }
+
+// }
 
 // New line required for termination.

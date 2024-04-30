@@ -1,7 +1,7 @@
 #ifndef MIGI_SHARED_HLSL
 #define MIGI_SHARED_HLSL
 
-#define HEURISTIC_DIRECTION_UPDATE
+// #define HEURISTIC_DIRECTION_UPDATE
 
 #include "migi_inc.hlsl"
 
@@ -726,6 +726,28 @@ uint PackUint16x2 (uint2 v) {
 
 uint2 UnpackUint16x2 (uint v) {
     return uint2(v & 0xFFFF, v >> 16);
+}
+
+// G-Buffer ops
+
+float3 RecoverWorldPositionHiRes (int2 TexCoords) {
+    float4 Visibility   = g_VisibilityTexture[TexCoords];
+    float2 Barycentrics = Visibility.xy;
+    uint   InstanceID   = asuint(Visibility.z);
+    uint   PrimitiveID  = asuint(Visibility.w);
+    Instance InstanceData = g_InstanceBuffer[InstanceID];
+    Mesh     mesh     = g_MeshBuffer[InstanceData.mesh_index];
+
+    Triangle vertices = fetchVertices(mesh, PrimitiveID);
+
+    // Reconstruct world space position from barycentrics
+    float3x4 transform = g_TransformBuffer[InstanceData.transform_index];
+    vertices.v0 = transformPoint(vertices.v0, transform);
+    vertices.v1 = transformPoint(vertices.v1, transform);
+    vertices.v2 = transformPoint(vertices.v2, transform);
+
+    float3 WorldPosition = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
+    return WorldPosition; 
 }
 
 #endif // MIGI_SHARED_HLSL
