@@ -214,10 +214,10 @@ float RecoverNormGradient (int V) {
 }
 int QuantilizeRadianceGradient (float Radiance) {
     Radiance = min(abs(Radiance), 5000.f) * sign(Radiance);
-    return int(Radiance * 10000.f);
+    return int(Radiance * 100000.f);
 }
 float RecoverRadianceGradient (int Radiance) {
-    return float(Radiance) / 10000.f;
+    return float(Radiance) / 100000.f;
 }
 int QuantilizeLambdaGradient (float dL) {
     return int(dL * 100000.f);

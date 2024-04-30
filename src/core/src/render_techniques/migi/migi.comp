@@ -1851,7 +1851,8 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
     float NormalizationFactor = 1000.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
     // NormalizationFactor = 1.f;
-    float RandomStride = sin(DispatchID * 4.13f + g_FrameIndex * 71838.3f) * 0.5f + 0.5f;
+    // FIXME
+    float RandomStride = 1.f;//sin(DispatchID * 4.13f + g_FrameIndex * 71838.3f) * 0.5f + 0.5f;
     NormalizationFactor *= RandomStride;
     // Update the basis
     if(g_CacheUpdate_SGDirection) {

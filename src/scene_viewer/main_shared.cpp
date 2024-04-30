@@ -84,6 +84,7 @@ static vector<SceneData> const scenes = {
     {"Remi's Room",                                          {"assets/MIGITestMedia/demo/demo.gltf"},  true, 6.0f},
     {"Simple",                                          {"assets/MIGITestMedia/simple/scene.gltf"},  true, 1.0f},
     {"XYZ",                                          {"assets/MIGITestMedia/xyz/z-up-x-axis-block.gltf"},  true, 1.0f},
+    {"Box",                                          {"assets/MIGITestMedia/cornell-box/scene.gltf"},  false, 1.0f},
 };
 
 /** List of supported environment maps */
