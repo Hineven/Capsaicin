@@ -583,10 +583,11 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     // RR
     // Only allocate rays for non-empty tiles
     int NonEmptyTile         = g_TileHiZ_Min.Load(int3(TileCoords, 0)).x < 1.f;
+    uint FrameSeed = g_DebugFreezeFrameSeed ? g_DebugFreezeFrameSeedValue : g_FrameSeed;
     if(NonEmptyTile) {
         int X                    = max(int(ExpectedRayCount / WAVE_SIZE), 1);
         float Remainder          = (ExpectedRayCount - X * WAVE_SIZE) / WAVE_SIZE;
-        Random rng = MakeRandom(97462891 + DispatchID, g_FrameIndex);
+        Random rng = MakeRandom(97462891 + DispatchID, FrameSeed);
         if(rng.rand() < Remainder) {
             X++;
         }
@@ -677,7 +678,8 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
     int TileBasisIndexBase = g_RWTileBaseSlotOffsetBuffer[TileID];
     // Jitter the representative sample point within the tile
     // First use of the blue noise samples, no dimension offset is needed
-    float2 RepresentativeJitter = clamp(BlueNoise_Sample2D(TileCoords, g_FrameIndex), 0.f.xx, 0.999f.xx);
+    uint   FrameSeed = g_DebugFreezeFrameSeed ? g_DebugFreezeFrameSeedValue : g_FrameSeed;
+    float2 RepresentativeJitter = clamp(BlueNoise_Sample2D(TileCoords, FrameSeed), 0.f.xx, 0.999f.xx);
     int2   RepresentativeCoords = TileCoords * SSRC_TILE_SIZE + RepresentativeJitter * SSRC_TILE_SIZE;
     float2 RepresentativeUV     = (RepresentativeCoords + 0.5f.xx) * g_OutputDimensionsInv;
     float  RepresentativeDepth  = g_DepthTexture.Load(int3(RepresentativeCoords, 0)).x;
@@ -727,7 +729,7 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
     int TileRayCount  = g_RWTileRayCountBuffer[TileID];
     int TileRayOffset = g_RWTileRayOffsetBuffer[TileID];
     int REPEAT        = (TileRayCount + WAVE_SIZE - 1) / WAVE_SIZE;
-    Random rng        = MakeRandom(34622891 + TileID * WAVE_SIZE + LocalID, g_FrameIndex);
+    Random rng        = MakeRandom(34622891 + TileID * WAVE_SIZE + LocalID, FrameSeed);
     for(int i = 0; i < REPEAT; i++) {
         int RayRank = i * WAVE_SIZE + LocalID;
         if(RayRank < TileRayCount) {
@@ -828,8 +830,9 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             float3 Tangent, Bitangent;
             TangentVectors(SG.Direction, Tangent, Bitangent);
             RayDirection = normalize(RayDirection.x * Tangent + RayDirection.y * Bitangent + RayDirection.z * SG.Direction);
-            // RayDirection = UniformSampleSphere(u2);
-            // Pdf = 1.f;
+            // FIXME
+            RayDirection = UniformSampleSphere(u2);
+            Pdf = 1.f;
             // Record the generated update ray
             g_RWUpdateRayDirectionBuffer[TileRayOffset + RayRank] = PackNormal(RayDirection);
             g_RWUpdateRayOriginBuffer[TileRayOffset + RayRank] = PackUint16x2(TileCoords * SSRC_TILE_SIZE + SubTileCoords);
@@ -972,7 +975,9 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     // We bypass the hash-grid cache entirely here, as adding emissive information to the cells
     // effectively enlarges the area light (due to the spatial nature of the grid) and leads to
     // light leaks and generally poorer visuals.
-    if (visibility.is_front_face && dot(material.emissivity.xyz, material.emissivity.xyz) > 0.0f)
+
+    // Double sided emissive
+    if (/*visibility.is_front_face && */dot(material.emissivity.xyz, material.emissivity.xyz) > 0.0f)
     {
         MaterialEmissive emissive = MakeMaterialEmissive(material, mesh_uv);
         float4 RadiancePdf = UnpackFp16x4(g_RWUpdateRayRadiancePdfBuffer[query_index]);
@@ -1036,7 +1041,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     MaterialEvaluated material2 = MakeMaterialEvaluated(material, mesh_uv);
     MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
     // Make the seed different from the one used in TraceUpdateRays
-    Random random = MakeRandom(DispatchID ^ 0x8a197727, g_FrameIndex);
+    Random random = MakeRandom(DispatchID ^ 0x8a197727, g_FrameSeed);
     LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
 
@@ -1137,7 +1142,7 @@ void ResampleReservoirs(in uint did : SV_DispatchThreadID)
     reservoir.M = 1.0f;
 
     // Make the random numbers different from previous samples
-    Random random = MakeRandom(did + g_OutputDimensions.x * g_OutputDimensions.y, g_FrameIndex);
+    Random random = MakeRandom(did + g_OutputDimensions.x * g_OutputDimensions.y, g_FrameSeed);
 
     // Locate our hash table cell
     float3 b1, b2;
@@ -1849,7 +1854,7 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     FetchBasisLocation(BasisIndex, BasisPosition);
     // Compute the step size
     ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
-    float NormalizationFactor = 1000.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
+    float NormalizationFactor = 10.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
     // NormalizationFactor = 1.f;
     // FIXME
     float RandomStride = 1.f;//sin(DispatchID * 4.13f + g_FrameIndex * 71838.3f) * 0.5f + 0.5f;
@@ -1899,9 +1904,8 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         // Overflowed
         return ;
     }
-    uint TileGlobalID = TileID + g_FrameIndex * g_TileDimensions.x * g_TileDimensions.y;
     // Introduce blue noise spawnning pattern upon raw tiles.
-    int2 MinLocation  = BlueNoise_Sample2D(GroupID.xy, g_FrameIndex) * 0.999f * SSRC_TILE_SIZE;
+    int2 MinLocation  = BlueNoise_Sample2D(GroupID.xy, g_FrameSeed) * 0.999f * SSRC_TILE_SIZE;
     uint TileMask = (MinLocation.x + MinLocation.y * SSRC_TILE_SIZE) & 0xfffu;
     // Find a pixel with minimum weight coverage
     uint MinCoveragePacked    = 0xffffffffu ^ TileMask;
@@ -1952,7 +1956,7 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
                 float  PixelDepth = g_DepthTexture.Load(int3(SpawnTexCoords, 0)).x;
                 float3 PixelNormal = normalize(2.f * g_ShadingNormalTexture.Load(int3(SpawnTexCoords, 0)).xyz - 1.f);
                 WorldPosition = InverseProject(g_CameraProjViewInv, UV, PixelDepth);
-                float U = BlueNoise_Sample1D(GroupID.xy + int2(8271, 2983), g_FrameIndex).x;
+                float U = BlueNoise_Sample1D(GroupID.xy + int2(8271, 2983), g_FrameSeed).x;
                 // Randomize radius
                 float X  = GetLinearDepth(PixelDepth) * g_CameraPixelScale * g_BasisWInitialRadius;
                 // FIXME
@@ -2017,10 +2021,10 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         SG.Direction = normalize(SumInitDirection);
     else SG.Direction = SurfaceNormal;
     // TODO better initialization of lambda
-    float M      = BlueNoise_Sample1D(GroupID.xy + int2(3817, 4905), g_FrameIndex).x;
+    float M      = BlueNoise_Sample1D(GroupID.xy + int2(3817, 4905), g_FrameSeed).x;
     // FIXME
     SG.Direction = SurfaceNormal;
-    SG.Lambda    = 1.85f;//lerp(0.35f, 1.2f, M);
+    SG.Lambda    = 6.85f;//lerp(0.35f, 1.2f, M);
     SG.Color     = 1.f.xxx;
 
     SumInitWeight = 0.f;
@@ -2390,32 +2394,71 @@ void DebugSSRC_GenerateDrawIndexed (uint DispatchID : SV_DispatchThreadID) {
     g_RWDrawIndexedCommandBuffer[0] = draw_command;
 }
 
-// [numthreads(WAVE_SIZE, 1, 1)]
-// void DebugSSRC_PrecomputeIncidentLighting (uint DispatchID : SV_DispatchThreadID) {
-//     if(DispatchID >= g_DebugVisualizeIncidentRadianceNumPoints) {
-//         return;
-//     }
-//     float3 Direction      = FibonacciSphere(DispatchID, g_DebugVisualizeIncidentRadianceNumPoints);
-//     int2   TileCoords     = int2(g_DebugVisualizePixelCoords.x / SSRC_TILE_SIZE, g_DebugVisualizePixelCoords.y / SSRC_TILE_SIZE);
-//     int    TileID         = TileCoords.x + TileCoords.y * g_TileDimensions.x;
-//     int    TileBasisCount = g_RWTileBasisCountBuffer[TileID];
-//     int    TileBasisOffset= g_RWTileBaseSlotOffsetBuffer[TileID];
-//     float3 SumRadiance = 0.f.xxx;
-//     float  SumWeight   = 0.f;
-//     for(int i = 0; i< TileBasisCount; i++) {
-//         int BasisIndex = g_RWTileBasisIndexBuffer[TileBasisOffset + i];
-//         SGData SG;
-//         WData  W;
-//         FetchBasisData_W(BasisIndex, SG, W);
-//         float3 BasisWorldPosition;
-//         FetchBasisLocation(BasisIndex, BasisWorldPosition);
-//         float3 DeltaPosition = BasisWorldPosition - g_DebugVisualizeWorldPosition;
-//         float EvaluatedW = EvaluateW(W, DeltaPosition);
-//         float3 EvaluatedSG = EvaluateSG(SG, Direction);
-//         SumRadiance += EvaluatedSG * EvaluatedW;
-//         SumWeight   += EvaluatedW;
-//     }
+[numthreads(1, 1, 1)]
+void DebugSSRC_FetchCursorPos (uint DipspatchID : SV_DispatchThreadID) {
+    float4 Visibility = g_VisibilityTexture.Load(int3(g_DebugCursorPixelCoords, 0));
+    float2 Barycentrics = Visibility.xy;
+    uint InstanceID = asuint(Visibility.z);
+    uint PrimitiveID = asuint(Visibility.w);
+    Instance InstanceData = g_InstanceBuffer[InstanceID];
+    Mesh mesh = g_MeshBuffer[InstanceData.mesh_index];
+    Triangle vertices = fetchVertices(mesh, PrimitiveID);
+    float3x4 transform = g_TransformBuffer[InstanceData.transform_index];
+    vertices.v0 = transformPoint(vertices.v0, transform);
+    vertices.v1 = transformPoint(vertices.v1, transform);
+    vertices.v2 = transformPoint(vertices.v2, transform);
+    float3 WorldPosition = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
+    g_RWDebugCursorWorldPosBuffer[0] = WorldPosition;
+}
 
-// }
+[numthreads(WAVE_SIZE, 1, 1)]
+void DebugSSRC_PrecomputeIncidentRadiance (uint DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= g_DebugVisualizeIncidentRadianceNumPoints) {
+        return;
+    }
+    float3 Direction      = FibonacciSphere(DispatchID, g_DebugVisualizeIncidentRadianceNumPoints);
+    float3 DebugWorldPos  = g_RWDebugCursorWorldPosBuffer[0];
+    float3 Homogeneous    = transformPointProjection(DebugWorldPos, g_CameraProjView);
+    float2 UV             = NDC22UV(Homogeneous.xy);
+    int2   TexCoords      = int2(UV * g_OutputDimensions);
+    int2   TileCoords     = int2(TexCoords.x / SSRC_TILE_SIZE, TexCoords.y / SSRC_TILE_SIZE);
+    int    TileID         = TileCoords.x + TileCoords.y * g_TileDimensions.x;
+    int    TileBasisCount = g_RWTileBasisCountBuffer[TileID];
+    int    TileBasisOffset= g_RWTileBaseSlotOffsetBuffer[TileID];
+    float3 SumRadiance = 0.f.xxx;
+    float  SumWeight   = 0.f;
+    for(int i = 0; i< TileBasisCount; i++) {
+        int BasisIndex = g_RWTileBasisIndexBuffer[TileBasisOffset + i];
+        SGData SG;
+        WData  W;
+        FetchBasisData_W(BasisIndex, SG, W);
+        float3 BasisWorldPosition;
+        FetchBasisLocation(BasisIndex, BasisWorldPosition);
+        float3 DeltaPosition = BasisWorldPosition - DebugWorldPos;
+        float  EvaluatedW    = EvaluateW(W, DeltaPosition);
+        float3 EvaluatedSG   = EvaluateSG(SG, Direction);
+        SumRadiance += EvaluatedSG * EvaluatedW;
+        SumWeight   += EvaluatedW;
+    }
+    if(SumWeight > 0) {
+        g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = SumRadiance / SumWeight;
+    } else {
+        g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = 0.f.xxx;
+    }
+}
+
+[numthreads(1, 1, 1)]
+void DebugSSRC_PrepareUpdateRays () {
+    int2   TexCoords      = g_DebugCursorPixelCoords;
+    int2   TileCoords     = int2(TexCoords.x / SSRC_TILE_SIZE, TexCoords.y / SSRC_TILE_SIZE);
+    int    TileID         = TileCoords.x + TileCoords.y * g_TileDimensions.x;
+    DrawCommand draw_command = (DrawCommand)0;
+    draw_command.vertex_count_per_instance = 2;
+    draw_command.instance_count  = g_RWTileRayCountBuffer[TileID];
+    draw_command.vertex_offset   = 0;
+    draw_command.instance_offset = 0;
+    g_RWDrawCommandBuffer[0] = draw_command;
+}
+
 
 // New line required for termination.

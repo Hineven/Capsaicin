@@ -173,3 +173,56 @@ DebugBasis3D_Output DebugSSRC_Basis3D (
     }
     return Output;
 }
+
+struct DebugIncidentRadiance_Output {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+DebugIncidentRadiance_Output DebugSSRC_IncidentRadiance (
+    in uint VertexIndex : SV_VertexID // Vertex index
+) {
+    float3 Origin    = g_RWDebugCursorWorldPosBuffer[0];
+    int    Index     = VertexIndex;
+    float3 Direction = FibonacciSphere(Index, g_DebugVisualizeIncidentRadianceNumPoints);
+    float3 Radiance  = g_RWDebugVisualizeIncidentRadianceBuffer[Index];
+    float3 World     = Origin + (Direction * dot(Radiance, 1.f.xxx)) * 0.1f;
+    
+    DebugIncidentRadiance_Output Output;
+    Output.Position  = float4(transformPointProjection(World, g_CameraProjView), 1.f);
+    Output.Color     = float4(Radiance, 1.f);
+    return Output;
+}
+
+struct DebugUpdateRays_Output {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+DebugUpdateRays_Output DebugSSRC_UpdateRays (
+    in uint VertexIndex : SV_VertexID, // Vertex index
+    in uint InstanceID  : SV_InstanceID // Instance Index : ray rank
+) {
+    int2   TexCoords      = g_DebugCursorPixelCoords;
+    int2   TileCoords     = int2(TexCoords.x / SSRC_TILE_SIZE, TexCoords.y / SSRC_TILE_SIZE);
+    int    TileID         = TileCoords.x + TileCoords.y * g_TileDimensions.x;
+    int RayRank   = InstanceID;
+    int RayOffset = g_RWTileRayOffsetBuffer[TileID];
+    int RayCount  = g_RWTileRayCountBuffer[TileID];
+    int2 RayOriginCoords    = UnpackUint16x2(g_RWUpdateRayOriginBuffer[RayOffset + RayRank]);
+    float Depth             = g_DepthTexture.Load(int3(RayOriginCoords, 0)).x;
+    float2 UV               = (float2(RayOriginCoords) + 0.5f) * g_OutputDimensionsInv;
+    float3 RayOrigin        = InverseProject(g_CameraProjViewInv, UV, Depth);
+    float3 RayDirection     = UnpackNormal(g_RWUpdateRayDirectionBuffer[RayOffset + RayRank]);
+    float3 RayRadiance      = UnpackFp16x3(g_RWUpdateRayRadiancePdfBuffer[RayOffset + RayRank]);
+    float3 World;
+    if(VertexIndex == 0) {
+        World = RayOrigin;
+    } else {
+        World = RayOrigin + RayDirection * (dot(RayRadiance, 1.f.xxx) * 0.1f + 0.01f);
+    }
+    DebugUpdateRays_Output Output;
+    Output.Position  = float4(transformPointProjection(World, g_CameraProjView), 1.f);
+    Output.Color     = float4(0.5f * (RayDirection + 1.f), 1.f);
+    return Output;
+}

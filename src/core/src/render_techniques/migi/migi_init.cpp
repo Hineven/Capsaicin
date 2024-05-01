@@ -16,6 +16,11 @@
 #include "components/light_sampler_grid_stream/light_sampler_grid_stream.h"
 #include "components/stratified_sampler/stratified_sampler.h"
 
+// Hack for missing functionalities in gfx
+
+extern bool __override_primitive_topology;
+extern D3D12_PRIMITIVE_TOPOLOGY_TYPE __override_primitive_topology_type;
+
 namespace Capsaicin
 {
 
@@ -169,6 +174,41 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "DebugSSRC_GenerateDrawIndexed", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_show_difference = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_ShowDifference", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_fetch_cursor_pos = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_FetchCursorPos", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_precompute_incident_radiance = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_PrecomputeIncidentRadiance", defines_c.data(), (uint32_t)defines_c.size());
+        GfxDrawState debug_incident_radiance_draw_state = {};
+        // No culling
+        gfxDrawStateSetCullMode(debug_incident_radiance_draw_state, D3D12_CULL_MODE_NONE);
+        // Depth test on
+        gfxDrawStateSetDepthStencilTarget(debug_incident_radiance_draw_state, tex_.depth);
+        gfxDrawStateSetDepthWriteMask(debug_incident_radiance_draw_state, D3D12_DEPTH_WRITE_MASK_ALL);
+        gfxDrawStateSetColorTarget(debug_incident_radiance_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetFillMode(debug_incident_radiance_draw_state, D3D12_FILL_MODE_SOLID);
+        __override_primitive_topology = true;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+        kernels_.DebugSSRC_incident_radiance = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_incident_radiance_draw_state,
+            "DebugSSRC_IncidentRadiance", defines_c.data(), (uint32_t)defines_c.size());
+        __override_primitive_topology = false;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+        kernels_.DebugSSRC_prepare_update_rays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_PrepareUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        GfxDrawState debug_update_rays_draw_state = {};
+        // No culling
+        gfxDrawStateSetCullMode(debug_update_rays_draw_state, D3D12_CULL_MODE_NONE);
+        // Depth test on but no write
+        gfxDrawStateSetDepthStencilTarget(debug_update_rays_draw_state, tex_.depth);
+        gfxDrawStateSetDepthWriteMask(debug_update_rays_draw_state, D3D12_DEPTH_WRITE_MASK_ZERO);
+        gfxDrawStateSetColorTarget(debug_update_rays_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetFillMode(debug_update_rays_draw_state, D3D12_FILL_MODE_SOLID);
+        __override_primitive_topology = true;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+        kernels_.DebugSSRC_update_rays         = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_incident_radiance_draw_state,
+            "DebugSSRC_UpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        __override_primitive_topology = false;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
@@ -317,6 +357,12 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.draw_indexed_command.setName("DrawIndexedCommand");
     buf_.reduce_count          = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.reduce_count.setName("ReduceCount");
+
+    buf_.debug_visualize_incident_radiance = gfxCreateBuffer<float3>(gfx_, cfg_.max_debug_visualize_incident_radiance_num_points);
+    buf_.debug_visualize_incident_radiance.setName("DebugVisualizeIncidentRadiance");
+    buf_.debug_cursor_world_pos = gfxCreateBuffer<float3>(gfx_, 1);
+    buf_.debug_cursor_world_pos.setName("DebugCursorWorldPos");
+
     // Initialize the disk index buffer for injection
     std::vector<uint32_t> disk_index_buffer;
     for(int i = 0; i<(int)options_.SSRC_CR_disk_vertex_count - 2; i++)

@@ -18,7 +18,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::LabelText("Active Basis", "%d", readback_values_.active_basis_count);
             ImGui::LabelText("Sum Step Scale", "%.4f (%.4f)", readback_values_.sum_step_scale, readback_values_.sum_step_scale / readback_values_.active_basis_count);
         }
-        std::vector<std::string> debug_views = {"None", "SSRC_Coverage", "SSRC_TileOccupancy", "SSRC_Basis", "SSRC_Basis3D", "SSRC_Difference"};
+        std::vector<std::string> debug_views = {"None", "SSRC_Coverage", "SSRC_TileOccupancy", "SSRC_Basis", "SSRC_Basis3D", "SSRC_Difference", "SSRC_IncidentRadiance", "SSRC_UpdateRays"};
         auto view_it = std::find(debug_views.begin(), debug_views.end(), options_.active_debug_view);
         if(view_it == debug_views.end())
         {
@@ -52,6 +52,10 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             debug_visualize_mode_names = {"Intensity", "Lambda", "WAlpha", "ERadius"};
         } else if(options_.active_debug_view == "SSRC_Difference") {
             debug_visualize_mode_names = {"Difference", "Ray Allocation", "Raw Difference"};
+        } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
+            debug_visualize_mode_names = {"Distribution"};
+        } else if(options_.active_debug_view == "SSRC_UpdateRays") {
+            debug_visualize_mode_names = {"Rays", "Rays (3x3 Adjacent Pixels in Tile)"};
         }
         if (debug_visualize_mode_names.empty())
         {
@@ -88,6 +92,10 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Optimize WAlpha", &options_.cache_update_W_alpha);
         ImGui::Checkbox("Optimize WLambda", &options_.cache_update_W_lambda);
         ImGui::Checkbox("Freeze Basis Allocation", &options_.freeze_basis_allocation);
+
+        if(ImGui::CollapsingHeader("Misc")) {
+            ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);
+        }
     }
 }
 }

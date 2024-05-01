@@ -52,6 +52,7 @@ float4x4 g_ForwardProjection;
 float3 g_PreviousCameraPosition;
 
 uint g_FrameIndex;
+uint g_FrameSeed; // Normally this is the same as g_FrameIndex, used for random number generation
 
 // G-Buffers & History
 Texture2D g_DepthTexture;
@@ -171,9 +172,17 @@ ConstantBuffer<RTConstants>  g_RTConstants;
 
 uint  g_DebugVisualizeMode;
 uint  g_DebugVisualizeChannel;
-uint2 g_DebugVisualizePixelCoords;
 uint  g_DebugVisualizeIncidentRadianceNumPoints;
+RWStructuredBuffer<float3> g_RWDebugVisualizeIncidentRadianceBuffer;
+
+// Replace g_FrameSeed under certain conditions
+uint  g_DebugFreezeFrameSeed;
+uint  g_DebugFreezeFrameSeedValue;
 
 float g_DebugTonemapExposure;
+
+
+uint2 g_DebugCursorPixelCoords;
+RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
 
 #endif // MIGI_SHARED_PARAMETERS_HLSL

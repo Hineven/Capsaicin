@@ -114,3 +114,25 @@ float4 DebugSSRC_Basis3D (
         return float4((SG.Direction + 1.f) * 0.5f, 1.f);
     }
 }
+
+struct DebugIncidentRadiance_Input {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+float4 DebugSSRC_IncidentRadiance (
+    in DebugIncidentRadiance_Input Input
+) : SV_Target {
+    return Input.Color;
+}
+
+struct DebugUpdateRays_Input {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+float4 DebugSSRC_UpdateRays (
+    in DebugUpdateRays_Input Input
+) : SV_Target {
+    return Input.Color;
+}

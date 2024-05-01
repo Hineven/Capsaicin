@@ -3,6 +3,7 @@
  * Created: 2024/3/28
  * This program uses MulanPSL2. See LICENSE for more.
  */
+
 #include "capsaicin_internal.h"
 #include "components/blue_noise_sampler/blue_noise_sampler.h"
 #include "components/light_sampler_grid_stream/light_sampler_grid_stream.h"
@@ -86,8 +87,20 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 
 
     // Debugging
+    options_.debug_freeze_frame_seed = (options_.active_debug_view == "SSRC_UpdateRays");
     options_.debug_view_switched = options_.active_debug_view != capsaicin.getCurrentDebugView();
     options_.active_debug_view = capsaicin.getCurrentDebugView();
+
+    // Controls
+    {
+        auto & io = ImGui::GetIO();
+        options_.cursor_pixel_coords = {std::max(io.MousePos.x, 0.f), std::max(io.MousePos.y, 0.f)};
+        if(io.MouseClicked[1] && !io.WantCaptureMouse) {
+            options_.cursor_clicked = true;
+        } else {
+            options_.cursor_clicked = false;
+        }
+    }
 
     // Reload flags
     need_reload_hash_grid_cache_debug_view_ = capsaicin.getCurrentDebugView() != options_.active_debug_view
@@ -98,7 +111,6 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 
     // The screen space cache needs to be reset if the render state changes (i.e. camera transaction).
     need_reset_screen_space_cache_ |= options_.reset_screen_space_cache || capsaicin.getFrameIndex() == 0;
-
 }
 
 DebugViewList MIGI::getDebugViews() const noexcept
@@ -109,6 +121,8 @@ DebugViewList MIGI::getDebugViews() const noexcept
     ret.emplace_back("SSRC_Basis");
     ret.emplace_back("SSRC_Basis3D");
     ret.emplace_back("SSRC_Difference");
+    ret.emplace_back("SSRC_IncidentRadiance");
+    ret.emplace_back("SSRC_UpdateRays");
     return ret;
 }
 

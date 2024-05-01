@@ -258,6 +258,7 @@ uint4 FetchBasisData_W_Packed (int BasisIndex) {
 }
 
 float3 UnpackNormal (uint Packed) {
+    // return unpackUnorm4x8(Packed).xyz * 2.f - 1.f;
     uint3 Dir = uint3(Packed & 0x3ff, (Packed >> 10) & 0x3ff, (Packed >> 20) & 0x3ff);
     return (float3(Dir) + (1.f / 0x800)) * (2.f / 0x400) - 1.f;
 }
@@ -463,14 +464,14 @@ float2 FibonacciLattice (uint i, uint n) {
 float2 FibonacciSpiral (uint i, uint n) {
     float phi = (float) i / n * PI * (3.f - sqrt(5.f));
     float r = sqrt((float) i / n);
-    return float2(cos(phi) * r, sin(phi) * r);
+    return float2(cos(phi * i) * r, sin(phi * i) * r);
 }
 
 float3 FibonacciSphere (uint i, uint n) {
-    float phi = (float) i / n * PI * (3.f - sqrt(5.f));
+    float phi = float(i) / n * (PI * (3.f - sqrt(5.f)));
     float z = 1.f - (float) i / n * 2.f;
     float r = sqrt(max(0, 1.f - z * z));
-    return float3(cos(phi) * r, sin(phi) * r, z);
+    return float3(cos(phi * i) * r, sin(phi * i) * r, z);
 }
 
 void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {

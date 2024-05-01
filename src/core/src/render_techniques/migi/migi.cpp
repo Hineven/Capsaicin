@@ -16,6 +16,9 @@ extern bool __override_gfx_null_render_target;
 extern int  __override_gfx_null_render_target_width;
 extern int  __override_gfx_null_render_target_height;
 
+extern bool __override_primitive_topology;
+extern D3D_PRIMITIVE_TOPOLOGY __override_primitive_topology_draw;
+
 
 namespace Capsaicin
 {
@@ -152,6 +155,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousCameraPosition", previous_camera_.eye);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FrameIndex", capsaicin.getFrameIndex());
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_FrameSeed", capsaicin.getFrameIndex());
 
     // G-Buffers
     gfxProgramSetParameter(gfx_, kernels_.program, "g_DepthTexture", capsaicin.getAOVBuffer("VisibilityDepth"));
@@ -321,6 +325,19 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugVisualizeMode", options_.debug_visualize_mode);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugVisualizeChannel", options_.debug_visualize_channel);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugVisualizeIncidentRadianceNumPoints",
+        options_.debug_visualize_incident_radiance_num_points);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugVisualizeIncidentRadianceBuffer",
+        buf_.debug_visualize_incident_radiance);
+
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugFreezeFrameSeed", options_.debug_freeze_frame_seed);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugFreezeFrameSeedValue", 123);
+
+
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugCursorPixelCoords", options_.cursor_pixel_coords);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugCursorWorldPosBuffer",
+        buf_.debug_cursor_world_pos);
+
     {
         float exposure = 1.f;
         auto & opts = capsaicin.getOptions();
@@ -861,6 +878,38 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_show_difference);
         uint dispatch_size[] = {divideAndRoundUp(options_.width, threads[0]), divideAndRoundUp(options_.height, threads[1])};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
+        const TimedSection timed_section(*this, "SSRC_IncidentRadiance");
+        if(options_.cursor_clicked)
+        {
+            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_fetch_cursor_pos);
+            gfxCommandDispatch(gfx_, 1, 1, 1);
+        }
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_precompute_incident_radiance);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_precompute_incident_radiance);
+        gfxCommandDispatch(gfx_, divideAndRoundUp(options_.debug_visualize_incident_radiance_num_points, threads[0]), 1, 1);
+        // Copy the depth buffer to the depth buffer for debug visualization
+        gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+        gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+        __override_primitive_topology = true;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_incident_radiance);
+        gfxCommandDraw(gfx_, options_.debug_visualize_incident_radiance_num_points);
+        __override_primitive_topology = false;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    } else if(options_.active_debug_view == "SSRC_UpdateRays") {
+        const TimedSection timed_section(*this, "SSRC_UpdateRays");
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_prepare_update_rays);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        // Copy the depth buffer to the depth buffer for debug visualization
+        gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+        gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+        __override_primitive_topology = true;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_update_rays);
+        gfxCommandMultiDrawIndirect(gfx_, buf_.draw_command, 1);
+        __override_primitive_topology = false;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     }
 
     {

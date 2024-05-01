@@ -18,8 +18,12 @@ struct MIGIRenderOptions {
     uint32_t width {};
     uint32_t height {};
 
-    uint32_t debug_visualize_mode = 0;
-    uint32_t debug_visualize_channel = 0;
+    uint32_t debug_visualize_mode {};
+    uint32_t debug_visualize_channel {};
+    // Buffer recreation is required upon modifying this value
+    uint32_t debug_visualize_incident_radiance_num_points {128 * 1024};
+
+    bool     debug_freeze_frame_seed {false};
 
     bool reset_screen_space_cache {false};
 
@@ -87,6 +91,10 @@ struct MIGIRenderOptions {
 
     std::string active_debug_view {};
     bool debug_view_switched {false};
+
+    // Updated each frame
+    int2 cursor_pixel_coords {};
+    bool cursor_clicked {};
 };
 
 namespace MIGIRT {

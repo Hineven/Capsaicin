@@ -51,6 +51,7 @@ public:
     struct Config {
         int wave_lane_count {};
         int basis_buffer_allocation {};
+        int max_debug_visualize_incident_radiance_num_points {1024 * 1024};
     } cfg_;
     bool initConfig (const CapsaicinInternal &capsaicin);
 
@@ -108,6 +109,9 @@ public:
         GfxBuffer draw_command {};
         GfxBuffer draw_indexed_command {};
         GfxBuffer reduce_count {};
+
+        GfxBuffer debug_visualize_incident_radiance {};
+        GfxBuffer debug_cursor_world_pos {};
 
         GfxBuffer disk_index_buffer {};
 
@@ -167,6 +171,11 @@ public:
         GfxKernel  DebugSSRC_basis_3D {};
         GfxKernel  DebugSSRC_generate_draw_indexed {};
         GfxKernel  DebugSSRC_show_difference {};
+        GfxKernel  DebugSSRC_fetch_cursor_pos {};
+        GfxKernel  DebugSSRC_precompute_incident_radiance {};
+        GfxKernel  DebugSSRC_incident_radiance {};
+        GfxKernel  DebugSSRC_prepare_update_rays {};
+        GfxKernel  DebugSSRC_update_rays {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};
