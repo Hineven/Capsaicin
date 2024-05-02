@@ -897,6 +897,8 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDraw(gfx_, options_.debug_visualize_incident_radiance_num_points);
         __override_primitive_topology = false;
         __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        // Additionally accumulate the radiance buffer to compute the numerical integral of incoming radiance
+        gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Float, buf_.debug_visualize_incident_radiance_sum, buf_.debug_visualize_incident_radiance, &buf_.reduce_count);
     } else if(options_.active_debug_view == "SSRC_UpdateRays") {
         const TimedSection timed_section(*this, "SSRC_UpdateRays");
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_prepare_update_rays);
@@ -918,7 +920,9 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         auto copy_idx = frame_index % kGfxConstant_BackBufferCount;
         assert(!readback_pending_[copy_idx]);
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 0, buf_.active_basis_count, 0, sizeof(uint32_t));
-        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], sizeof(uint32_t), buf_.update_step_scale, 0, sizeof(float));
+        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 4, buf_.update_step_scale, 0, sizeof(float));
+        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 8, buf_.update_ray_count, 0, sizeof(uint32_t));
+        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 12, buf_.debug_visualize_incident_radiance_sum, 0, sizeof(float));
         readback_pending_[copy_idx] = true;
     }
     {
@@ -929,6 +933,8 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
             auto readback_values = gfxBufferGetData<uint32_t>(gfx_, buf_.readback[readback_idx]);
             readback_values_.active_basis_count = readback_values[0];
             readback_values_.sum_step_scale     = reinterpret_cast<float const *>(readback_values + 1)[0];
+            readback_values_.update_ray_count   = readback_values[2];
+            readback_values_.debug_visualize_incident_irradiance = reinterpret_cast<float const *>(readback_values + 3)[0] / float(options_.debug_visualize_incident_radiance_num_points);
             readback_pending_[readback_idx] = false;
         }
     }

@@ -153,7 +153,7 @@ DebugBasis3D_Output DebugSSRC_Basis3D (
     DebugBasis3D_Output Output;
     Output.BasisIndex.x = asfloat(BasisID);
     if(VertexIndex == 0) {
-        Output.Position = float4(transformPointProjection(BasisOrigin, g_CameraProjView), 1.f);
+        Output.Position = mul(g_CameraProjView, float4(BasisOrigin, 1.f));
         Output.Color.x  = 0.f;
     } else {
         float  VecLength = 0.f;
@@ -168,7 +168,7 @@ DebugBasis3D_Output DebugSSRC_Basis3D (
         }
         VecLength += 0.004f;
         float3 BasisVector  = SG.Direction * VecLength;
-        Output.Position     = float4(transformPointProjection(BasisOrigin + BasisVector, g_CameraProjView), 1.f);
+        Output.Position     = mul(g_CameraProjView, float4(BasisOrigin + BasisVector, 1.f));
         Output.Color.x      = VecLength;
     }
     return Output;
@@ -186,10 +186,10 @@ DebugIncidentRadiance_Output DebugSSRC_IncidentRadiance (
     int    Index     = VertexIndex;
     float3 Direction = FibonacciSphere(Index, g_DebugVisualizeIncidentRadianceNumPoints);
     float3 Radiance  = g_RWDebugVisualizeIncidentRadianceBuffer[Index];
-    float3 World     = Origin + (Direction * dot(Radiance, 1.f.xxx)) * 0.1f;
+    float3 World     = Origin + Direction * (dot(Radiance, 1.f.xxx) * 0.1f);
     
     DebugIncidentRadiance_Output Output;
-    Output.Position  = float4(transformPointProjection(World, g_CameraProjView), 1.f);
+    Output.Position  = mul(g_CameraProjView, float4(World, 1.f));
     Output.Color     = float4(Radiance, 1.f);
     return Output;
 }
@@ -219,10 +219,11 @@ DebugUpdateRays_Output DebugSSRC_UpdateRays (
     if(VertexIndex == 0) {
         World = RayOrigin;
     } else {
-        World = RayOrigin + RayDirection * (dot(RayRadiance, 1.f.xxx) * 0.1f + 0.01f);
+        World = RayOrigin + RayDirection * (dot(RayRadiance, 1.f.xxx) * 0.02f + 0.01f);
     }
     DebugUpdateRays_Output Output;
-    Output.Position  = float4(transformPointProjection(World, g_CameraProjView), 1.f);
-    Output.Color     = float4(0.5f * (RayDirection + 1.f), 1.f);
+    Output.Position  = mul(g_CameraProjView, float4(World, 1.f));
+    float3 Color     = 0.5f * (RayDirection + 1.f);
+    Output.Color     = float4(Color, 1.f);
     return Output;
 }

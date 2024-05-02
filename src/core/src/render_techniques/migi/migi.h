@@ -18,6 +18,8 @@ namespace Capsaicin
 struct MIGIReadBackValues {
     uint32_t active_basis_count {};
     float    sum_step_scale {};
+    uint32_t update_ray_count {};
+    float    debug_visualize_incident_irradiance {};
 };
 
 class MIGI : public RenderTechnique
@@ -111,6 +113,7 @@ public:
         GfxBuffer reduce_count {};
 
         GfxBuffer debug_visualize_incident_radiance {};
+        GfxBuffer debug_visualize_incident_radiance_sum {};
         GfxBuffer debug_cursor_world_pos {};
 
         GfxBuffer disk_index_buffer {};

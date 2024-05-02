@@ -17,6 +17,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         {
             ImGui::LabelText("Active Basis", "%d", readback_values_.active_basis_count);
             ImGui::LabelText("Sum Step Scale", "%.4f (%.4f)", readback_values_.sum_step_scale, readback_values_.sum_step_scale / readback_values_.active_basis_count);
+            ImGui::LabelText("Allocated Rays", "%d", readback_values_.update_ray_count);
+            ImGui::LabelText("Irradiance (Debug)", "%.4f", readback_values_.debug_visualize_incident_irradiance);
         }
         std::vector<std::string> debug_views = {"None", "SSRC_Coverage", "SSRC_TileOccupancy", "SSRC_Basis", "SSRC_Basis3D", "SSRC_Difference", "SSRC_IncidentRadiance", "SSRC_UpdateRays"};
         auto view_it = std::find(debug_views.begin(), debug_views.end(), options_.active_debug_view);

@@ -360,6 +360,8 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
 
     buf_.debug_visualize_incident_radiance = gfxCreateBuffer<float3>(gfx_, cfg_.max_debug_visualize_incident_radiance_num_points);
     buf_.debug_visualize_incident_radiance.setName("DebugVisualizeIncidentRadiance");
+    buf_.debug_visualize_incident_radiance_sum = gfxCreateBuffer<float>(gfx_, 1);
+    buf_.debug_visualize_incident_radiance_sum.setName("DebugVisualizeIncidentRadianceSum");
     buf_.debug_cursor_world_pos = gfxCreateBuffer<float3>(gfx_, 1);
     buf_.debug_cursor_world_pos.setName("DebugCursorWorldPos");
 

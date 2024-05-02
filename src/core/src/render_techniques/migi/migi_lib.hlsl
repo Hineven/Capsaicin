@@ -92,7 +92,7 @@ float SGNormalizationFactor (float lambda) {
 
 float3 EvaluateSG(SGData SG, float3 Direction)
 {
-    return SG.Color * exp(SG.Lambda * dot(SG.Direction, Direction) - 1.f);
+    return SG.Color * exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
 }
 
 float EvaluateNormalizedSG (SGData SG, float3 Direction) {
@@ -213,11 +213,11 @@ float RecoverNormGradient (int V) {
 #endif
 }
 int QuantilizeRadianceGradient (float Radiance) {
-    Radiance = min(abs(Radiance), 5000.f) * sign(Radiance);
-    return int(Radiance * 100000.f);
+    Radiance = min(abs(Radiance), 100.f) * sign(Radiance);
+    return int(Radiance * 10000.f);
 }
 float RecoverRadianceGradient (int Radiance) {
-    return float(Radiance) / 100000.f;
+    return float(Radiance) / 10000.f;
 }
 int QuantilizeLambdaGradient (float dL) {
     return int(dL * 100000.f);
