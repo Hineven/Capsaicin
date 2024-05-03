@@ -827,14 +827,24 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             SGData SG = LocalSG[max(L-1, 0)];
             float Pdf_Dir;
             float3 RayDirection = SampleSG(u2, SG.Lambda, Pdf_Dir);
+            // Compute directional pdf
+            float SumPdf = 0.f;
+            for(int i = 0; i < TileBasisCount; i++) {
+                float CurPdf = SampleSGPDF(RayDirection.z, LocalSG[i].Lambda);
+                SumPdf += CurPdf * LocalBasisImportance[i];
+            }
+            // FIXME
+            // We overwrite origin pdf here
+            Pdf = SumPdf / PreviousSum;
+
             // Directional pdf is taken into consideration in later stages.
             // We simply drops the directional pdf here.
             float3 Tangent, Bitangent;
             TangentVectors(SG.Direction, Tangent, Bitangent);
             RayDirection = normalize(RayDirection.x * Tangent + RayDirection.y * Bitangent + RayDirection.z * SG.Direction);
-            // FIXME
-            RayDirection = UniformSampleSphere(u2);
-            Pdf = 1.f;
+
+            // RayDirection = UniformSampleSphere(u2);
+            // Pdf = 1.f;
             // Record the generated update ray
             g_RWUpdateRayDirectionBuffer[TileRayOffset + RayRank] = PackNormal(RayDirection);
             g_RWUpdateRayOriginBuffer[TileRayOffset + RayRank] = PackUint16x2(TileCoords * SSRC_TILE_SIZE + SubTileCoords);
@@ -1741,10 +1751,14 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
                     // Compute gradients
                     SGGradients Gradients;
                     WGradients  Gradients_W;
-                    float3 dColorExtra;
+                    float3 dColorExtra = 0.f.xxx;
+#ifdef L2_GRADIENTS
+                    EvaluateSG_GradientsL2(SG, RayDirection, RayRadianceDifference + , Gradients);
+#else
                     EvaluateSG_Gradients(SG, RayDirection, Gradients, dColorExtra);
+#endif
                     Gradients.dColor += dColorExtra;
-                    float3 DeltaRadiance    = RayRadianceDifference;
+                    float3 DeltaRadiance    = sign(RayRadianceDifference) * RayRadianceDifference * RayRadianceDifference;
                     float  DeltaRadianceSum = dot(DeltaRadiance, 1.f.xxx);
                     // The weight of SG for the current shading point (SP)
                     float  SGWeightForSP    = EvaluatedW * InvSumWeight * InvPdf * BalanceFactor;
@@ -1752,12 +1766,12 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
                     // Accumulate and combine gradients for optimal descending
                     // TODO adaptive learning rate based on the magnitude of the gradients
                     SumStepSize.dColor     += DeltaRadiance    * Gradients.dColor     * SGWeightForSP;
-    #ifdef HEURISTIC_DIRECTION_UPDATE
+#ifdef HEURISTIC_DIRECTION_UPDATE
                     // Approximate direction directly using the radiance difference
                     SumStepSize.dDirection += DeltaRadianceSum * RayDirection         * SGWeightForSP;
-    #else
+#else
                     SumStepSize.dDirection += DeltaRadianceSum * Gradients.dDirection * SGWeightForSP;
-    #endif
+#endif
                     SumStepSize.dLambda    += DeltaRadianceSum * Gradients.dLambda    * SGWeightForSP;
                     // F = W / (S+W) * f, so the step size of W is calculated by the followings
                     SumStepSize_W.dLambda  += DeltaRadianceSum * A * Gradients_W.dLambda;
@@ -1856,10 +1870,12 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     FetchBasisLocation(BasisIndex, BasisPosition);
     // Compute the step size
     ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
-    float NormalizationFactor = 1000.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
+    float GlobalNormalizationFactor = 1000.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
     // FIXME large basis is shattering the cache
     // FIXME adaptive normalization factor
-    // NormalizationFactor = 1.f;
+    // NormalizationFactor = 50.f;
+    float LocalNormalizationFactor = GetStepScale(Step_SG, Step_W);
+    float NormalizationFactor = 1.f / max(sqrt(LocalNormalizationFactor * GlobalNormalizationFactor), 1e-6f);
     float RandomStride = sin(DispatchID * 4.13f + g_FrameIndex * 71838.3f) * 0.5f + 0.5f;
     NormalizationFactor *= RandomStride;
     // Update the basis
@@ -1883,7 +1899,7 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     }
     if(g_CacheUpdate_SGLambda) {
         SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactor;
-        SG.Lambda    = clamp(SG.Lambda, 0.85f, 12.f); // Lambda is in [0.85f, 12.f]
+        SG.Lambda    = clamp(SG.Lambda, 0.85f, 100.f); // Lambda is in [0.85f, 100.f]
     }
     if(g_CacheUpdate_WAlpha) {
         W.Alpha      += Step_W.dAlpha      * g_CacheUpdateLearningRate * NormalizationFactor;

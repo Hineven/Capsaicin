@@ -164,17 +164,17 @@ struct SGGradients {
 };
 
 // error function: (x - y) ^ 2
-// void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGGradients Gradients) {
-//     // Compute the Gradients for SG parameters
-//     // Targeting at the remaining radiance after subtracting all other SH and SGs
-//     float W1 = (dot(SG.Direction, TargetDirection) - 1);
-//     float3 W2 = exp(SG.Lambda * W1);
-//     float3 W3 = 2 * W2 * (SG.Color * W2 - TargetRadiance);
-//     // d (sg_theta(dir) - v)^2 / d theta
-//     Gradients.dLambda = dot(SG.Color * W3 * (dot(SG.Direction, TargetDirection) - 1.f), float3(1, 1, 1));
-//     Gradients.dColor = W3;
-//     Gradients.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
-// }
+void EvaluateSG_GradientsL2 (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGGradients Gradients) {
+    // Compute the Gradients for SG parameters
+    // Targeting at the remaining radiance after subtracting all other SH and SGs
+    float W1 = (dot(SG.Direction, TargetDirection) - 1);
+    float3 W2 = exp(SG.Lambda * W1);
+    float3 W3 = 2 * W2 * (SG.Color * W2 - TargetRadiance);
+    // d (sg_theta(dir) - v)^2 / d theta
+    Gradients.dLambda = dot(SG.Color * W3 * (dot(SG.Direction, TargetDirection) - 1.f), float3(1, 1, 1));
+    Gradients.dColor = W3;
+    Gradients.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
+}
 
 void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients, out float3 dColorExtra) {
     // Compute the Gradients for SG parameters
@@ -194,8 +194,10 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
     Gradients.dDirection = TargetDirection * W2 * SGColorScale * SG.Lambda;
     // We need to accumulate the gradients of Direction that are parallel
     // to the current Direction on dColor.
-    float dZ = W2 * SGColorScale * SG.Lambda * dot(SG.Direction, TargetDirection);
-    dColorExtra = SG.Color * dZ;
+    // FIXME
+    //float dZ = W2 * SGColorScale * SG.Lambda * dot(SG.Direction, TargetDirection);
+    //dColorExtra = SG.Color * dZ;
+    dColorExtra = 0.f.xxx;
 }
 
 int QuantilizeNormGradient (float V) {
@@ -749,6 +751,15 @@ float3 RecoverWorldPositionHiRes (int2 TexCoords) {
 
     float3 WorldPosition = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
     return WorldPosition; 
+}
+
+float GetStepScale(SGGradients Gradients, WGradients WGradients) {
+    return
+        sqrt((g_CacheUpdate_SGColor ? dot(Gradients.dColor, Gradients.dColor) : 0) +
+        (g_CacheUpdate_SGLambda ? Gradients.dLambda * Gradients.dLambda : 0) +
+        (g_CacheUpdate_SGDirection ? dot(Gradients.dDirection, Gradients.dDirection) : 0) +
+        (g_CacheUpdate_WAlpha ? WGradients.dAlpha * WGradients.dAlpha : 0) + 
+        (g_CacheUpdate_WLambda ? WGradients.dLambda * WGradients.dLambda : 0)) + 1e-6f;
 }
 
 #endif // MIGI_SHARED_HLSL
