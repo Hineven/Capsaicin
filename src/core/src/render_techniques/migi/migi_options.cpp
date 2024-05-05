@@ -31,7 +31,7 @@ RenderOptionList MIGI::getRenderOptions() noexcept
 //    ret.emplace("SSRC_initial_W_radius", options_.SSRC_initial_W_radius);
 
     ret.emplace("shading_with_geometry_normal", options_.shading_with_geometry_normal);
-    ret.emplace("no_importance_sampling", options_.no_importance_sampling);
+//    ret.emplace("no_importance_sampling", options_.no_importance_sampling);
     ret.emplace("fixed_step_size", options_.fixed_step_size);
     ret.emplace("enable_indirect", options_.enable_indirect);
 
@@ -77,7 +77,7 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 
 
     options_.shading_with_geometry_normal = std::get<bool>(in["shading_with_geometry_normal"]);
-    options_.no_importance_sampling = std::get<bool>(in["no_importance_sampling"]);
+//    options_.no_importance_sampling = std::get<bool>(in["no_importance_sampling"]);
     options_.fixed_step_size = std::get<bool>(in["fixed_step_size"]);
     auto new_enable_indirect = std::get<bool>(in["enable_indirect"]);
     if(options_.enable_indirect != new_enable_indirect) {
@@ -99,6 +99,11 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
             options_.cursor_clicked = true;
         } else {
             options_.cursor_clicked = false;
+        }
+        if(io.MouseDown[1] && !io.WantCaptureMouse) {
+            options_.cursor_dragging = true;
+        } else {
+            options_.cursor_dragging = false;
         }
     }
 

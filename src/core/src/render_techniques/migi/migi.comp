@@ -842,9 +842,10 @@ void SSRC_SampleUpdateRays (int GroupID : SV_GroupID, int LocalID : SV_GroupThre
             float3 Tangent, Bitangent;
             TangentVectors(SG.Direction, Tangent, Bitangent);
             RayDirection = normalize(RayDirection.x * Tangent + RayDirection.y * Bitangent + RayDirection.z * SG.Direction);
-
-            // RayDirection = UniformSampleSphere(u2);
-            // Pdf = 1.f;
+            if(g_NoImportanceSampling) {
+                RayDirection = UniformSampleSphere(u2);
+                Pdf = UniformSampleSpherePdf();
+            }
             // Record the generated update ray
             g_RWUpdateRayDirectionBuffer[TileRayOffset + RayRank] = PackNormal(RayDirection);
             g_RWUpdateRayOriginBuffer[TileRayOffset + RayRank] = PackUint16x2(TileCoords * SSRC_TILE_SIZE + SubTileCoords);
@@ -907,9 +908,12 @@ void SSRC_TraceUpdateRays (uint DispatchID) {
     float4 RayRadiancePdf = UnpackFp16x4(g_RWUpdateRayRadiancePdfBuffer[DispatchID]);
     float Pdf = RayRadiancePdf.w;
 
-    if(dot(RayDirection, GeometryNormal) < 0.0f) {
+    if(/*true || */dot(RayDirection, GeometryNormal) < 0.0f) {
         // Learn negative samples.
         g_RWUpdateRayRadiancePdfBuffer[DispatchID] = PackFp16x4(float4(0.0f.xxx, Pdf));
+        // float3 LightDir = normalize(float3(0.f, 1.f, 1.f));
+        // float L = max(dot(RayDirection, LightDir) - 0.8f, 0.0f) * 5.f;
+        // g_RWUpdateRayRadiancePdfBuffer[DispatchID] = PackFp16x4(float4(0.f, L, 0.f, Pdf));
         return ;
     }
 
@@ -1676,6 +1680,7 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
 
     // Omit invalid pixels
     // Register occ: 14 x WAVE_RAY_SIZE = 56
+    // TODO: Im pretty sure this can be optimized
     float3 ThreadRayDirection[WAVE_RAY_SIZE];
     float3 ThreadRayRadianceDifference[WAVE_RAY_SIZE];
     float  ThreadSumWeight[WAVE_RAY_SIZE];
@@ -1711,16 +1716,12 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
     for(int Slot = 0; Slot < TileBasisCount; Slot ++) {
         // Thread local accumulators
         SGGradients SumStepSize   = (SGGradients)0;
-        WGradients  SumStepSize_W = (WGradients)0;
         int BasisIndex = g_RWTileBasisIndexBuffer[TileSlotBaseOffset + Slot];
         SGData SG;
         WData  W;
         FetchBasisData_W(BasisIndex, SG, W);
         float3 BasisWorldPosition;
         FetchBasisLocation(BasisIndex, BasisWorldPosition);
-#ifdef HEURISTIC_DIRECTION_UPDATE
-        float SumContrib = 0.f;
-#endif
         // Cooperatively iterate over all pixels of the grid
         for(int i = 0; i < REPEAT; i++) {
             int TileRayRank = i * WAVE_SIZE + LocalID;
@@ -1740,45 +1741,21 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
 
                     float  RestWeight             = SumWeight - EvaluatedW;
                     float3 WeightedSumEvaluatedRadiance   = ThreadWeightedSumEvaluatedRadiance[i];
-                    
-                    // float3 A3 = 
-                    //     (RestWeight * SGEvaluatedRadiance - (SumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW))
-                    //      / (SumWeight * SumWeight);
-                    // float  A = dot(A3, 1.f.xxx);
-                    float3 A3 = (SGEvaluatedRadiance * RestWeight - (WeightedSumEvaluatedRadiance - SGEvaluatedRadiance * EvaluatedW)) * (1.f / (SumWeight * SumWeight));
-                    float  A  = dot(A3, 1.f.xxx);
 
                     // Compute gradients
                     SGGradients Gradients;
                     WGradients  Gradients_W;
                     float3 dColorExtra = 0.f.xxx;
-#ifdef L2_GRADIENTS
-                    EvaluateSG_GradientsL2(SG, RayDirection, RayRadianceDifference + , Gradients);
-#else
+
                     EvaluateSG_Gradients(SG, RayDirection, Gradients, dColorExtra);
-#endif
-                    Gradients.dColor += dColorExtra;
-                    float3 DeltaRadiance    = sign(RayRadianceDifference) * RayRadianceDifference * RayRadianceDifference;
-                    float  DeltaRadianceSum = dot(DeltaRadiance, 1.f.xxx);
-                    // The weight of SG for the current shading point (SP)
-                    float  SGWeightForSP    = EvaluatedW * InvSumWeight * InvPdf * BalanceFactor;
-                    EvaluateW_Gradients(W, DeltaPosition, Gradients_W);
-                    // Accumulate and combine gradients for optimal descending
-                    // TODO adaptive learning rate based on the magnitude of the gradients
-                    SumStepSize.dColor     += DeltaRadiance    * Gradients.dColor     * SGWeightForSP;
-#ifdef HEURISTIC_DIRECTION_UPDATE
-                    // Approximate direction directly using the radiance difference
-                    SumStepSize.dDirection += DeltaRadianceSum * RayDirection         * SGWeightForSP;
-#else
-                    SumStepSize.dDirection += DeltaRadianceSum * Gradients.dDirection * SGWeightForSP;
-#endif
-                    SumStepSize.dLambda    += DeltaRadianceSum * Gradients.dLambda    * SGWeightForSP;
-                    // F = W / (S+W) * f, so the step size of W is calculated by the followings
-                    SumStepSize_W.dLambda  += DeltaRadianceSum * A * Gradients_W.dLambda;
-                    SumStepSize_W.dAlpha   += DeltaRadianceSum * A * Gradients_W.dAlpha;
-    #ifdef HEURISTIC_DIRECTION_UPDATE
-                    SumContrib += SGWeightForSP;
-    #endif
+                    float3 X = -2.f * RayRadianceDifference * EvaluatedW / SumWeight;
+                    float  Y = dot(X, 1.f.xxx);
+
+                    // The weight for balancing sample distribution
+                    float  SampleWeight = InvPdf * BalanceFactor;
+                    SumStepSize.dColor     -= X * Gradients.dColor     * SampleWeight;
+                    SumStepSize.dDirection -= Y * Gradients.dDirection * SampleWeight;
+                    SumStepSize.dLambda    -= Y * Gradients.dLambda    * SampleWeight;
                 }
             }
         }
@@ -1786,11 +1763,6 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
         SumStepSize.dColor     = WaveActiveSum(SumStepSize.dColor);
         SumStepSize.dDirection = WaveActiveSum(SumStepSize.dDirection);
         SumStepSize.dLambda    = WaveActiveSum(SumStepSize.dLambda);
-        SumStepSize_W.dLambda  = WaveActiveSum(SumStepSize_W.dLambda);
-        SumStepSize_W.dAlpha   = WaveActiveSum(SumStepSize_W.dAlpha);
-#ifdef HEURISTIC_DIRECTION_UPDATE
-        SumContrib             = WaveActiveSum(SumContrib);
-#endif
         if(WaveIsFirstLane()) {
             // Accumulate the gradients with atomic operations.
             // Note: Performance for atomic operations drops drastically when the quantlilized step buffer 
@@ -1799,15 +1771,14 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
             // However, if we kept some locallity in the accumulation (by processing adjacent tiles at one time), 
             // the performance is still acceptable.
             // (No L2 overflow: 200us)
-#ifdef HEURISTIC_DIRECTION_UPDATE
-            // Divide by total SG contribution to SPs to make adjacent SP more significant
-            SumStepSize.dDirection = SumStepSize.dDirection / SumContrib;
-#else
+
             // Here we accumulate the orthogonal gradients for the direction only
             // dColorExtra is already accumulated in the dColor
             SumStepSize.dDirection = SumStepSize.dDirection - dot(SumStepSize.dDirection, SG.Direction) * SG.Direction;
-#endif
-            ScreenCache_AccumulateStepSize(BasisIndex, SumStepSize, SumStepSize_W);
+
+            int2 TileCoords = int2(GroupID.x, GroupID.y);
+            float Noise = BlueNoise_Sample1D(TileCoords, g_FrameSeed);
+            ScreenCache_AccumulateStepSize(BasisIndex, SumStepSize, Noise);
         }
     }
 }
@@ -1819,37 +1790,20 @@ void SSRC_NormalizeCacheUpdate (int DispatchID : SV_DispatchThreadID, int GroupI
     }
     uint BasisIndex = g_RWActiveBasisIndexBuffer[DispatchID];
     SGGradients Step_SG;
-    WGradients  Step_W;
     // Compute the step size
-    ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
-    float Scale = 0.f;
-    if(g_CacheUpdate_SGColor) {
-        Scale += dot(Step_SG.dColor, Step_SG.dColor);
-    }
-    SGData SG;
-    WData  W;
-    FetchBasisData_W(BasisIndex, SG, W);
-#ifndef  HEURISTIC_DIRECTION_UPDATE
-    float3 Ortho = Step_SG.dDirection - dot(Step_SG.dDirection, SG.Direction) * SG.Direction;
-    if(g_CacheUpdate_SGDirection) {
-        Scale += dot(Ortho, Ortho);
-    }
-#endif
-    if(g_CacheUpdate_SGLambda) {
-        Scale += dot(Step_SG.dLambda, Step_SG.dLambda);
-    }
-    if(g_CacheUpdate_WAlpha) {
-        Scale += Step_W.dAlpha * Step_W.dAlpha;
-    }
-    if(g_CacheUpdate_WLambda) {
-        Scale += Step_W.dLambda * Step_W.dLambda;
-    }
-    float ScaleWave = WaveActiveSum(Scale);
-    if(WaveIsFirstLane()) {
-        g_RWUpdateStepScaleSumsBuffer[GroupID] = ScaleWave;
-    }
+    ScreenCache_GetStepSize(BasisIndex, Step_SG);
+    // Fetch the gradient scales
+    float3 Scales = UnpackFp16x3(g_RWBasisAverageGradientScaleBuffer[BasisIndex]);
+    float3 NewScales = float3(
+        dot(Step_SG.dColor, Step_SG.dColor),
+        dot(Step_SG.dDirection, Step_SG.dDirection),
+        Step_SG.dLambda * Step_SG.dLambda
+    );
+    Scales.xyz = lerp(Scales.xyz, NewScales, 0.1f);
+    g_RWBasisAverageGradientScaleBuffer[BasisIndex] = PackFp16x3(Scales);
 }
 
+// TODO Unused currently
 [numthreads(1, 1, 1)]
 void SSRC_NormalizeCacheUpdateSetReduceCount () {
     g_RWReduceCountBuffer[0] = (g_RWActiveBasisCountBuffer[0] + WAVE_SIZE - 1) / WAVE_SIZE;
@@ -1864,50 +1818,31 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
     SGData SG;
     WData  W;
     SGGradients Step_SG;
-    WGradients  Step_W;
     float3 BasisPosition;
     FetchBasisData_W(BasisIndex, SG, W);
     FetchBasisLocation(BasisIndex, BasisPosition);
     // Compute the step size
-    ScreenCache_GetStepSize(BasisIndex, Step_SG, Step_W);
-    float GlobalNormalizationFactor = 1000.f / sqrt(max(g_RWUpdateStepScaleBuffer[0], 1e-6f));
-    // FIXME large basis is shattering the cache
-    // FIXME adaptive normalization factor
-    // NormalizationFactor = 50.f;
-    float LocalNormalizationFactor = GetStepScale(Step_SG, Step_W);
-    float NormalizationFactor = 1.f / max(sqrt(LocalNormalizationFactor * GlobalNormalizationFactor), 1e-6f);
+    ScreenCache_GetStepSize(BasisIndex, Step_SG);
+    // RMSProp
+    float3 NormalizationFactors = 1.f / (
+        sqrt(UnpackFp16x3(g_RWBasisAverageGradientScaleBuffer[BasisIndex]))
+        + 1e-4f);
     float RandomStride = sin(DispatchID * 4.13f + g_FrameIndex * 71838.3f) * 0.5f + 0.5f;
-    NormalizationFactor *= RandomStride;
+    NormalizationFactors *= RandomStride;
     // Update the basis
-    if(g_CacheUpdate_SGDirection) {
-#ifndef HEURISTIC_DIRECTION_UPDATE
-        float3 Ortho = Step_SG.dDirection - dot(Step_SG.dDirection, SG.Direction) * SG.Direction;
-        SG.Direction += Ortho * g_CacheUpdateLearningRate * NormalizationFactor;
-        SG.Direction =  lazyNormalize(SG.Direction);
-#else
-        float DstWeight     = length(Step_SG.dDirection);
-        float3 DstDirection = Step_SG.dDirection / DstWeight;
-        float SrcWeight     = dot(SG.Color, 1.f.xxx) * 10.f;
-        float3 SrcDirection = SG.Direction;
-        float3 Direction    = SrcDirection * SrcWeight + DstDirection * DstWeight;
-        SG.Direction = lazyNormalize(Direction);
-#endif
-    }
     if(g_CacheUpdate_SGColor) {
-        SG.Color     += Step_SG.dColor     * g_CacheUpdateLearningRate * NormalizationFactor;
-        SG.Color     = max(SG.Color, 0.01f.xxx); // Color is in [0.01, inf)
+        SG.Color     += Step_SG.dColor     * g_CacheUpdateLearningRate * NormalizationFactors.x;
+        SG.Color     = max(SG.Color, 0.001f.xxx); // Color is in [0.001, inf)
+    }
+    if(g_CacheUpdate_SGDirection) {
+        // Prevent violent directional flipping across frames by orthogonalizing the delta direction
+        float3 Ortho = Step_SG.dDirection - dot(Step_SG.dDirection, SG.Direction) * SG.Direction;
+        SG.Direction += Ortho * g_CacheUpdateLearningRate * NormalizationFactors.y;
+        SG.Direction =  lazyNormalize(SG.Direction);
     }
     if(g_CacheUpdate_SGLambda) {
-        SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactor;
+        SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactors.z;
         SG.Lambda    = clamp(SG.Lambda, 0.85f, 100.f); // Lambda is in [0.85f, 100.f]
-    }
-    if(g_CacheUpdate_WAlpha) {
-        W.Alpha      += Step_W.dAlpha      * g_CacheUpdateLearningRate * NormalizationFactor;
-        W.Alpha      = clamp(W.Alpha, 0.02f, 0.9999f); // Alpha is in [0.02f, 1.f)
-    }
-    if(g_CacheUpdate_WLambda) {
-        W.Lambda     += Step_W.dLambda     * g_CacheUpdateLearningRate * NormalizationFactor;
-        W.Lambda     = clamp(W.Lambda, 100.f, 1e6f); // Lambda is in [1e3, 1e7]
     }
     // Write back the data
     WriteBasisData_W(BasisIndex, SG, W);
@@ -1979,8 +1914,7 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
                 float U = BlueNoise_Sample1D(GroupID.xy + int2(8271, 2983), g_FrameSeed).x;
                 // Randomize radius
                 float X  = GetLinearDepth(PixelDepth) * g_CameraPixelScale * g_BasisWInitialRadius;
-                // FIXME
-                X = X;//  * lerp(0.8f, 6.5f, U * U * U);
+                if(g_NonUniformInitialW) X = X * lerp(0.8f, 6.5f, U * U * U);
                 WLambda = -log(g_MinWeightE) / (X * X);
                 SurfaceNormal = PixelNormal;
             }
@@ -2044,7 +1978,7 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
     float M      = BlueNoise_Sample1D(GroupID.xy + int2(3817, 4905), g_FrameSeed).x;
     // FIXME
     SG.Direction = SurfaceNormal;
-    SG.Lambda    = 1.f;//0.85f;//lerp(0.35f, 1.2f, M);
+    SG.Lambda    = 0.85f;//lerp(0.35f, 1.2f, M);
     SG.Color     = 1.f.xxx;
 
     SumInitWeight = 0.f;
@@ -2059,14 +1993,14 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
             float3 CurrentWorldPos  = InverseProject(g_CameraProjViewInv, CurrentUV, CurrentPixelDepth);
             float3 CurrentOutRayDirection  = UnpackNormal(g_RWUpdateRayDirectionBuffer[RayIndex]);
             float4 RayRadiancePdf          = UnpackFp16x4(g_RWUpdateRayRadiancePdfBuffer[RayIndex]);
-            float3 CurrentOutRayRadiance   = RayRadiancePdf.xyz;
+            float3 CurrentOutRayDifference = UnpackFp16x3(g_RWUpdateRayCacheBuffer[RayIndex]);
             float  InvPdf                  = 1.f / RayRadiancePdf.w;
             float3 DeltaPosition = CurrentWorldPos - WorldPosition;
             // Clamp W to provide enough samples for the initial guess
             float EvaluatedW  = EvaluateW(W, DeltaPosition) + 0.01f;
             float  F          = EvaluateSG(SG, CurrentOutRayDirection).x;
             float  B          = EvaluatedW * InvPdf;
-            float3 T          = CurrentOutRayRadiance;
+            float3 T          = CurrentOutRayDifference;
             // Want minimize \sum B * |F * alpha - T| for alpha
             float3 BestAlpha  = T / F;
             float  DiffAlpha  = B * F;
@@ -2087,6 +2021,9 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         // Write the basis data
         WriteBasisData_W(BasisIndex, SG, W);
         WriteBasisLocation(BasisIndex, WorldPosition);
+        // Initialize the gradient scales 
+        // TODO better initialization
+        g_RWBasisAverageGradientScaleBuffer[BasisIndex] = PackFp16x3(1e-4.xxx);
         // Mark the basis as active
         g_RWBasisFlagsBuffer[BasisIndex] = g_FrameIndex;
     }
@@ -2272,7 +2209,11 @@ void SSRC_AccumulateUpdateError (int DispatchID : SV_DispatchThreadID) {
         if(RadiancePdf.w > 0) {
             float3 Error    = RadiancePdf.xyz - Eval;
             float  InvPdf   = 1.f / RadiancePdf.w;
-            float  Contrib  = (dot(Error, Error) / max(dot(Eval, 1.f.xxx), 0.01f)) * InvPdf;
+    #ifdef ERROR_RMSE
+            float  Contrib  = (dot(Error, Error) / max(dot(Eval, 1.f.xxx), 1e-3f)) * InvPdf;
+    #else 
+            float  Contrib  = (dot(Error, Error) ) * InvPdf;
+    #endif
             // Accumulate the error
             int2  PixelCoords = TexCoords - TexOffset;
             ThreadErrorAccumulation[PixelCoords.y][PixelCoords.x] += Contrib;

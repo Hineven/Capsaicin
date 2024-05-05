@@ -86,6 +86,8 @@ static vector<SceneData> const scenes = {
     {"XYZ",                                          {"assets/MIGITestMedia/xyz/z-up-x-axis-block.gltf"},  true, 1.0f},
     {"Box",                                          {"assets/MIGITestMedia/cornell-box/scene.gltf"},  false, 1.0f},
     {"1Emitter",                                          {"assets/MIGITestMedia/1emitter/scene.gltf"},  false, 1.0f},
+    {"1Emitter_twisted",                                          {"assets/MIGITestMedia/1emitter_twisted/scene.gltf"},  false, 1.0f},
+    {"2Emitters",                                          {"assets/MIGITestMedia/2emitters/scene.gltf"},  false, 0.5f},
 };
 
 /** List of supported environment maps */

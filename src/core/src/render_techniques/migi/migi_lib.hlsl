@@ -1,8 +1,6 @@
 #ifndef MIGI_SHARED_HLSL
 #define MIGI_SHARED_HLSL
 
-// #define HEURISTIC_DIRECTION_UPDATE
-
 #include "migi_inc.hlsl"
 
 #include "../../materials/material_sampling.hlsl"
@@ -164,17 +162,28 @@ struct SGGradients {
 };
 
 // error function: (x - y) ^ 2
-void EvaluateSG_GradientsL2 (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGGradients Gradients) {
-    // Compute the Gradients for SG parameters
-    // Targeting at the remaining radiance after subtracting all other SH and SGs
-    float W1 = (dot(SG.Direction, TargetDirection) - 1);
-    float3 W2 = exp(SG.Lambda * W1);
-    float3 W3 = 2 * W2 * (SG.Color * W2 - TargetRadiance);
-    // d (sg_theta(dir) - v)^2 / d theta
-    Gradients.dLambda = dot(SG.Color * W3 * (dot(SG.Direction, TargetDirection) - 1.f), float3(1, 1, 1));
-    Gradients.dColor = W3;
-    Gradients.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
-}
+// void EvaluateSG_GradientsL2 (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGGradients Gradients) {
+//     // Compute the Gradients for SG parameters
+//     // Targeting at the remaining radiance after subtracting all other SH and SGs
+//     float W1 = (dot(SG.Direction, TargetDirection) - 1);
+//     float3 W2 = exp(SG.Lambda * W1);
+//     float3 W3 = 2 * W2 * (SG.Color * W2 - TargetRadiance);
+//     // d (sg_theta(dir) - v)^2 / d theta
+//     Gradients.dLambda = dot(SG.Color * W3 * (dot(SG.Direction, TargetDirection) - 1.f), float3(1, 1, 1));
+//     Gradients.dColor = W3;
+//     Gradients.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
+// }
+
+// Gradients of f^2(w)
+// Buggy
+// void EvaluateSG2_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients) {
+//     float W1 = dot(SG.Direction, TargetDirection) - 1;
+//     float W2 = exp(2 * SG.Lambda * W1);
+//     float SGColorScale2 = dot(SG.Color, SG.Color);
+//     Gradients.dLambda = 2.f * W2 * W1 * SGColorScale2;
+//     Gradients.dDirection = 2.f * TargetDirection * W2 * SG.Lambda * SGColorScale2;
+//     Gradients.dColor = 2.f * W2 * SG.Color;
+// }
 
 void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients, out float3 dColorExtra) {
     // Compute the Gradients for SG parameters
@@ -182,15 +191,10 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
     float W1 = dot(SG.Direction, TargetDirection) - 1;
     float W2 = exp(SG.Lambda * W1);
     float W3 = W1 * W2;
-    float SGColorScale = dot(SG.Color, float3(1, 1, 1));
+    float SGColorScale = dot(SG.Color, 1.f.xxx);
     Gradients.dLambda    = W3 * SGColorScale;
     Gradients.dColor     = W2.xxx;
 
-#ifdef HEURISTIC_DIRECTION_UPDATE
-    Gradients.dDirection = 0.f.xxx;
-    dColorExtra = 0.f.xxx;
-    return ;
-#endif
     Gradients.dDirection = TargetDirection * W2 * SGColorScale * SG.Lambda;
     // We need to accumulate the gradients of Direction that are parallel
     // to the current Direction on dColor.
@@ -200,36 +204,28 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
     dColorExtra = 0.f.xxx;
 }
 
-int QuantilizeNormGradient (float V) {
-#ifndef HEURISTIC_DIRECTION_UPDATE
-    return V * 1000000.f;
-#else
-    return V * 1000.f;
-#endif
+int QuantilizeNormGradient (float V, float Noise) {
+    return floor(V * 1000000.f + Noise);
 }
 float RecoverNormGradient (int V) {
-#ifndef HEURISTIC_DIRECTION_UPDATE
     return float(V) / 1000000.f;
-#else
-    return float(V) / 1000.f;
-#endif
 }
-int QuantilizeRadianceGradient (float Radiance) {
+int QuantilizeRadianceGradient (float Radiance, float Noise) {
     Radiance = min(abs(Radiance), 100.f) * sign(Radiance);
-    return int(Radiance * 10000.f);
+    return floor(Radiance * 65536.f + Noise);
 }
 float RecoverRadianceGradient (int Radiance) {
-    return float(Radiance) / 10000.f;
+    return float(Radiance) / 65536.f;
 }
-int QuantilizeLambdaGradient (float dL) {
-    return int(dL * 100000.f);
+int QuantilizeLambdaGradient (float dL, float Noise) {
+    return floor(dL * 1000000.f + Noise);
 }
 float RecoverLambdaGradient (int dL) {
-    return float(dL) / 100000.f;
+    return float(dL) / 1000000.f;
 }
 
-int QuantilizeAlphaGradient (float Alpha) {
-    return int(Alpha * 10000.f);
+int QuantilizeAlphaGradient (float Alpha, float Noise) {
+    return floor(Alpha * 10000.f + Noise);
 }
 float RecoverAlphaGradient (int Alpha) {
     return float(Alpha) / 10000.f;
@@ -266,7 +262,8 @@ float3 UnpackNormal (uint Packed) {
 }
 
 uint PackNormal (float3 Normal) {
-    uint3 Dir = floor(clamp((Normal + 1.f) * (0x200), 0.xxx, 0x3ff.xxx));
+    // return packUnorm4x8(float4(Normal * 0.5f + 0.5f, 0.f));
+    uint3 Dir = clamp((Normal + 1.f) * (0x200), 0, 0x3ff);
     return Dir.x | (Dir.y << 10) | (Dir.z << 20);
 }
 
@@ -352,51 +349,42 @@ void ScreenCache_InjectBasisIndexToTile (int2 TileCoords, int BasisIndex) {
 }
 
 void ScreenCache_ResetStepSize (int BasisIndex) {
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 3] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 4] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 5] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 6] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 7] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 8] = 0;
-
+    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 0] = 0;
+    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 1] = 0;
+    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 2] = 0;
+    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 3] = 0;
+    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 4] = 0;
+    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 5] = 0;
+    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 6] = 0;
 }
 
-void ScreenCache_AccumulateStepSize (int BasisIndex, SGGradients Step_SG, WGradients Step_W) {
+void ScreenCache_AccumulateStepSize (int BasisIndex, SGGradients Step_SG, float Noise) {
     // Quantilize all step sizes and accumulate to the step buffer
-    // Color, Lambda, Normal, WLambda, WAlpha (9)
-    int P0 = QuantilizeRadianceGradient(Step_SG.dColor.x);
-    int P1 = QuantilizeRadianceGradient(Step_SG.dColor.y);
-    int P2 = QuantilizeRadianceGradient(Step_SG.dColor.z);
-    int P3 = QuantilizeLambdaGradient(Step_SG.dLambda);
-    int P4 = QuantilizeNormGradient(Step_SG.dDirection.x);
-    int P5 = QuantilizeNormGradient(Step_SG.dDirection.y);
-    int P6 = QuantilizeNormGradient(Step_SG.dDirection.z);
-    int P7 = QuantilizeLambdaGradient(Step_W.dLambda);
-    int P8 = QuantilizeAlphaGradient(Step_W.dAlpha);
-    if(P0) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0], P0);
-    if(P1) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1], P1);
-    if(P2) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2], P2);
-    if(P3) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 3], P3);
-    if(P4) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 4], P4);
-    if(P5) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 5], P5);
-    if(P6) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 6], P6);
-    if(P7) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 7], P7);
-    if(P8) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 8], P8);
+    // Color, Lambda, Normal, WLambda, WAlpha (7)
+    int P0 = QuantilizeRadianceGradient(Step_SG.dColor.x, Noise);
+    int P1 = QuantilizeRadianceGradient(Step_SG.dColor.y, Noise);
+    int P2 = QuantilizeRadianceGradient(Step_SG.dColor.z, Noise);
+    int P3 = QuantilizeLambdaGradient(Step_SG.dLambda, Noise);
+    int P4 = QuantilizeNormGradient(Step_SG.dDirection.x, Noise);
+    int P5 = QuantilizeNormGradient(Step_SG.dDirection.y, Noise);
+    int P6 = QuantilizeNormGradient(Step_SG.dDirection.z, Noise);
+    if(P0) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 0], P0);
+    if(P1) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 1], P1);
+    if(P2) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 2], P2);
+    if(P3) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 3], P3);
+    if(P4) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 4], P4);
+    if(P5) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 5], P5);
+    if(P6) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 6], P6);
 }
 
-void ScreenCache_GetStepSize (int BasisIndex, out SGGradients Step_SG, out WGradients Step_W) {
-    int P0 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 0];
-    int P1 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 1];
-    int P2 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 2];
-    int P3 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 3];
-    int P4 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 4];
-    int P5 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 5];
-    int P6 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 6];
-    int P7 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 7];
-    int P8 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 9 + 8];
+void ScreenCache_GetStepSize (int BasisIndex, out SGGradients Step_SG) {
+    int P0 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 0];
+    int P1 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 1];
+    int P2 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 2];
+    int P3 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 3];
+    int P4 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 4];
+    int P5 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 5];
+    int P6 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 6];
     Step_SG.dColor.x = RecoverRadianceGradient(P0);
     Step_SG.dColor.y = RecoverRadianceGradient(P1);
     Step_SG.dColor.z = RecoverRadianceGradient(P2);
@@ -404,8 +392,6 @@ void ScreenCache_GetStepSize (int BasisIndex, out SGGradients Step_SG, out WGrad
     Step_SG.dDirection.x = RecoverNormGradient(P4);
     Step_SG.dDirection.y = RecoverNormGradient(P5);
     Step_SG.dDirection.z = RecoverNormGradient(P6);
-    Step_W.dLambda = RecoverLambdaGradient(P7);
-    Step_W.dAlpha = RecoverAlphaGradient(P8);
 }
 
 // Misc
@@ -701,7 +687,7 @@ float3 BasisIndexToColor (int BasisIndex) {
 
 // Resolve directional shift for quantilized normal
 float3 lazyNormalize (float3 n) {
-    if(abs(dot(n, n) - 1.f) < 0.001f) {
+    if(abs(dot(n, n) - 1.f) < 0.005f) {
         return n;
     }
     return normalize(n);

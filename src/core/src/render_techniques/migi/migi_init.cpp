@@ -304,12 +304,10 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.basis_location.setName("BasisLocation");
     buf_.basis_parameter       = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation * 4);
     buf_.basis_parameter.setName("BasisParameter");
-    buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 9);
+    buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 7);
     buf_.quantilized_basis_step.setName("QuantilizedBasisStep");
-    buf_.update_step_scale_sums= gfxCreateBuffer<float>(gfx_, divideAndRoundUp(cfg_.basis_buffer_allocation, cfg_.wave_lane_count));
-    buf_.update_step_scale_sums.setName("UpdateStepScaleSums");
-    buf_.update_step_scale     = gfxCreateBuffer<float>(gfx_, 1);
-    buf_.update_step_scale.setName("UpdateStepScale");
+    buf_.basis_average_gradient_scale = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation * 2);
+    buf_.basis_average_gradient_scale.setName("BasisAverageGradientScale");
     buf_.basis_flags           = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
     buf_.basis_flags.setName("BasisFlags");
     buf_.free_basis_indices    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
@@ -474,7 +472,7 @@ void MIGI::terminate() noexcept
         gfxDestroyTexture(gfx_, tex_.HiZ_max);
         gfxDestroyTexture(gfx_, tex_.depth);
 
-        gfxDestroyBuffer(gfx_, buf_.active_basis_count);;
+        gfxDestroyBuffer(gfx_, buf_.active_basis_count);
         gfxDestroyBuffer(gfx_, buf_.active_basis_index);
         gfxDestroyBuffer(gfx_, buf_.basis_effective_radius);
         gfxDestroyBuffer(gfx_, buf_.basis_film_position);
@@ -482,13 +480,24 @@ void MIGI::terminate() noexcept
         gfxDestroyBuffer(gfx_, buf_.basis_location);
         gfxDestroyBuffer(gfx_, buf_.basis_parameter);
         gfxDestroyBuffer(gfx_, buf_.quantilized_basis_step);
+        gfxDestroyBuffer(gfx_, buf_.basis_average_gradient_scale);
         gfxDestroyBuffer(gfx_, buf_.basis_flags);
         gfxDestroyBuffer(gfx_, buf_.free_basis_indices);
         gfxDestroyBuffer(gfx_, buf_.free_basis_indices_count);
         gfxDestroyBuffer(gfx_, buf_.tile_basis_count);
+        gfxDestroyBuffer(gfx_, buf_.tile_ray_count);
+        gfxDestroyBuffer(gfx_, buf_.tile_ray_offset);
+        gfxDestroyBuffer(gfx_, buf_.update_ray_direction);
+        gfxDestroyBuffer(gfx_, buf_.update_ray_origin);
+        gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_pdf);
+        gfxDestroyBuffer(gfx_, buf_.update_ray_cache);
+        gfxDestroyBuffer(gfx_, buf_.update_ray_count);
+        gfxDestroyBuffer(gfx_, buf_.tile_update_error_sums);
+        gfxDestroyBuffer(gfx_, buf_.tile_update_error);
         gfxDestroyBuffer(gfx_, buf_.tile_basis_index_injection);
         gfxDestroyBuffer(gfx_, buf_.tile_base_slot_offset);
         gfxDestroyBuffer(gfx_, buf_.tile_basis_index);
+        gfxDestroyBuffer(gfx_, buf_.disk_index_buffer);
         for(const auto & i : buf_.readback)
         {
             gfxDestroyBuffer(gfx_, i);

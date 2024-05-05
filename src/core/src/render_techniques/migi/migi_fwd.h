@@ -78,6 +78,8 @@ struct MIGIRenderOptions {
     bool enable_indirect = true;
     // Whether to freeze the allocation and deallocation of basis for visualization
     bool freeze_basis_allocation {false};
+    // Guess the initial W (basis radius) when generating new basis
+    bool nonuniform_initial_w {false};
 
     float cache_update_learing_rate = 0.02f;
     bool  cache_update_SG_color {true};
@@ -95,6 +97,7 @@ struct MIGIRenderOptions {
     // Updated each frame
     int2 cursor_pixel_coords {};
     bool cursor_clicked {};
+    bool cursor_dragging {};
 };
 
 namespace MIGIRT {

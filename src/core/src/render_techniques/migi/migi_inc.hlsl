@@ -95,8 +95,9 @@ RWStructuredBuffer<float3> g_RWBasisLocationBuffer;
 RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
 // Color, Lambda, Normal, WLambda, WAlpha (9)
 RWStructuredBuffer< int>   g_RWQuantilizedBasisStepBuffer; // Step size for atomic accumulation
-RWStructuredBuffer<float>  g_RWUpdateStepScaleSumsBuffer; // Sums of the step scale among waves.
-RWStructuredBuffer<float>  g_RWUpdateStepScaleBuffer;
+// RWStructuredBuffer<float>  g_RWUpdateStepScaleSumsBuffer; // Sums of the step scale among waves.
+// RWStructuredBuffer<float>  g_RWUpdateStepScaleBuffer;
+RWStructuredBuffer<uint2>  g_RWBasisAverageGradientScaleBuffer; // Moving average of gradient squares (color, direction, lambda)
 RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
 RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
@@ -137,6 +138,7 @@ float g_CR_DiskRadiusBias; // Bias for the disk radius
 uint g_NoImportanceSampling;
 uint g_FixedStepSize;
 uint g_FreezeBasisAllocation;
+uint g_NonUniformInitialW;
 
 // Coverage texture supplies the cache generation, currently unused
 RWTexture2D<float4> g_RWCacheCoverageTexture;

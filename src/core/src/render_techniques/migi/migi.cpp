@@ -191,8 +191,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisLocationBuffer", buf_.basis_location);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisParameterBuffer", buf_.basis_parameter);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWQuantilizedBasisStepBuffer", buf_.quantilized_basis_step);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateStepScaleSumsBuffer", buf_.update_step_scale_sums);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateStepScaleBuffer", buf_.update_step_scale);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisAverageGradientScaleBuffer", buf_.basis_average_gradient_scale);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWBasisFlagsBuffer", buf_.basis_flags);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesBuffer", buf_.free_basis_indices);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWFreeBasisIndicesCountBuffer", buf_.free_basis_indices_count);
@@ -229,6 +228,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_NoImportanceSampling", (uint)options_.no_importance_sampling);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FixedStepSize", (uint)options_.fixed_step_size);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_FreezeBasisAllocation", (uint)options_.freeze_basis_allocation);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_NonUniformInitialW", (uint)options_.nonuniform_initial_w);
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWCacheCoverageTexture", tex_.cache_coverage);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateErrorSplatTexture", tex_.update_error_splat[internal_frame_index_ & 1]);
@@ -786,11 +786,6 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_normalize_cache_update);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
-
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_normalize_cache_update_set_reduce_count);
-        gfxCommandDispatch(gfx_, 1, 1, 1);
-
-        gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Float, buf_.update_step_scale, buf_.update_step_scale_sums, &buf_.reduce_count);
     }
 
     {
@@ -880,7 +875,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
         const TimedSection timed_section(*this, "SSRC_IncidentRadiance");
-        if(options_.cursor_clicked)
+        if(options_.cursor_dragging)
         {
             gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_fetch_cursor_pos);
             gfxCommandDispatch(gfx_, 1, 1, 1);
@@ -920,7 +915,8 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         auto copy_idx = frame_index % kGfxConstant_BackBufferCount;
         assert(!readback_pending_[copy_idx]);
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 0, buf_.active_basis_count, 0, sizeof(uint32_t));
-        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 4, buf_.update_step_scale, 0, sizeof(float));
+        // Removed for now
+//        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 4, buf_.update_step_scale, 0, sizeof(float));
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 8, buf_.update_ray_count, 0, sizeof(uint32_t));
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 12, buf_.debug_visualize_incident_radiance_sum, 0, sizeof(float));
         readback_pending_[copy_idx] = true;

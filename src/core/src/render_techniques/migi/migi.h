@@ -86,8 +86,7 @@ public:
         GfxBuffer basis_location {};
         GfxBuffer basis_parameter {};
         GfxBuffer quantilized_basis_step {};
-        GfxBuffer update_step_scale_sums {};
-        GfxBuffer update_step_scale {};
+        GfxBuffer basis_average_gradient_scale {};
         GfxBuffer basis_flags {};
         GfxBuffer free_basis_indices {};
         GfxBuffer free_basis_indices_count {};

@@ -93,6 +93,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Optimize SGLambda", &options_.cache_update_SG_lambda);
         ImGui::Checkbox("Optimize WAlpha", &options_.cache_update_W_alpha);
         ImGui::Checkbox("Optimize WLambda", &options_.cache_update_W_lambda);
+        ImGui::Checkbox("No Importance Sampling", &options_.no_importance_sampling);
+        ImGui::Checkbox("Nonuniform Initial W", &options_.nonuniform_initial_w);
         ImGui::Checkbox("Freeze Basis Allocation", &options_.freeze_basis_allocation);
 
         if(ImGui::CollapsingHeader("Misc")) {
