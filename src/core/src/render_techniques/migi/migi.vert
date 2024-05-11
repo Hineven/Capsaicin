@@ -214,7 +214,14 @@ DebugUpdateRays_Output DebugSSRC_UpdateRays (
     float2 UV               = (float2(RayOriginCoords) + 0.5f) * g_OutputDimensionsInv;
     float3 RayOrigin        = InverseProject(g_CameraProjViewInv, UV, Depth);
     float3 RayDirection     = UnpackNormal(g_RWUpdateRayDirectionBuffer[RayOffset + RayRank]);
-    float3 RayRadiance      = UnpackFp16x3(g_RWUpdateRayRadiancePdfBuffer[RayOffset + RayRank]);
+    float3 RayRadiance;
+    if(g_DebugVisualizeMode == 0) RayRadiance = UnpackFp16x3(g_RWUpdateRayRadianceInvPdfBuffer[RayOffset + RayRank]);
+    else if(g_DebugVisualizeMode == 1) RayRadiance = UnpackFp16x3(g_RWUpdateRayCacheBuffer[RayOffset + RayRank]);
+    // else if(g_DebugVisualizeMode == 2) {
+    //     float4 RealRayRadiancePdf = UnpackFp16x4(g_RWUpdateRayRadiancePdfBuffer[RayOffset + RayRank]);
+    //     float3 RealRayEval        = UnpackFp16x3(g_RWUpdateRayCacheBuffer[RayOffset + RayRank]);
+    //     RayRadiance = RealRayRadiancePdf.xyz - RealRayEval;
+    // }
     float3 World;
     if(VertexIndex == 0) {
         World = RayOrigin;
@@ -224,6 +231,24 @@ DebugUpdateRays_Output DebugSSRC_UpdateRays (
     DebugUpdateRays_Output Output;
     Output.Position  = mul(g_CameraProjView, float4(World, 1.f));
     float3 Color     = 0.5f * (RayDirection + 1.f);
+    Output.Color     = float4(Color, 1.f);
+    return Output;
+}
+
+
+struct DebugLight_Output {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+DebugLight_Output DebugSSRC_Light (
+    in uint VertexIndex : SV_VertexID // Vertex index
+) {
+    float3 Direction = FibonacciSphere(VertexIndex, 32768);
+    float3 World     = g_DebugLightPosition + Direction * g_DebugLightSize;
+    DebugLight_Output Output;
+    Output.Position  = mul(g_CameraProjView, float4(World, 1.f));
+    float3 Color     = g_DebugLightColor;
     Output.Color     = float4(Color, 1.f);
     return Output;
 }

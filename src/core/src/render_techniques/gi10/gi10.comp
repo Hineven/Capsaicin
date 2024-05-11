@@ -623,7 +623,7 @@ void PatchScreenProbes(in uint did : SV_DispatchThreadID)
     Random random = MakeRandom(did, g_FrameIndex);
     uint index = random.randInt(override_tile_count);
 
-    InterlockedExchange(g_ScreenProbes_ProbeSpawnBuffer[index], ScreenProbes_PackSeed(seed), index);
+    InterlockedExchange(g_ScreenProbes_ProbeSpawnBuffer[g_ScreenProbes_OverrideTileBuffer[index]], ScreenProbes_PackSeed(seed), index);
 }
 
 [numthreads(64, 1, 1)]

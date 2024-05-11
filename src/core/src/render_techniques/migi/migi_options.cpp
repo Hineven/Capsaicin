@@ -87,7 +87,8 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 
 
     // Debugging
-    options_.debug_freeze_frame_seed = (options_.active_debug_view == "SSRC_UpdateRays");
+    options_.debug_freeze_frame_seed = false;
+
     options_.debug_view_switched = options_.active_debug_view != capsaicin.getCurrentDebugView();
     options_.active_debug_view = capsaicin.getCurrentDebugView();
 

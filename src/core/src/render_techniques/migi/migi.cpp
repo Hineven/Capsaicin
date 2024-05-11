@@ -200,7 +200,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileRayOffsetBuffer", buf_.tile_ray_offset);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayDirectionBuffer", buf_.update_ray_direction);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayOriginBuffer", buf_.update_ray_origin);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayRadiancePdfBuffer", buf_.update_ray_radiance_pdf);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayRadianceInvPdfBuffer", buf_.update_ray_radiance_inv_pdf);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayCacheBuffer", buf_.update_ray_cache);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayCountBuffer", buf_.update_ray_count);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileUpdateErrorSumsBuffer", buf_.tile_update_error_sums);
@@ -337,6 +337,11 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugCursorPixelCoords", options_.cursor_pixel_coords);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugCursorWorldPosBuffer",
         buf_.debug_cursor_world_pos);
+
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugLight", (uint)options_.debug_light);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugLightPosition", options_.debug_light_position);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugLightSize", options_.debug_light_size);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugLightColor", options_.debug_light_color);
 
     {
         float exposure = 1.f;
@@ -842,6 +847,9 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
             camera_moved = false;
     }
 
+    // Specify whether the GI output is copied to debug drawing as a background
+    bool debug_buffer_copied = false;
+
     if(options_.active_debug_view == "SSRC_Coverage") {
         const TimedSection timed_section(*this, "SSRC_Coverage");
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_visualize_coverage);
@@ -874,6 +882,16 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         uint dispatch_size[] = {divideAndRoundUp(options_.width, threads[0]), divideAndRoundUp(options_.height, threads[1])};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
+        // Visualize basis first
+        {
+            const TimedSection timed_section(*this, "SSRC_Basis3D");
+            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_generate_draw_indexed);
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            gfxCommandClearTexture(gfx_, tex_.depth);
+            // Reuse the index buffer for the disk {0, 1, 2, ...} and wireframe draw mode for just 3 points
+            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_basis_3D);
+            gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
+        }
         const TimedSection timed_section(*this, "SSRC_IncidentRadiance");
         if(options_.cursor_dragging)
         {
@@ -885,7 +903,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatch(gfx_, divideAndRoundUp(options_.debug_visualize_incident_radiance_num_points, threads[0]), 1, 1);
         // Copy the depth buffer to the depth buffer for debug visualization
         gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
-        gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+        debug_buffer_copied = true;
         __override_primitive_topology = true;
         __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_incident_radiance);
@@ -901,12 +919,32 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         // Copy the depth buffer to the depth buffer for debug visualization
         gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
         gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+        debug_buffer_copied = true;
         __override_primitive_topology = true;
         __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_update_rays);
         gfxCommandMultiDrawIndirect(gfx_, buf_.draw_command, 1);
         __override_primitive_topology = false;
         __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    }
+
+    if(options_.debug_light) {
+        const TimedSection timed_section(*this, "DebugLight");
+        if(!debug_buffer_copied) {
+            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            debug_buffer_copied = true;
+        }
+        __override_primitive_topology = true;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_light);
+        gfxCommandDraw(gfx_, 32768);
+        __override_primitive_topology = false;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        if(options_.active_debug_view == "None") {
+            // Copy the buffer back
+            gfxCommandCopyTexture(gfx_, gi_output_aov, capsaicin.getAOVBuffer("Debug"));
+        }
     }
 
     {

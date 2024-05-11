@@ -98,6 +98,11 @@ struct MIGIRenderOptions {
     int2 cursor_pixel_coords {};
     bool cursor_clicked {};
     bool cursor_dragging {};
+
+    bool debug_light {};
+    glm::vec3 debug_light_position {0.f, 1.f, 0.f};
+    float debug_light_size {0.1f};
+    glm::vec3 debug_light_color {1.f, 0.f, 0.f};
 };
 
 namespace MIGIRT {

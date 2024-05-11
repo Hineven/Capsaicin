@@ -99,6 +99,11 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);
+
+            ImGui::Checkbox("Debug Light", &options_.debug_light);
+            ImGui::SliderFloat3("Light Position", &options_.debug_light_position.x, -3.0f, 3.0f);
+            ImGui::SliderFloat("Light Size", &options_.debug_light_size, 0.0f, 0.5f);
+            ImGui::SliderFloat3("Light Color", &options_.debug_light_color.x, 0.0f, 5.0f);
         }
     }
 }

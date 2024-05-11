@@ -1,6 +1,11 @@
 #ifndef MIGI_SHARED_PARAMETERS_HLSL
 #define MIGI_SHARED_PARAMETERS_HLSL
 
+// Use heuristic for direction update
+// #define HEURISTIC_DIRECTION_UPDATE
+// Use RMSE to guide update ray allocation
+#define ERROR_RMSE
+
 // Common structs within RAM & VRAM
 #include "../../gpu_shared.h"
 #include "migi_common.hlsl"
@@ -108,7 +113,7 @@ RWStructuredBuffer<uint>   g_RWTileRayOffsetBuffer; // Offset of update ray inde
 RWStructuredBuffer<uint>   g_RWUpdateRayDirectionBuffer; // Sampled update ray direction
 RWStructuredBuffer<uint>   g_RWUpdateRayOriginBuffer;    // int16x2 packed
 // Pdf: tile pixel pdf (normalized by tile pixel count) * ray direction pdf
-RWStructuredBuffer<uint2>  g_RWUpdateRayRadiancePdfBuffer; // Sampled update ray radiance and directional pdf.
+RWStructuredBuffer<uint2>  g_RWUpdateRayRadianceInvPdfBuffer; // Sampled update ray radiance and directional pdf.
 RWStructuredBuffer<uint2>  g_RWUpdateRayCacheBuffer; // Cache evaluated radiance + wsum, fp16x4 packed
 RWStructuredBuffer<uint>   g_RWUpdateRayCountBuffer; // Count of update rays generated for this frame.
 RWStructuredBuffer<float>  g_RWTileUpdateErrorSumsBuffer; // Sums of update error sums of WAVE_SIZE tiles. Used for precompuation for ray allocation.
@@ -183,8 +188,13 @@ uint  g_DebugFreezeFrameSeedValue;
 
 float g_DebugTonemapExposure;
 
-
 uint2 g_DebugCursorPixelCoords;
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
+
+// Used for single virtual emitter debugging
+uint   g_DebugLight;
+float3 g_DebugLightPosition;
+float  g_DebugLightSize;
+float3 g_DebugLightColor;
 
 #endif // MIGI_SHARED_PARAMETERS_HLSL

@@ -136,3 +136,14 @@ float4 DebugSSRC_UpdateRays (
 ) : SV_Target {
     return Input.Color;
 }
+
+struct DebugLight_Input {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+float4 DebugSSRC_Light (
+    in DebugLight_Input Input
+) : SV_Target {
+    return Input.Color;
+}

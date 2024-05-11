@@ -95,7 +95,7 @@ public:
         GfxBuffer tile_ray_offset {};
         GfxBuffer update_ray_direction {};
         GfxBuffer update_ray_origin {};
-        GfxBuffer update_ray_radiance_pdf {};
+        GfxBuffer update_ray_radiance_inv_pdf {};
         GfxBuffer update_ray_cache {};
         GfxBuffer update_ray_count {};
         GfxBuffer tile_update_error_sums {};
@@ -178,6 +178,7 @@ public:
         GfxKernel  DebugSSRC_incident_radiance {};
         GfxKernel  DebugSSRC_prepare_update_rays {};
         GfxKernel  DebugSSRC_update_rays {};
+        GfxKernel  DebugSSRC_light {};
 
         GfxKernel  generate_dispatch {};
         GfxKernel  generate_dispatch_rays {};

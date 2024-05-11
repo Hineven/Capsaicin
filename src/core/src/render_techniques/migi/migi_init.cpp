@@ -210,6 +210,9 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         __override_primitive_topology = false;
         __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
+        kernels_.DebugSSRC_light = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_incident_radiance_draw_state,
+            "DebugSSRC_Light", defines_c.data(), (uint32_t)defines_c.size());
+
         kernels_.generate_dispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.generate_dispatch_rays = gfxCreateComputeKernel(
@@ -326,8 +329,8 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.update_ray_direction.setName("UpdateRayDirection");
     buf_.update_ray_origin     = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
     buf_.update_ray_origin.setName("UpdateRayOrigin");
-    buf_.update_ray_radiance_pdf = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
-    buf_.update_ray_radiance_pdf.setName("UpdateRayRadiancePdf");
+    buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
+    buf_.update_ray_radiance_inv_pdf.setName("UpdateRayRadiancePdf");
     buf_.update_ray_cache      = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
     buf_.update_ray_cache.setName("UpdateRayCache");
     buf_.update_ray_count      = gfxCreateBuffer<uint32_t>(gfx_, 1);
@@ -489,7 +492,7 @@ void MIGI::terminate() noexcept
         gfxDestroyBuffer(gfx_, buf_.tile_ray_offset);
         gfxDestroyBuffer(gfx_, buf_.update_ray_direction);
         gfxDestroyBuffer(gfx_, buf_.update_ray_origin);
-        gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_pdf);
+        gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_inv_pdf);
         gfxDestroyBuffer(gfx_, buf_.update_ray_cache);
         gfxDestroyBuffer(gfx_, buf_.update_ray_count);
         gfxDestroyBuffer(gfx_, buf_.tile_update_error_sums);

@@ -17,6 +17,22 @@
 #include "../../geometry/mesh.hlsl"
 #include "../../geometry/intersection.hlsl"
 
+float ClipFp16 (float Value) {
+    return clamp(Value, -60000.f, 60000.f);
+}
+
+float2 ClipFp16 (float2 Value) {
+    return clamp(Value, -60000.f.xx, 60000.f.xx);
+}
+
+float3 ClipFp16 (float3 Value) {
+    return clamp(Value, -60000.f.xxx, 60000.f.xxx);
+}
+
+float4 ClipFp16 (float4 Value) {
+    return clamp(Value, -60000.f.xxxx, 60000.f.xxxx);
+}
+
 // Project a point in screen space to world space
 // Transform: InvViewProj
 float3 InverseProject(in float4x4 transform, in float2 uv, in float depth)
@@ -108,7 +124,8 @@ float EvaluateW (WData WD, float3 Delta)
 {
     float Sqr = lengthSqr(Delta);
     // asreturn WD.Alpha * min(exp(-WD.Lambda * Sqr), 0.5f);
-    return WD.Alpha * exp(-WD.Lambda * Sqr);
+    float f = WD.Alpha * exp(-WD.Lambda * Sqr);
+    return f;
 }
 
 float EvaluateG (WData WD, float2 Delta, float ScreenLambda) {
@@ -205,23 +222,31 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
 }
 
 int QuantilizeNormGradient (float V, float Noise) {
-    return floor(V * 1000000.f + Noise);
+#ifdef HEURISTIC_DIRECTION_UPDATE
+    return floor(V * 32768.f + Noise);
+#else
+    return floor(V * 300000.f + Noise);
+#endif
 }
 float RecoverNormGradient (int V) {
-    return float(V) / 1000000.f;
+#ifdef HEURISTIC_DIRECTION_UPDATE
+    return float(V) / 32768.f;
+#else
+    return float(V) / 300000.f;
+#endif
 }
 int QuantilizeRadianceGradient (float Radiance, float Noise) {
-    Radiance = min(abs(Radiance), 100.f) * sign(Radiance);
-    return floor(Radiance * 65536.f + Noise);
+    Radiance = min(abs(Radiance), 2000.f) * sign(Radiance);
+    return floor(Radiance * 512.f + Noise);
 }
 float RecoverRadianceGradient (int Radiance) {
-    return float(Radiance) / 65536.f;
+    return float(Radiance) / 512.f;
 }
 int QuantilizeLambdaGradient (float dL, float Noise) {
-    return floor(dL * 1000000.f + Noise);
+    return floor(dL * 65536.f + Noise);
 }
 float RecoverLambdaGradient (int dL) {
-    return float(dL) / 1000000.f;
+    return float(dL) / 65536.f;
 }
 
 int QuantilizeAlphaGradient (float Alpha, float Noise) {
@@ -277,6 +302,8 @@ void UnpackBasisData (uint3 Packed, out SGData SG) {
 
 uint3 PackBasisData (SGData SG) {
     uint3 Packed;
+    SG.Color  = ClipFp16(SG.Color);
+    SG.Lambda = ClipFp16(SG.Lambda);
     Packed.x = f32tof16(SG.Color.x) | (f32tof16(SG.Color.y) << 16);
     Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
     // pack normal fails when x / y / z == -1
@@ -299,7 +326,7 @@ void FetchBasisLocation (int BasisIndex, out float3 Position) {
 // There is severe precision loss when using f16 to store WD.Lambda??
 
 uint PackWData (WData WD) {
-    return f32tof16(WD.Lambda) | (packUnorm1x16(WD.Alpha) << 16);
+    return f32tof16(ClipFp16(WD.Lambda)) | (packUnorm1x16(WD.Alpha) << 16);
 }
 
 void UnpackWData (uint Packed, out WData WD) {
@@ -463,12 +490,16 @@ float3 FibonacciSphere (uint i, uint n) {
 }
 
 void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
-    Bitangent = cross(Normal, float3(0, 0, 1));
-    if (dot(Bitangent, Bitangent) < 0.01f) {
+    float3 AbsNormal = abs(Normal);
+    if(AbsNormal.x < AbsNormal.y && AbsNormal.x < AbsNormal.z) {
+        Bitangent = cross(Normal, float3(1, 0, 0));
+    } else if(AbsNormal.y < AbsNormal.z) {
         Bitangent = cross(Normal, float3(0, 1, 0));
+    } else {
+        Bitangent = cross(Normal, float3(0, 0, 1));
     }
     Bitangent = normalize(Bitangent);
-    Tangent = cross(Bitangent, Normal);
+    Tangent = normalize(cross(Bitangent, Normal));
 }
 
 float2 UV2NDC2 (float2 UV) {
@@ -687,11 +718,13 @@ float3 BasisIndexToColor (int BasisIndex) {
 
 // Resolve directional shift for quantilized normal
 float3 lazyNormalize (float3 n) {
-    if(abs(dot(n, n) - 1.f) < 0.005f) {
+    if(abs(dot(n, n) - 1.f) < 0.01f) {
         return n;
     }
     return normalize(n);
 }
+
+
 
 // Packing and unpacking misc
 float3 UnpackFp16x3 (uint2 v) {
@@ -701,11 +734,13 @@ float4 UnpackFp16x4 (uint2 v) {
     return float4(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF), f16tof32(v.y >> 16));
 }
 
-uint2 PackFp16x3 (float3 v) {
+uint2 PackFp16x3Safe (float3 v) {
+    v = ClipFp16(v);
     return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z));
 }
 
-uint2 PackFp16x4 (float4 v) {
+uint2 PackFp16x4Safe (float4 v) {
+    v = ClipFp16(v);
     return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z) | (f32tof16(v.w) << 16));
 }
 
@@ -747,5 +782,22 @@ float GetStepScale(SGGradients Gradients, WGradients WGradients) {
         (g_CacheUpdate_WAlpha ? WGradients.dAlpha * WGradients.dAlpha : 0) + 
         (g_CacheUpdate_WLambda ? WGradients.dLambda * WGradients.dLambda : 0)) + 1e-6f;
 }
+
+// x: Color, y: Direction, z: Lambda
+float3 FetchBasisGradientScales (int BasisIndex) {
+    uint2 Packed = g_RWBasisAverageGradientScaleBuffer[BasisIndex];
+    float3 Scales;
+    Scales.xz = unpackHalf2(Packed.x);
+    Scales.y = asfloat(Packed.y);
+    return Scales;
+}
+
+void WriteBasisGradientScales (int BasisIndex, float3 Scales) {
+    uint2 Packed;
+    Packed.x = packHalf2(float2(Scales.x, Scales.z));
+    Packed.y = asuint(Scales.y);
+    g_RWBasisAverageGradientScaleBuffer[BasisIndex] = Packed;
+}
+
 
 #endif // MIGI_SHARED_HLSL
