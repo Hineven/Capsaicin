@@ -2,7 +2,7 @@
 #define MIGI_SHARED_PARAMETERS_HLSL
 
 // Use heuristic for direction update
-#define HEURISTIC_DIRECTION_UPDATE
+// #define HEURISTIC_DIRECTION_UPDATE
 // Use RMSE to guide update ray allocation
 #define ERROR_RMSE
 
@@ -87,27 +87,19 @@ RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 
 // Buffers
 // Sparse screen space cache
-RWStructuredBuffer<uint>   g_RWActiveBasisCountBuffer;
-RWStructuredBuffer<uint>   g_RWActiveBasisIndexBuffer;
-// Cache per instance effective radius for injection rasterization
-RWStructuredBuffer<float>  g_RWBasisEffectiveRadiusBuffer;
-// Film space effective radius for clipping in injection
-RWStructuredBuffer<float>  g_RWBasisEffectiveRadiusFilmBuffer;
-// Cached basis center projection on screen, unorm 2x16 packed
-// RWStructuredBuffer<uint>   g_RWBasisFilmPositionBuffer;
-RWStructuredBuffer<float3> g_RWBasisLocationBuffer;
-// Color : 16*3, Lambda: 16, Normal: 32packed, WLambda: 16, WAlpha: 16
-RWStructuredBuffer<uint>   g_RWBasisParameterBuffer; // Data storage. 10 Numbers packed in 16 bytes.
-// Color, Lambda, Normal, WLambda, WAlpha (9)
-RWStructuredBuffer< int>   g_RWQuantilizedBasisStepBuffer; // Step size for atomic accumulation
-// RWStructuredBuffer<float>  g_RWUpdateStepScaleSumsBuffer; // Sums of the step scale among waves.
-// RWStructuredBuffer<float>  g_RWUpdateStepScaleBuffer;
-RWStructuredBuffer<uint2>  g_RWBasisAverageGradientScaleBuffer; // Moving average of gradient squares (color, direction, lambda)
-RWStructuredBuffer<uint>   g_RWBasisFlagsBuffer; // Flag bits for basis
-RWStructuredBuffer<uint>   g_RWFreeBasisIndicesBuffer; // The free indices of the basis.
-RWStructuredBuffer<uint>   g_RWFreeBasisIndicesCountBuffer;
+// The count of overall allocated probes
+RWStructuredBuffer<uint>   g_RWActiveProbeCountBuffer;
+// Probe headers
+RWStructuredBuffer<ProbeHeader> g_RWProbeHeaderBuffer;
+// The SG storage for SSRC probes
+// Color : 16*3, Lambda: 16, Normal: 32packed, Linear Depth: 32
+RWStructuredBuffer<uint>   g_RWProbeSGBuffer;
+// Irradiance for SSRC probes
+// Color : 16*3, Unused: 16
+RWStructuredBuffer<uint>  g_RWProbeIrradianceBuffer;
+// Exponential moving average of gradient squares (color, lambda, direction), 16*2, 32
+RWStructuredBuffer<uint2>  g_RWProbeSGGradientScaleBuffer; 
 RWStructuredBuffer<uint>   g_RWTileBasisCountBuffer; // The number of injected basis in each tile
-// RWStructuredBuffer<uint>   g_RWTileBasisCountOldBuffer; // Mark the number of injected basis for each tile before basis generation
 RWStructuredBuffer<uint>   g_RWTileRayCountBuffer; // The number of update rays allocated per tile
 RWStructuredBuffer<uint>   g_RWTileRayOffsetBuffer; // Offset of update ray index for each tile
 RWStructuredBuffer<uint>   g_RWUpdateRayDirectionBuffer; // Sampled update ray direction

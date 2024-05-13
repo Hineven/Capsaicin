@@ -118,6 +118,22 @@ struct RTConstants
     uint2                           padding2;
 };
 
+struct ProbeHeader {
+    // BasisOffset : 24 bits
+    // ProbeRank   : 4  bits
+    // ProbeFlag   : 4  bits
+    // ProbeScreenCoords : 32 bits
+    uint2 Packed;
+};
+
+struct SSRC_Sample {
+    // Base atlas coords
+    ProbeHeader Probes[4];
+    // Interpolation weights
+    float4 Weights;
+};
+
+
 // The screen tile size for indexing basis (in pixels) 
 #define SSRC_TILE_SIZE 8
 #define SSRC_TILE_SIZE_L2 3

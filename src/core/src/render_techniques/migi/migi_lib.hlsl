@@ -225,14 +225,14 @@ int QuantilizeNormGradient (float V, float Noise) {
 #ifdef HEURISTIC_DIRECTION_UPDATE
     return floor(V * 32768.f + Noise);
 #else
-    return floor(V * 300000.f + Noise);
+    return floor(V * 262144.f + Noise);
 #endif
 }
 float RecoverNormGradient (int V) {
 #ifdef HEURISTIC_DIRECTION_UPDATE
     return float(V) / 32768.f;
 #else
-    return float(V) / 300000.f;
+    return float(V) / 262144.f;
 #endif
 }
 int QuantilizeRadianceGradient (float Radiance, float Noise) {
@@ -735,12 +735,12 @@ float4 UnpackFp16x4 (uint2 v) {
 }
 
 uint2 PackFp16x3Safe (float3 v) {
-    v = ClipFp16(v);
+    // v = ClipFp16(v);
     return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z));
 }
 
 uint2 PackFp16x4Safe (float4 v) {
-    v = ClipFp16(v);
+    // v = ClipFp16(v);
     return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z) | (f32tof16(v.w) << 16));
 }
 
