@@ -2,7 +2,7 @@
 #define MIGI_SHARED_PARAMETERS_HLSL
 
 // Use heuristic for direction update
-// #define HEURISTIC_DIRECTION_UPDATE
+#define HEURISTIC_DIRECTION_UPDATE
 // Use RMSE to guide update ray allocation
 #define ERROR_RMSE
 
