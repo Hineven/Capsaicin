@@ -17,6 +17,7 @@
 
 // Library for MIGI
 #include "migi_lib.hlsl"
+#include "migi_probes.hlsl"
 
 // Hash grid cache library
 #include "hash_grid_cache.hlsl"
@@ -263,7 +264,54 @@ void ScreenCacheUpdateTraceRay(uint did, inout ScreenCacheUpdatePayload payload,
 // Clear the counters at the begginging of the frame
 [numthreads(1, 1, 1)]
 void SSRC_ClearCounters() {
-    g_RWActiveProbeCountBuffer[0] = 0;
+    g_RWActiveProbeCountBuffer[0]      = 0;
+    g_RWAllocatedProbeSGCountBuffer[0] = 0;
+}
+
+
+// Allocate fixed probes for current frame
+[numthreads(WAVE_SIZE, 1, 1)]
+void SSRC_AllocateFixedProbes (int DispatchID : SV_DispatchThreadID) {
+    ProbeHeader Header      = GetScreenProbeHeader(DispatchID);
+    float Depth             = g_DepthTexture.Load(int3(Header.ScreenCoords, 0)).x;
+    bool  bValid            = Depth < 1.f;
+    Header.bValid           = bValid;
+    if(bValid) Header.Rank         = ComputeProbeRankFromSplattedError(Header.ScreenCoords);
+    int BasisCount      = bValid ? GetProbeBasisCountFromRank(Header.Rank) : 0;
+    int BasisOffset     = WavePrefixSum(BasisCount);
+    int BasisCountSum   = WaveActiveSum(BasisCount);
+    int BasisGroupOffset;
+    if(WaveIsFirstLane()) {
+        InterlockedAdd(g_RWAllocatedProbeSGCountBuffer[0], BasisCountSum, BasisGroupOffset);
+    }
+    BasisGroupOffset = WaveReadLaneFirst(BasisGroupOffset);
+    Header.BasisOffset  = BasisGroupOffset + BasisOffset;
+    WriteScreenProbeHeader(DispatchID, Header);
+}
+
+int g_ProbeDownSampleFactor;
+
+groupshared int LocalNumProbesToAllocate;
+[numthreads(WAVE_SIZE, 1, 1)]
+void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID) {
+    if(WaveIsFirstLane()) {
+        LocalNumProbesToAllocate = 0;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    {
+        int2 DownsampledTileDimensions = MI.TileDimensions / g_ProbeDownSampleFactor;
+        int2 TileCoords = int2(
+            DispatchID % DownsampledTileDimensions.x,
+            DispatchID / DownsampledTileDimensions.x
+        );
+        int2 ScreenProbeCoords = TileCoords * g_ProbeDownSampleFactor + GetTileJitter(g_ProbeDownSampleFactor);
+        float Depth = g_DepthTexture.Load(int3(ScreenProbeCoords, 0)).x;
+        bool  bValid = Depth < 1.f;
+        if(bValid) {
+            SSRC_Sample SampleData;
+            CalculateSSRCSampleWeights();
+        }
+    }
 }
 
 // Reproject basis from previous frame, filter dead basis

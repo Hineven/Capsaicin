@@ -115,55 +115,17 @@ float EvaluateNormalizedSG (SGData SG, float3 Direction) {
     return raw * SGNormalizationFactor(SG.Lambda);
 }
 
-struct WData {
-    float Lambda;
-    float Alpha;
-};
-
-float EvaluateW (WData WD, float3 Delta)
-{
-    float Sqr = lengthSqr(Delta);
-    // asreturn WD.Alpha * min(exp(-WD.Lambda * Sqr), 0.5f);
-    float f = WD.Alpha * exp(-WD.Lambda * Sqr);
-    return f;
-}
-
-float EvaluateG (WData WD, float2 Delta, float ScreenLambda) {
-    float Sqr = dot(Delta, Delta);
-    return WD.Alpha * exp(-ScreenLambda * Sqr);
-}
-
-struct WGradients {
-    float dLambda;
-    float dAlpha;
-};
-
-void EvaluateW_Gradients (WData WD, float3 Delta, out WGradients Gradients)
-{
-    Gradients.dAlpha = exp(-WD.Lambda * lengthSqr(Delta));
-    Gradients.dLambda = -WD.Alpha * Gradients.dAlpha * lengthSqr(Delta);
-}
-
-float EvaluateW_EffectiveRadius (WData WD, float E) {
-    if(WD.Alpha <= E) return 0.f;
-    return sqrt(-log(E / WD.Alpha) / WD.Lambda);
-}
-
-bool IsEmptyW (WData WD) {
-    return false;
-}
-
-float EvaluateBilateralFilterWeight (float PixelScale, float FilmPlaneRadius, float3 DeltaPosition, float3 ShadingPixelNormal, float3 LightingPixelNormal) {
-    // Bilaterally filter the neighbor reservoir
-    float DirectionalDecay = max(dot(ShadingPixelNormal, LightingPixelNormal), 0.0f);
-    DirectionalDecay = squared(squared(DirectionalDecay)); // make it steep
-    //return DirectionalDecay;
-    // return DirectionalDecay;
-    float Distance = length(DeltaPosition);
-    float Radius = 4.f * PixelScale * FilmPlaneRadius;
-    float DistanceDecay = exp(- Distance / Radius);
-    return DirectionalDecay * DistanceDecay;
-}
+// float EvaluateBilateralFilterWeight (float PixelScale, float FilmPlaneRadius, float3 DeltaPosition, float3 ShadingPixelNormal, float3 LightingPixelNormal) {
+//     // Bilaterally filter the neighbor reservoir
+//     float DirectionalDecay = max(dot(ShadingPixelNormal, LightingPixelNormal), 0.0f);
+//     DirectionalDecay = squared(squared(DirectionalDecay)); // make it steep
+//     //return DirectionalDecay;
+//     // return DirectionalDecay;
+//     float Distance = length(DeltaPosition);
+//     float Radius = 4.f * PixelScale * FilmPlaneRadius;
+//     float DistanceDecay = exp(- Distance / Radius);
+//     return DirectionalDecay * DistanceDecay;
+// }
 
 // FDist: distance in pixels
 float EvaluateFilmCoverage (float2 FDist) {
@@ -177,30 +139,6 @@ struct SGGradients {
     float3 dColor;
     float3 dDirection;
 };
-
-// error function: (x - y) ^ 2
-// void EvaluateSG_GradientsL2 (SGData SG, float3 TargetDirection, float3 TargetRadiance, float3 CurrentRadiance, out SGGradients Gradients) {
-//     // Compute the Gradients for SG parameters
-//     // Targeting at the remaining radiance after subtracting all other SH and SGs
-//     float W1 = (dot(SG.Direction, TargetDirection) - 1);
-//     float3 W2 = exp(SG.Lambda * W1);
-//     float3 W3 = 2 * W2 * (SG.Color * W2 - TargetRadiance);
-//     // d (sg_theta(dir) - v)^2 / d theta
-//     Gradients.dLambda = dot(SG.Color * W3 * (dot(SG.Direction, TargetDirection) - 1.f), float3(1, 1, 1));
-//     Gradients.dColor = W3;
-//     Gradients.dDirection = TargetDirection * dot(SG.Color * SG.Lambda * W3, float3(1, 1, 1));
-// }
-
-// Gradients of f^2(w)
-// Buggy
-// void EvaluateSG2_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients) {
-//     float W1 = dot(SG.Direction, TargetDirection) - 1;
-//     float W2 = exp(2 * SG.Lambda * W1);
-//     float SGColorScale2 = dot(SG.Color, SG.Color);
-//     Gradients.dLambda = 2.f * W2 * W1 * SGColorScale2;
-//     Gradients.dDirection = 2.f * TargetDirection * W2 * SG.Lambda * SGColorScale2;
-//     Gradients.dColor = 2.f * W2 * SG.Color;
-// }
 
 void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients, out float3 dColorExtra) {
     // Compute the Gradients for SG parameters
@@ -272,8 +210,8 @@ float3 SampleSG (float2 u, float lambda, out float pdf) {
     return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 }
 
-uint4 FetchBasisData_W_Packed (int BasisIndex) {
-    uint P0 = g_RWBasisParameterBuffer[BasisIndex * 4];
+uint4 FetchBasisData_Packed (int BasisIndex) {
+    uint P0 = g_R[BasisIndex * 4];
     uint P1 = g_RWBasisParameterBuffer[BasisIndex * 4 + 1];
     uint P2 = g_RWBasisParameterBuffer[BasisIndex * 4 + 2];
     uint P3 = g_RWBasisParameterBuffer[BasisIndex * 4 + 3];
@@ -797,6 +735,14 @@ void WriteBasisGradientScales (int BasisIndex, float3 Scales) {
     Packed.x = packHalf2(float2(Scales.x, Scales.z));
     Packed.y = asuint(Scales.y);
     g_RWBasisAverageGradientScaleBuffer[BasisIndex] = Packed;
+}
+
+// Copy pasted from Lumen
+float2 Hammersley16( uint Index, uint NumSamples, uint2 Random )
+{
+	float E1 = frac( (float)Index / NumSamples + float( Random.x ) * (1.0 / 65536.0) );
+	float E2 = float( ( reversebits(Index) >> 16 ) ^ Random.y ) * (1.0 / 65536.0);
+	return float2( E1, E2 );
 }
 
 

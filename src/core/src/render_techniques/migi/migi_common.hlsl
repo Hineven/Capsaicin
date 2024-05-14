@@ -118,12 +118,21 @@ struct RTConstants
     uint2                           padding2;
 };
 
-struct ProbeHeader {
+struct ProbeHeaderPacked {
     // BasisOffset : 24 bits
     // ProbeRank   : 4  bits
     // ProbeFlag   : 4  bits
     // ProbeScreenCoords : 32 bits
     uint2 Packed;
+};
+
+struct ProbeHeader {
+    // Screen pixel position of the probe
+    int2 ScreenCoords;
+    int BasisOffset;
+    // 0: 1, 1: 2, 2: 4, 3: 8, 4: 12
+    int  Rank;
+    bool bValid;
 };
 
 struct SSRC_Sample {
@@ -170,6 +179,8 @@ struct MIGI_Constants {
     // Screen resolution, counted in tiles
     int2   TileDimensions;
     float2 TileDimensionsInv;
+    // Number of tiles / uniform screen probes
+    int    UniformScreenProbeCount;
 
     // Budget for update rays
     int    UpdateRayBudget; 
