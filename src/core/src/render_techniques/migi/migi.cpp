@@ -883,7 +883,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
         // Visualize basis first
-        {
+        if(false){
             const TimedSection timed_section(*this, "SSRC_Basis3D");
             gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_generate_draw_indexed);
             gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
