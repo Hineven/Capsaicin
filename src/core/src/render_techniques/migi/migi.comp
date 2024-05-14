@@ -1757,7 +1757,7 @@ void SSRC_ComputeCacheUpdateStep (int2 GroupID : SV_GroupID, int LocalID : SV_Gr
                     float3 DeltaPosition         = ThreadRayOrigin[i] - BasisWorldPosition;
                     float  EvaluatedW            = EvaluateW(W, DeltaPosition);
 
-                    float  RestWeight            = SumWeight - EvaluatedW;
+                    float  RestWeight             = SumWeight - EvaluatedW;
                     float3 WeightedSumEvaluatedRadiance   = ThreadWeightedSumEvaluatedRadiance[i];
 
                     // Compute gradients
@@ -1877,8 +1877,7 @@ void SSRC_ApplyCacheUpdate (int DispatchID : SV_DispatchThreadID) {
 #endif
     }
     if(g_CacheUpdate_SGLambda) {
-        // FIXME constant
-        SG.Lambda    += 5 * Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactors.z;
+        SG.Lambda    += Step_SG.dLambda    * g_CacheUpdateLearningRate * NormalizationFactors.z;
         // Lambda decays naturally to prevent too tiny gradient for direction
         // Should not be so.
         // float DecayFactor = 0.9f + 0.1f * smoothstep(0.f, 0.2f, SGIntegrate(SG.Lambda));
@@ -1995,7 +1994,7 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
             float4 CurrentOutRayEvalWSum   = UnpackFp16x4(RayCache);
             uint2  RayRIP                  = g_RWUpdateRayRadianceInvPdfBuffer[RayIndex];
             float4 CurrentOutRayRadianceInvPdf= UnpackFp16x4(RayRIP);
-            float3 CurrentOutRayDifference = CurrentOutRayRadianceInvPdf.xyz;// - CurrentOutRayEvalWSum.xyz;
+            float3 CurrentOutRayDifference = CurrentOutRayRadianceInvPdf.xyz - CurrentOutRayEvalWSum.xyz;
             // Normalize probability for choosing different directions by dividing
             // ray direction pdf in sample weight averaging
             float  InvPdf = CurrentOutRayRadianceInvPdf.w;
@@ -2041,11 +2040,9 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
             float EvaluatedW  = EvaluateW(W, DeltaPosition) + 0.01f;
             float  F          = EvaluateSG(SG, CurrentOutRayDirection).x;
             float  B          = EvaluatedW * InvPdf;
-            float3 T          = RayRadianceInvPdf.xyz;// - CurrentOutRayEval;
+            float3 T          = RayRadianceInvPdf.xyz - CurrentOutRayEval;
             // Want minimize \sum B * |F * alpha - T| for alpha
             float3 BestAlpha  = T / F;
-            // Clamping to avoid fireflies
-            BestAlpha = min(BestAlpha, 3.f.xxx);
             float  DiffAlpha  = B * F;
             // Simply do an average
 
@@ -2061,6 +2058,8 @@ void SSRC_SpawnNewBasis (int3 GroupID : SV_GroupID, int LocalID : SV_GroupThread
         if(SumInitWeight != 0.f) {
             SG.Color = SumInitRadiance / SumInitWeight;
         }
+        // FIXME
+        SG.Color = 0.3f.xxx;
         // Write the basis data
         WriteBasisData_W(BasisIndex, SG, W);
         WriteBasisLocation(BasisIndex, WorldPosition);
@@ -2103,8 +2102,7 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
         int PixelX = PixelIndex % SSRC_TILE_SIZE;
         int PixelY = PixelIndex / SSRC_TILE_SIZE;
         ThreadSumRadiance[i] = 0.f.xxx;
-        // Pad the weight to prevent occurence of NaNs
-        ThreadSumWeight  [i] = 1e-6f;
+        ThreadSumWeight  [i] = 0.f;
         int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
         float2 UV = (TexCoords + 0.5f) / g_OutputDimensions;
         float Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
@@ -2270,7 +2268,7 @@ void SSRC_AccumulateUpdateError (int DispatchID : SV_DispatchThreadID) {
             float Weight = ThreadErrorAccumulationWeight[j][i];
             float PrevError = g_RWUpdateErrorSplatTexture[TexCoords];
             // FIXME nan in Error
-            if(Weight > 0) {
+            if(Weight > 0 && !isnan(Weight) && !isnan(Error)) {
                 g_RWUpdateErrorSplatTexture[TexCoords] = lerp(PrevError, Error / Weight, 0.005f);
             } else {
                 g_RWUpdateErrorSplatTexture[TexCoords] = lerp(PrevError, 0.f,  0.005f);

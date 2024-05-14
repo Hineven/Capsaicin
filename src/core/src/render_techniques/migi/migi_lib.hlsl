@@ -124,7 +124,7 @@ float EvaluateW (WData WD, float3 Delta)
 {
     float Sqr = lengthSqr(Delta);
     // asreturn WD.Alpha * min(exp(-WD.Lambda * Sqr), 0.5f);
-    float f = max(WD.Alpha * exp(-WD.Lambda * Sqr) - 0.01f, 0.f);
+    float f = WD.Alpha * exp(-WD.Lambda * Sqr);
     return f;
 }
 
