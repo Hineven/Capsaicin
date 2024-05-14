@@ -882,6 +882,7 @@ light_sampler->addProgramParameters(capsaicin, kernels_.program);
         uint dispatch_size[] = {divideAndRoundUp(options_.width, threads[0]), divideAndRoundUp(options_.height, threads[1])};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
+
         // Visualize basis first
         if(false){
             const TimedSection timed_section(*this, "SSRC_Basis3D");
