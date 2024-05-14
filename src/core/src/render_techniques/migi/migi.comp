@@ -260,10 +260,10 @@ void ScreenCacheUpdateTraceRay(uint did, inout ScreenCacheUpdatePayload payload,
 #endif
 }
 
-
+// Clear the counters at the begginging of the frame
 [numthreads(1, 1, 1)]
-void SSRC_ClearActiveCounter() {
-    g_RWActiveBasisCountBuffer[0] = 0;
+void SSRC_ClearCounters() {
+    g_RWActiveProbeCountBuffer[0] = 0;
 }
 
 // Reproject basis from previous frame, filter dead basis

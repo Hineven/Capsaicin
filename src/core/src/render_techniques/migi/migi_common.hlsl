@@ -133,22 +133,87 @@ struct SSRC_Sample {
     float4 Weights;
 };
 
+struct MIGI_Constants {
+    
+    // Common view parameters
+    float3   CameraPosition;
+    float3   CameraDirection;
+    float    CameraFoVY;
+    float    CameraFoVY2;
+    float    AspectRatio;
+    float    CameraNear;
+    float    CameraFar;
+    float3   CameraUp;
+    float3   CameraRight;
+    float4x4 CameraView;
+    float4x4 CameraProjView;
+    float4x4 CameraViewInv;
+    float4x4 CameraProjViewInv;
+    // The scale of a single pixel in the standard camera plane (z = 1)
+    float    CameraPixelScale;
 
-// The screen tile size for indexing basis (in pixels) 
-#define SSRC_TILE_SIZE 8
-#define SSRC_TILE_SIZE_L2 3
+    // Note: NDC in MIGI means [-1, 1] x [-1, 1] x [0, 1], and 1 stands for the far plane.
+    // Current NDC -> Prev NDC
+    float4x4 Reprojection;
+    // Prev    NDC -> Current NDC
+    float4x4 ForwardProjection;
+
+    float3   PreviousCameraPosition;
+
+    uint FrameIndex;
+    // Normally this is the same as FrameIndex, used for random number generation
+    uint FrameSeed; 
+
+    // Screen resolution
+    int2   ScreenDimensions;
+    float2 ScreenDimensionsInv;
+    // Screen resolution, counted in tiles
+    int2   TileDimensions;
+    float2 TileDimensionsInv;
+
+    // Budget for update rays
+    int    UpdateRayBudget; 
+    // Pad the fraction for ray allocation among probes, 0: error propotional, 1: avg.
+    float  UpdateRayFractionPadding;
+
+    // Misc parameters
+    uint NoImportanceSampling;
+    uint NoAdaptiveProbes;
+
+    // Learing parameters
+    float CacheUpdateLearningRate;
+    uint  CacheUpdate_SGColor;
+    uint  CacheUpdate_SGDirection;
+    uint  CacheUpdate_SGLambda;
+
+    uint  DebugVisualizeMode;
+    uint  DebugVisualizeChannel;
+    uint  DebugVisualizeIncidentRadianceNumPoints;
+
+    // Replace FrameSeed under certain conditions
+    uint  DebugFreezeFrameSeed;
+    uint  DebugFreezeFrameSeedValue;
+
+    float DebugTonemapExposure;
+    uint2 DebugCursorPixelCoords;
+
+    // Used for single virtual emitter debugging
+    uint   DebugLight;
+    float3 DebugLightPosition;
+    float  DebugLightSize;
+    float3 DebugLightColor;
+};
+
+
+// The screen tile size (in pixels) 
+#define SSRC_TILE_SIZE 16
+#define SSRC_TILE_SIZE_L2 4
 #ifdef __cplusplus
 static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<SSRC_TILE_SIZE_L2.");
 #endif
-// A maximum of 64 basis can be injected into a single tile.
-#define SSRC_MAX_BASIS_PER_TILE 64
-
-// Baisis not accessed for 5 frames are recycled
-#define BASIS_RETIRE_FRAME_COUNT 5u
-
-// Default number of rays to batch processing per thread in a wave
-// Increasing this number drastically increases the register usage
-#define WAVE_RAY_SIZE 4
+#if SSRC_TILE_SIZE != (1 << SSRC_TILE_SIZE_L2)
+#error "SSRC_TILE_SIZE != 1<<SSRC_TILE_SIZE_L2."
+#endif
 
 #ifdef __cplusplus
 }// namespace Capsaicin
