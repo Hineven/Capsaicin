@@ -72,8 +72,20 @@ RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 // The count of overall allocated probes
 RWStructuredBuffer<uint>   g_RWActiveProbeCountBuffer;
 // Probe headers
-RWStructuredBuffer<ProbeHeader> g_RWProbeHeaderBuffer;
-RWStructuredBuffer<ProbeHeader> g_RWPreviousProbeHeaderBuffer;
+// Use textures for better texture cache utilization (2x2)
+// BasisOffset : 24 bits
+// ProbeRank   : 4  bits
+// ProbeFlag   : 4  bits
+RWTexture2D<uint>   g_RWProbeHeaderPackedTexture;
+RWTexture2D<uint>   g_RWProbeScreenPositionTexture;
+RWTexture2D<float>  g_RWProbeLinearDepthTexture;
+RWTexture2D<float3> g_RWProbeWorldPositionTexture; 
+RWTexture2D<unorm float2> g_RWProbeNormalTexture;
+RWTexture2D<uint>   g_RWPreviousProbeHeaderPackedTexture;
+RWTexture2D<uint>   g_RWPreviousProbeScreenPositionTexture;
+RWTexture2D<float>  g_RWPreviousProbeLinearDepthTexture;
+RWTexture2D<float3> g_RWPreviousProbePositionTexture;
+RWTexture2D<unorm float2> g_RWPreviousProbeNormalTexture; 
 // The SG storage for SSRC probes
 // Color : 16*3, Lambda: 16, Normal: 32packed, Linear Depth: 32
 RWStructuredBuffer<uint>   g_RWProbeSGBuffer;
@@ -95,11 +107,13 @@ RWStructuredBuffer<uint>  g_RWTileUpdateRayCountBuffer;
 // Sampling, tracing and updating are done in a single kernel, so we do not need to store update rays
 
 // Number of adaptive probes within each tile
-RWStructuredBuffer<uint>   g_RWTileAdaptiveProbeCountBuffer;
+RWTexture2D<uint>          g_RWTileAdaptiveProbeCountTexture;
+RWTexture2D<uint>          g_RWPreviousTileAdaptiveProbeCountTexture;
 // Adaptive probe indices for each tile. The indexing rules are the same as Lumen.
 RWTexture2D<uint>          g_RWTileAdaptiveProbeIndexTexture;
+RWTexture2D<uint>          g_RWPreviousTileAdaptiveProbeIndexTexture;
 // Count of adaptive probes allocated for this frame.
-RWBuffer<uint>             g_RWAdaptiveProbeCountBuffer;
+RWStructuredBuffer<uint>   g_RWAdaptiveProbeCountBuffer;
 // Error for probe updates. Used to splat onto the screen error texture to guide ray allocation.
 RWStructuredBuffer<float>  g_RWProbeUpdateErrorBuffer;
 
@@ -123,10 +137,12 @@ ConstantBuffer<RTConstants>  g_RTConstants;
 
 ConstantBuffer<MIGI_Constants>              MI;
 
-
 // Debugging
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
 RWStructuredBuffer<float3> g_RWDebugVisualizeIncidentRadianceBuffer;
 
+
+// Varying parameters for multiple invocations of the same kernel
+int g_AdaptiveProbeDownsampleFactor;
 
 #endif // MIGI_SHARED_PARAMETERS_HLSL

@@ -87,8 +87,9 @@ float3x3 GetNormalTransform(float4x4 transform)
 
 struct SGData {
     float3 Direction;
-    float Lambda;
+    float  Lambda;
     float3 Color;
+    float  Depth;
 };
 
 float OneSubExpNeg2Lambda (float lambda) {
@@ -211,10 +212,10 @@ float3 SampleSG (float2 u, float lambda, out float pdf) {
 }
 
 uint4 FetchBasisData_Packed (int BasisIndex) {
-    uint P0 = g_R[BasisIndex * 4];
-    uint P1 = g_RWBasisParameterBuffer[BasisIndex * 4 + 1];
-    uint P2 = g_RWBasisParameterBuffer[BasisIndex * 4 + 2];
-    uint P3 = g_RWBasisParameterBuffer[BasisIndex * 4 + 3];
+    uint P0 = g_RWProbeSGBuffer[BasisIndex * 4];
+    uint P1 = g_RWProbeSGBuffer[BasisIndex * 4 + 1];
+    uint P2 = g_RWProbeSGBuffer[BasisIndex * 4 + 2];
+    uint P3 = g_RWProbeSGBuffer[BasisIndex * 4 + 3];
     return uint4(P0, P1, P2, P3);
 }
 
@@ -230,133 +231,39 @@ uint PackNormal (float3 Normal) {
     return Dir.x | (Dir.y << 10) | (Dir.z << 20);
 }
 
-void UnpackBasisData (uint3 Packed, out SGData SG) {
+SGData UnpackBasisData (uint4 Packed) {
+    SGData SG;
     SG.Color     = float3(f16tof32(Packed.x & 0xFFFF), f16tof32(Packed.x >> 16), f16tof32(Packed.y & 0xFFFF));
     SG.Lambda    = f16tof32(Packed.y >> 16);
-    // unpack normal fails when x / y / z == -1
-    // SG.Direction = normalize(unpackNormal(Packed.z));   
     SG.Direction = UnpackNormal(Packed.z);
+    SG.Depth     = asfloat(Packed.w);
+    return SG;
 }
 
-uint3 PackBasisData (SGData SG) {
-    uint3 Packed;
+uint4 PackBasisData (SGData SG) {
+    uint4 Packed;
     SG.Color  = ClipFp16(SG.Color);
     SG.Lambda = ClipFp16(SG.Lambda);
     Packed.x = f32tof16(SG.Color.x) | (f32tof16(SG.Color.y) << 16);
     Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
-    // pack normal fails when x / y / z == -1
-    // Packed.z = packNormal(SG.Direction);
+    // TODO oct encode
     Packed.z = PackNormal(SG.Direction);
+    Packed.w = asuint(SG.Depth);
     return Packed;
 }
 
 void WriteBasisData (int BasisIndex, SGData SG) {
-    uint3 Packed = PackBasisData(SG);
-    g_RWBasisParameterBuffer[BasisIndex * 4] = Packed.x;
-    g_RWBasisParameterBuffer[BasisIndex * 4 + 1] = Packed.y;
-    g_RWBasisParameterBuffer[BasisIndex * 4 + 2] = Packed.z;
+    uint4 Packed = PackBasisData(SG);
+    g_RWProbeSGBuffer[BasisIndex * 4] = Packed.x;
+    g_RWProbeSGBuffer[BasisIndex * 4 + 1] = Packed.y;
+    g_RWProbeSGBuffer[BasisIndex * 4 + 2] = Packed.z;
+    g_RWProbeSGBuffer[BasisIndex * 4 + 3] = Packed.w;
 }
 
-void FetchBasisLocation (int BasisIndex, out float3 Position) {
-    Position = g_RWBasisLocationBuffer[BasisIndex];
-}
 
-// There is severe precision loss when using f16 to store WD.Lambda??
-
-uint PackWData (WData WD) {
-    return f32tof16(ClipFp16(WD.Lambda)) | (packUnorm1x16(WD.Alpha) << 16);
-}
-
-void UnpackWData (uint Packed, out WData WD) {
-    WD.Lambda = f16tof32(Packed & 0xFFFFu);
-    WD.Alpha  = unpackUnorm1x16(Packed >> 16);
-}
-
-void UnpackBasisData_W (uint4 Packed, out SGData SG, out WData WD) {
-    UnpackBasisData(Packed.xyz, SG);
-    UnpackWData(Packed.w, WD);
-}
-
-void FetchBasisData_W (int BasisIndex, out SGData SG, out WData WD) {
-    uint4 Packed = FetchBasisData_W_Packed(BasisIndex);
-    UnpackBasisData(Packed.xyz, SG);
-    UnpackWData(Packed.w, WD);
-}
-
-void WriteBasisWData (int BasisIndex, WData WD) {
-    g_RWBasisParameterBuffer[BasisIndex * 4 + 3] = PackWData(WD);
-}
-
-uint4 PackBasisData_W (SGData SG, WData WD) {
-    uint3 PackedSG = PackBasisData(SG);
-    uint PackedW = PackWData(WD);
-    return uint4(PackedSG.x, PackedSG.y, PackedSG.z, PackedW);
-}
-
-void WriteBasisData_W (int BasisIndex, SGData SG, WData WD) {
-    WriteBasisData(BasisIndex, SG);
-    WriteBasisWData(BasisIndex, WD);
-}
-
-void WriteBasisLocation (int BasisIndex, float3 Position) {
-    g_RWBasisLocationBuffer[BasisIndex] = Position;
-}
-
-// Tile index related
-void ScreenCache_InjectBasisIndexToTile (int2 TileCoords, int BasisIndex) {
-    int TileIndex  = TileCoords.x + TileCoords.y * g_TileDimensions.x;
-    int SlotBase   = TileIndex * SSRC_MAX_BASIS_PER_TILE;
-    int SlotOffset;
-    InterlockedAdd(g_RWTileBasisCountBuffer[TileIndex], 1, SlotOffset);
-    if(SlotOffset < SSRC_MAX_BASIS_PER_TILE) {
-        g_RWTileBasisIndexInjectionBuffer[SlotBase + SlotOffset] = BasisIndex;
-    }
-}
-
-void ScreenCache_ResetStepSize (int BasisIndex) {
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 0] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 1] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 2] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 3] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 4] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 5] = 0;
-    g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 6] = 0;
-}
-
-void ScreenCache_AccumulateStepSize (int BasisIndex, SGGradients Step_SG, float Noise) {
-    // Quantilize all step sizes and accumulate to the step buffer
-    // Color, Lambda, Normal, WLambda, WAlpha (7)
-    int P0 = QuantilizeRadianceGradient(Step_SG.dColor.x, Noise);
-    int P1 = QuantilizeRadianceGradient(Step_SG.dColor.y, Noise);
-    int P2 = QuantilizeRadianceGradient(Step_SG.dColor.z, Noise);
-    int P3 = QuantilizeLambdaGradient(Step_SG.dLambda, Noise);
-    int P4 = QuantilizeNormGradient(Step_SG.dDirection.x, Noise);
-    int P5 = QuantilizeNormGradient(Step_SG.dDirection.y, Noise);
-    int P6 = QuantilizeNormGradient(Step_SG.dDirection.z, Noise);
-    if(P0) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 0], P0);
-    if(P1) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 1], P1);
-    if(P2) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 2], P2);
-    if(P3) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 3], P3);
-    if(P4) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 4], P4);
-    if(P5) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 5], P5);
-    if(P6) InterlockedAdd(g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 6], P6);
-}
-
-void ScreenCache_GetStepSize (int BasisIndex, out SGGradients Step_SG) {
-    int P0 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 0];
-    int P1 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 1];
-    int P2 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 2];
-    int P3 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 3];
-    int P4 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 4];
-    int P5 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 5];
-    int P6 = g_RWQuantilizedBasisStepBuffer[BasisIndex * 7 + 6];
-    Step_SG.dColor.x = RecoverRadianceGradient(P0);
-    Step_SG.dColor.y = RecoverRadianceGradient(P1);
-    Step_SG.dColor.z = RecoverRadianceGradient(P2);
-    Step_SG.dLambda = RecoverLambdaGradient(P3);
-    Step_SG.dDirection.x = RecoverNormGradient(P4);
-    Step_SG.dDirection.y = RecoverNormGradient(P5);
-    Step_SG.dDirection.z = RecoverNormGradient(P6);
+SGData FetchBasisData (int BasisIndex) {
+    uint4 Packed = FetchBasisData_Packed(BasisIndex);
+    return UnpackBasisData(Packed);
 }
 
 // Misc
@@ -405,11 +312,11 @@ float DepthToLinearDepth (float Depth, float Near, float Far) {
 
 float GetLinearDepth(in float depth)
 {
-    return -g_CameraNear * g_CameraFar / (depth * (g_CameraFar - g_CameraNear) - g_CameraFar);
+    return -MI.CameraNear * MI.CameraFar / (depth * (MI.CameraFar - MI.CameraNear) - g_CameraFar);
 }
 
 float2 FibonacciLattice (uint i, uint n) {
-    float x = 2.23606797749979 * i;
+    float x = 2.23606797749979f * i;
     float y = (float) i / n;
     return float2(x - floor(x), y);
 }
@@ -712,30 +619,30 @@ float3 RecoverWorldPositionHiRes (int2 TexCoords) {
     return WorldPosition; 
 }
 
-float GetStepScale(SGGradients Gradients, WGradients WGradients) {
-    return
-        sqrt((g_CacheUpdate_SGColor ? dot(Gradients.dColor, Gradients.dColor) : 0) +
-        (g_CacheUpdate_SGLambda ? Gradients.dLambda * Gradients.dLambda : 0) +
-        (g_CacheUpdate_SGDirection ? dot(Gradients.dDirection, Gradients.dDirection) : 0) +
-        (g_CacheUpdate_WAlpha ? WGradients.dAlpha * WGradients.dAlpha : 0) + 
-        (g_CacheUpdate_WLambda ? WGradients.dLambda * WGradients.dLambda : 0)) + 1e-6f;
-}
+// float GetStepScale(SGGradients Gradients, WGradients WGradients) {
+//     return
+//         sqrt((g_CacheUpdate_SGColor ? dot(Gradients.dColor, Gradients.dColor) : 0) +
+//         (g_CacheUpdate_SGLambda ? Gradients.dLambda * Gradients.dLambda : 0) +
+//         (g_CacheUpdate_SGDirection ? dot(Gradients.dDirection, Gradients.dDirection) : 0) +
+//         (g_CacheUpdate_WAlpha ? WGradients.dAlpha * WGradients.dAlpha : 0) + 
+//         (g_CacheUpdate_WLambda ? WGradients.dLambda * WGradients.dLambda : 0)) + 1e-6f;
+// }
 
-// x: Color, y: Direction, z: Lambda
-float3 FetchBasisGradientScales (int BasisIndex) {
-    uint2 Packed = g_RWBasisAverageGradientScaleBuffer[BasisIndex];
-    float3 Scales;
-    Scales.xz = unpackHalf2(Packed.x);
-    Scales.y = asfloat(Packed.y);
-    return Scales;
-}
+// // x: Color, y: Direction, z: Lambda
+// float3 FetchBasisGradientScales (int BasisIndex) {
+//     uint2 Packed = g_RWBasisAverageGradientScaleBuffer[BasisIndex];
+//     float3 Scales;
+//     Scales.xz = unpackHalf2(Packed.x);
+//     Scales.y = asfloat(Packed.y);
+//     return Scales;
+// }
 
-void WriteBasisGradientScales (int BasisIndex, float3 Scales) {
-    uint2 Packed;
-    Packed.x = packHalf2(float2(Scales.x, Scales.z));
-    Packed.y = asuint(Scales.y);
-    g_RWBasisAverageGradientScaleBuffer[BasisIndex] = Packed;
-}
+// void WriteBasisGradientScales (int BasisIndex, float3 Scales) {
+//     uint2 Packed;
+//     Packed.x = packHalf2(float2(Scales.x, Scales.z));
+//     Packed.y = asuint(Scales.y);
+//     g_RWBasisAverageGradientScaleBuffer[BasisIndex] = Packed;
+// }
 
 // Copy pasted from Lumen
 float2 Hammersley16( uint Index, uint NumSamples, uint2 Random )
@@ -744,6 +651,28 @@ float2 Hammersley16( uint Index, uint NumSamples, uint2 Random )
 	float E2 = float( ( reversebits(Index) >> 16 ) ^ Random.y ) * (1.0 / 65536.0);
 	return float2( E1, E2 );
 }
+
+// to [-1, 1]^2
+float2 UnitVectorToOctahedron(float3 N)
+{
+	N.xy /= dot( 1, abs(N) );
+	if( N.z <= 0 )
+	{
+		N.xy = ( 1 - abs(N.yx) ) * select( N.xy >= 0, float2(1,1), float2(-1,-1) );
+	}
+	return N.xy;
+}
+
+// from [-1, 1]^2
+float3 OctahedronToUnitVector( float2 Oct )
+{
+	float3 N = float3( Oct, 1 - dot( 1, abs(Oct) ) );
+	float t = max( -N.z, 0 );
+	N.xy += select(N.xy >= 0, float2(-t, -t), float2(t, t));
+	return normalize(N);
+}
+
+
 
 
 #endif // MIGI_SHARED_HLSL

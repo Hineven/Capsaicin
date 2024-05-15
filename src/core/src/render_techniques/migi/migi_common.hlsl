@@ -118,26 +118,21 @@ struct RTConstants
     uint2                           padding2;
 };
 
-struct ProbeHeaderPacked {
-    // BasisOffset : 24 bits
-    // ProbeRank   : 4  bits
-    // ProbeFlag   : 4  bits
-    // ProbeScreenCoords : 32 bits
-    uint2 Packed;
-};
-
 struct ProbeHeader {
     // Screen pixel position of the probe
-    int2 ScreenCoords;
+    int2 ScreenPosition;
     int BasisOffset;
     // 0: 1, 1: 2, 2: 4, 3: 8, 4: 12
     int  Rank;
     bool bValid;
-};
+    float  LinearDepth;
+    float3 Position;
+    float3 Normal;
+};  
 
-struct SSRC_Sample {
+struct SSRC_SampleData {
     // Base atlas coords
-    ProbeHeader Probes[4];
+    int2 Index[4];
     // Interpolation weights
     float4 Weights;
 };
@@ -172,6 +167,7 @@ struct MIGI_Constants {
     uint FrameIndex;
     // Normally this is the same as FrameIndex, used for random number generation
     uint FrameSeed; 
+    uint PreviousFrameSeed;
 
     // Screen resolution
     int2   ScreenDimensions;
@@ -186,6 +182,10 @@ struct MIGI_Constants {
     int    UpdateRayBudget; 
     // Pad the fraction for ray allocation among probes, 0: error propotional, 1: avg.
     float  UpdateRayFractionPadding;
+
+    // SSRC parameters
+    // Maximum number of adaptive probes to allocate
+    int MaxAdaptiveProbeCount;
 
     // Misc parameters
     uint NoImportanceSampling;
@@ -225,6 +225,8 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 #if SSRC_TILE_SIZE != (1 << SSRC_TILE_SIZE_L2)
 #error "SSRC_TILE_SIZE != 1<<SSRC_TILE_SIZE_L2."
 #endif
+
+#define SSRC_MAX_NUM_BASIS_PER_PROBE 8
 
 #ifdef __cplusplus
 }// namespace Capsaicin
