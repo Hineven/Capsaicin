@@ -78,44 +78,26 @@ public:
     } tex_ {};
 
     struct MIGIBuffers {
-        GfxBuffer active_basis_count {};
-        GfxBuffer active_basis_index {};
-        GfxBuffer basis_effective_radius {};
-        GfxBuffer basis_film_position {};
-        GfxBuffer basis_effective_radius_film {};
-        GfxBuffer basis_location {};
-        GfxBuffer basis_parameter {};
-        GfxBuffer quantilized_basis_step {};
-        GfxBuffer basis_average_gradient_scale {};
-        GfxBuffer basis_flags {};
-        GfxBuffer free_basis_indices {};
-        GfxBuffer free_basis_indices_count {};
-        GfxBuffer tile_basis_count {};
-        GfxBuffer tile_ray_count {};
-        GfxBuffer tile_ray_offset {};
-        GfxBuffer update_ray_direction {};
-        GfxBuffer update_ray_origin {};
-        GfxBuffer update_ray_radiance_inv_pdf {};
-        GfxBuffer update_ray_cache {};
-        GfxBuffer update_ray_count {};
-        GfxBuffer tile_update_error_sums {};
-        GfxBuffer tile_update_error {};
-        GfxBuffer tile_basis_index_injection {};
-        GfxBuffer tile_base_slot_offset {};
-        GfxBuffer tile_basis_index {};
-
+        GfxBuffer count {};
         GfxBuffer dispatch_command {};
         GfxBuffer dispatch_rays_command {};
-        GfxBuffer dispatch_count {};
         GfxBuffer draw_command {};
         GfxBuffer draw_indexed_command {};
         GfxBuffer reduce_count {};
+        GfxBuffer probe_SG[2] {};
+        GfxBuffer allocated_probe_SG_count {};
+        GfxBuffer probe_update_ray_count {};
+        GfxBuffer probe_update_ray_offset {};
+        GfxBuffer update_ray_probe {};
+        GfxBuffer update_ray_direction {};
+        GfxBuffer update_ray_radiance_inv_pdf {};
+        GfxBuffer update_ray_linear_depth {};
+        GfxBuffer adaptive_probe_count {};
+        GfxBuffer probe_update_error {};
 
+        GfxBuffer debug_cursor_world_pos {};
         GfxBuffer debug_visualize_incident_radiance {};
         GfxBuffer debug_visualize_incident_radiance_sum {};
-        GfxBuffer debug_cursor_world_pos {};
-
-        GfxBuffer disk_index_buffer {};
 
         GfxBuffer readback[kGfxConstant_BackBufferCount] {};
     } buf_{};
@@ -126,65 +108,34 @@ public:
 
         GfxProgram program {};
 
-        GfxKernel  precompute_HiZ_min {};
-        GfxKernel  precompute_HiZ_max {};
+        GfxKernel  PrecomputeHiZ_min {};
+        GfxKernel  PrecomputeHiZ_max {};
 
-        GfxKernel  SSRC_clear_active_counter {};
-        GfxKernel  SSRC_reproject_and_filter {};
-        GfxKernel  SSRC_clear_tile_injection_index {};
-        GfxKernel  SSRC_inject_generate_draw_indexed {};
-        GfxKernel  SSRC_inject_reprojected_basis {};
-        GfxKernel  SSRC_clip_overflow_tile_index {};
-        GfxKernel  SSRC_allocate_extra_slot_for_basis_generation {};
-        GfxKernel  SSRC_compress_tile_basis_index {};
-        GfxKernel  SSRC_reproject_previous_update_error {};
-        GfxKernel  SSRC_precompute_ray_budget_for_tiles {};
-        GfxKernel  SSRC_tiles_set_reduce_count_32 {};
-        GfxKernel  SSRC_tiles_set_reduce_count {};
-        GfxKernel  SSRC_allocate_update_rays {};
-        GfxKernel  SSRC_sample_update_rays {};
-        GfxKernel  SSRC_generate_trace_update_rays {};
-        GfxKernel  SSRC_trace_update_rays {};
-        GfxKernel  purge_tiles {};
-        GfxKernel  clear_counters {};
-        GfxKernel  clear_reservoirs {};
-        GfxKernel  generate_reservoirs {};
-        GfxKernel  compact_reservoirs {};
-        GfxKernel  resample_reservoirs {};
-        GfxKernel  populate_cells {};
-        GfxKernel  generate_update_tiles_dispatch {};
-        GfxKernel  update_tiles {};
-        GfxKernel  resolve_cells {};
-        GfxKernel  SSRC_precompute_cache_update {};
-        GfxKernel  SSRC_compute_cache_update_step {};
-        GfxKernel  SSRC_normalize_cache_update {};
-        GfxKernel  SSRC_normalize_cache_update_set_reduce_count {};
-        GfxKernel  SSRC_apply_cache_update {};
-        GfxKernel  SSRC_spawn_new_basis {};
-        GfxKernel  SSRC_clip_over_allocation {};
-        GfxKernel  SSRC_integrate_ASG {};
-        GfxKernel  SSRC_accumulate_update_error {};
+        GfxKernel  SSRC_ClearCounters {};
+        GfxKernel  SSRC_AllocateUniformProbes {};
+        GfxKernel  SSRC_AllocateAdaptiveProbes[SSRC_MAX_ADAPTIVE_PROBE_LAYERS] {};
+        GfxKernel  SSRC_WriteProbeDispatchParameters {};
+        GfxKernel  SSRC_ReprojectProbeHistory {};
+        GfxKernel  SSRC_AllocateUpdateRays {};
+        GfxKernel  SSRC_SampleUpdateRays {};
+        GfxKernel  SSRC_GenerateTraceUpdateRays {};
+        GfxKernel  SSRC_TraceUpdateRaysMain {};
+        GfxKernel  SSRC_ReprojectPreviousUpdateError {};
+        GfxKernel  ClearReservoirs {};
+        GfxKernel  GenerateReservoirs {};
+        GfxKernel  CompactReservoirs {};
+        GfxKernel  ResampleReservoirs {};
+        GfxKernel  PopulateCellsMain {};
+        GfxKernel  GenerateUpdateTilesDispatch {};
+        GfxKernel  UpdateTiles {};
+        GfxKernel  ResolveCells {};
+        GfxKernel  SSRC_UpdateProbes {};
+        GfxKernel  SSRC_IntegrateASG {};
+        GfxKernel  DebugSSRC_FetchCursorPos {};
+        GfxKernel  DebugSSRC_PrepareUpdateRays {};
 
-        GfxKernel  SSRC_reset {};
-
-        GfxKernel  DebugSSRC_visualize_coverage {};
-        GfxKernel  DebugSSRC_visualize_tile_occupancy {};
-        GfxKernel  DebugSSRC_basis {};
-        GfxKernel  DebugSSRC_basis_3D {};
-        GfxKernel  DebugSSRC_generate_draw_indexed {};
-        GfxKernel  DebugSSRC_show_difference {};
-        GfxKernel  DebugSSRC_fetch_cursor_pos {};
-        GfxKernel  DebugSSRC_precompute_incident_radiance {};
-        GfxKernel  DebugSSRC_incident_radiance {};
-        GfxKernel  DebugSSRC_prepare_update_rays {};
-        GfxKernel  DebugSSRC_update_rays {};
-        GfxKernel  DebugSSRC_light {};
-
-        GfxKernel  generate_dispatch {};
-        GfxKernel  generate_dispatch_rays {};
-
-        GfxKernel  debug_hash_grid_cells {};
-
+        GfxKernel  GenerateDispatch {};
+        GfxKernel  GenerateDispatchRays {};
 
     } kernels_;
 

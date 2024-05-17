@@ -12,6 +12,8 @@
 
 // Use heuristic for direction update
 // #define HEURISTIC_DIRECTION_UPDATE
+// Use numerical approx for color update
+// #define OPTIMAL_COLOR_UPDATE
 // Use RMSE to guide update ray allocation
 // #define ERROR_RMSE
 
@@ -69,8 +71,6 @@ RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 
 // Buffers
 // Sparse screen space cache
-// The count of overall allocated probes
-RWStructuredBuffer<uint>   g_RWActiveProbeCountBuffer;
 // Probe headers
 // Use textures for better texture cache utilization (2x2)
 // BasisOffset : 24 bits
@@ -92,19 +92,22 @@ RWStructuredBuffer<uint>   g_RWProbeSGBuffer;
 RWStructuredBuffer<uint>   g_RWPreviousProbeSGBuffer;
 // Used when allocating SGs to probes
 RWStructuredBuffer<uint>   g_RWAllocatedProbeSGCountBuffer;
-// Irradiance for SSRC probes
+// Irradiance (actually mean radiance in all incident directions on the sphere) for SSRC probes
 // Color : 16*3, Unused: 16
-RWStructuredBuffer<uint>  g_RWProbeIrradianceBuffer;
-RWStructuredBuffer<uint>  g_RWPreviousProbeIrradianceBuffer;
-// Exponential moving average of gradient squares (color, lambda, direction), 16*2, 32
-RWStructuredBuffer<uint2>  g_RWProbeSGGradientScaleBuffer;
-RWStructuredBuffer<uint2>  g_RWPreviousProbeSGGradientScaleBuffer;  
+RWTexture2D<float4>  g_RWProbeIrradianceTexture;
+RWTexture2D<float4>  g_RWPreviousProbeIrradianceBuffer;
 
 // Number of update rays allocated for each probe
 // Must be a multiple of WAVE_SIZE
-RWStructuredBuffer<uint>  g_RWTileUpdateRayCountBuffer;
-
-// Sampling, tracing and updating are done in a single kernel, so we do not need to store update rays
+RWStructuredBuffer<uint>  g_RWProbeUpdateRayCountBuffer;
+RWStructuredBuffer<uint>  g_RWProbeUpdateRayOffsetBuffer;
+// Probe index, unorm16x2 packed
+RWStructuredBuffer<uint>  g_RWUpdateRayProbeBuffer;
+// Octahedral packed direction for each update ray (fp16x2)
+RWStructuredBuffer<uint>  g_RWUpdateRayDirectionBuffer;
+// Traced Radiance & InvPdf for each update ray
+RWStructuredBuffer<uint2>  g_RWUpdateRayRadianceInvPdfBuffer;
+RWStructuredBuffer<float>  g_RWUpdateRayLinearDepthBuffer;
 
 // Number of adaptive probes within each tile
 RWTexture2D<uint>          g_RWTileAdaptiveProbeCountTexture;

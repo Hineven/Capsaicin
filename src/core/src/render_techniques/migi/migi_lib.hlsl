@@ -33,6 +33,69 @@ float4 ClipFp16 (float4 Value) {
     return clamp(Value, -60000.f.xxxx, 60000.f.xxxx);
 }
 
+// Resolve directional shift for quantilized normal
+float3 lazyNormalize (float3 n) {
+    if(abs(dot(n, n) - 1.f) < 0.01f) {
+        return n;
+    }
+    return normalize(n);
+}
+
+// Packing and unpacking misc
+float3 UnpackFp16x3 (uint2 v) {
+    return float3(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF));
+}
+float4 UnpackFp16x4 (uint2 v) {
+    return float4(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF), f16tof32(v.y >> 16));
+}
+
+uint2 PackFp16x3Safe (float3 v) {
+    // v = ClipFp16(v);
+    return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z));
+}
+
+uint2 PackFp16x4Safe (float4 v) {
+    // v = ClipFp16(v);
+    return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z) | (f32tof16(v.w) << 16));
+}
+
+uint PackUint16x2 (uint2 v) {
+    return v.x | (v.y << 16);
+}
+
+uint2 UnpackUint16x2 (uint v) {
+    return uint2(v & 0xFFFF, v >> 16);
+}
+
+// Copy pasted from Lumen
+float2 Hammersley16( uint Index, uint NumSamples, uint2 Random )
+{
+	float E1 = frac( (float)Index / NumSamples + float( Random.x ) * (1.0 / 65536.0) );
+	float E2 = float( ( reversebits(Index) >> 16 ) ^ Random.y ) * (1.0 / 65536.0);
+	return float2( E1, E2 );
+}
+
+// to [-1, 1]^2
+float2 UnitVectorToOctahedron(float3 N)
+{
+	N.xy /= dot( 1, abs(N) );
+	if( N.z <= 0 )
+	{
+		N.xy = ( 1 - abs(N.yx) ) * select( N.xy >= 0, float2(1,1), float2(-1,-1) );
+	}
+	return N.xy;
+}
+
+// from [-1, 1]^2
+float3 OctahedronToUnitVector( float2 Oct )
+{
+	float3 N = float3( Oct, 1 - dot( 1, abs(Oct) ) );
+	float t = max( -N.z, 0 );
+	N.xy += select(N.xy >= 0, float2(-t, -t), float2(t, t));
+	return normalize(N);
+}
+
+
 // Project a point in screen space to world space
 // Transform: InvViewProj
 float3 InverseProject(in float4x4 transform, in float2 uv, in float depth)
@@ -110,23 +173,15 @@ float3 EvaluateSG(SGData SG, float3 Direction)
     return SG.Color * exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
 }
 
+float3 EvaluateSGRaw (SGData SG, float3 Direction) {
+    return exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
+}
+
 float EvaluateNormalizedSG (SGData SG, float3 Direction) {
     float raw = exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
     // Normalize the SG to make its integral equals to 1
     return raw * SGNormalizationFactor(SG.Lambda);
 }
-
-// float EvaluateBilateralFilterWeight (float PixelScale, float FilmPlaneRadius, float3 DeltaPosition, float3 ShadingPixelNormal, float3 LightingPixelNormal) {
-//     // Bilaterally filter the neighbor reservoir
-//     float DirectionalDecay = max(dot(ShadingPixelNormal, LightingPixelNormal), 0.0f);
-//     DirectionalDecay = squared(squared(DirectionalDecay)); // make it steep
-//     //return DirectionalDecay;
-//     // return DirectionalDecay;
-//     float Distance = length(DeltaPosition);
-//     float Radius = 4.f * PixelScale * FilmPlaneRadius;
-//     float DistanceDecay = exp(- Distance / Radius);
-//     return DirectionalDecay * DistanceDecay;
-// }
 
 // FDist: distance in pixels
 float EvaluateFilmCoverage (float2 FDist) {
@@ -235,7 +290,7 @@ SGData UnpackBasisData (uint4 Packed) {
     SGData SG;
     SG.Color     = float3(f16tof32(Packed.x & 0xFFFF), f16tof32(Packed.x >> 16), f16tof32(Packed.y & 0xFFFF));
     SG.Lambda    = f16tof32(Packed.y >> 16);
-    SG.Direction = UnpackNormal(Packed.z);
+    SG.Direction = OctahedronToUnitVector(unpackUnorm2x16(Packed.z) * 2 - 1);
     SG.Depth     = asfloat(Packed.w);
     return SG;
 }
@@ -247,7 +302,7 @@ uint4 PackBasisData (SGData SG) {
     Packed.x = f32tof16(SG.Color.x) | (f32tof16(SG.Color.y) << 16);
     Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
     // TODO oct encode
-    Packed.z = PackNormal(SG.Direction);
+    Packed.z = packUnorm2x16(UnitVectorToOctahedron(SG.Direction) * 0.5 + 0.5);
     Packed.w = asuint(SG.Depth);
     return Packed;
 }
@@ -266,6 +321,20 @@ SGData FetchBasisData (int BasisIndex) {
     return UnpackBasisData(Packed);
 }
 
+float3 FetchUpdateRayDirection (int RayIndex) {
+    int Packed = g_RWUpdateRayDirectionBuffer[RayIndex];
+    return OctahedronToUnitVector(unpackUnorm2x16(Packed) * 2.f - 1.f);
+}
+
+void WriteUpdateRay(int2 ProbeIndex, int2 ProbeScreenPosition, int RayRank, float3 RayDirection, float RayPdf) {
+    int ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
+    int BaseOffset = g_RWProbeUpdateRayOffsetBuffer[ProbeIndex1];
+    int RayIndex = BaseOffset + RayRank;
+    if(WaveIsFirstLane()) g_RWUpdateRayProbeBuffer[RayIndex / WAVE_SIZE] = PackUint16x2(ProbeIndex);
+    g_RWUpdateRayDirectionBuffer[RayIndex] = packUnorm2x16(UnitVectorToOctahedron(RayDirection) * 0.5 + 0.5);
+    g_RWUpdateRayRadianceInvPdfBuffer[RayIndex] = float4(0.f.xxx, 1.f / RayPdf);
+}
+
 // Misc
 
 float3 UniformSampleHemisphere (float2 u) {
@@ -274,6 +343,11 @@ float3 UniformSampleHemisphere (float2 u) {
     float Z = u.y;
     float R = sqrt(max(1.f - Z * Z, 0.f));
     return float3(R * SinCos.y, R * SinCos.x, Z);
+}
+
+float UniformSampleHemispherePdf ()
+{
+    return 1.f / (2.f * PI);
 }
 
 float3 UniformSampleSphere(float2 u)
@@ -561,41 +635,6 @@ float3 BasisIndexToColor (int BasisIndex) {
     return _BasisIndexColorMap[BasisIndex % 15];
 }
 
-// Resolve directional shift for quantilized normal
-float3 lazyNormalize (float3 n) {
-    if(abs(dot(n, n) - 1.f) < 0.01f) {
-        return n;
-    }
-    return normalize(n);
-}
-
-
-
-// Packing and unpacking misc
-float3 UnpackFp16x3 (uint2 v) {
-    return float3(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF));
-}
-float4 UnpackFp16x4 (uint2 v) {
-    return float4(f16tof32(v.x & 0xFFFF), f16tof32(v.x >> 16), f16tof32(v.y & 0xFFFF), f16tof32(v.y >> 16));
-}
-
-uint2 PackFp16x3Safe (float3 v) {
-    // v = ClipFp16(v);
-    return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z));
-}
-
-uint2 PackFp16x4Safe (float4 v) {
-    // v = ClipFp16(v);
-    return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z) | (f32tof16(v.w) << 16));
-}
-
-uint PackUint16x2 (uint2 v) {
-    return v.x | (v.y << 16);
-}
-
-uint2 UnpackUint16x2 (uint v) {
-    return uint2(v & 0xFFFF, v >> 16);
-}
 
 // G-Buffer ops
 
@@ -618,61 +657,5 @@ float3 RecoverWorldPositionHiRes (int2 TexCoords) {
     float3 WorldPosition = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
     return WorldPosition; 
 }
-
-// float GetStepScale(SGGradients Gradients, WGradients WGradients) {
-//     return
-//         sqrt((g_CacheUpdate_SGColor ? dot(Gradients.dColor, Gradients.dColor) : 0) +
-//         (g_CacheUpdate_SGLambda ? Gradients.dLambda * Gradients.dLambda : 0) +
-//         (g_CacheUpdate_SGDirection ? dot(Gradients.dDirection, Gradients.dDirection) : 0) +
-//         (g_CacheUpdate_WAlpha ? WGradients.dAlpha * WGradients.dAlpha : 0) + 
-//         (g_CacheUpdate_WLambda ? WGradients.dLambda * WGradients.dLambda : 0)) + 1e-6f;
-// }
-
-// // x: Color, y: Direction, z: Lambda
-// float3 FetchBasisGradientScales (int BasisIndex) {
-//     uint2 Packed = g_RWBasisAverageGradientScaleBuffer[BasisIndex];
-//     float3 Scales;
-//     Scales.xz = unpackHalf2(Packed.x);
-//     Scales.y = asfloat(Packed.y);
-//     return Scales;
-// }
-
-// void WriteBasisGradientScales (int BasisIndex, float3 Scales) {
-//     uint2 Packed;
-//     Packed.x = packHalf2(float2(Scales.x, Scales.z));
-//     Packed.y = asuint(Scales.y);
-//     g_RWBasisAverageGradientScaleBuffer[BasisIndex] = Packed;
-// }
-
-// Copy pasted from Lumen
-float2 Hammersley16( uint Index, uint NumSamples, uint2 Random )
-{
-	float E1 = frac( (float)Index / NumSamples + float( Random.x ) * (1.0 / 65536.0) );
-	float E2 = float( ( reversebits(Index) >> 16 ) ^ Random.y ) * (1.0 / 65536.0);
-	return float2( E1, E2 );
-}
-
-// to [-1, 1]^2
-float2 UnitVectorToOctahedron(float3 N)
-{
-	N.xy /= dot( 1, abs(N) );
-	if( N.z <= 0 )
-	{
-		N.xy = ( 1 - abs(N.yx) ) * select( N.xy >= 0, float2(1,1), float2(-1,-1) );
-	}
-	return N.xy;
-}
-
-// from [-1, 1]^2
-float3 OctahedronToUnitVector( float2 Oct )
-{
-	float3 N = float3( Oct, 1 - dot( 1, abs(Oct) ) );
-	float t = max( -N.z, 0 );
-	N.xy += select(N.xy >= 0, float2(-t, -t), float2(t, t));
-	return normalize(N);
-}
-
-
-
 
 #endif // MIGI_SHARED_HLSL

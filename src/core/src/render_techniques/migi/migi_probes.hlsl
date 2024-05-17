@@ -56,13 +56,18 @@ int2 GetScreenProbeScreenPosition (int2 ProbeIndex, bool bPrevious = false) {
     return UniformScreenProbeScreenPosition;
 }
 
+float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
+    return bPrevious ? g_RWPreviousProbePositionTexture.Load(int3(ProbeIndex, 0)).xyz
+        : g_RWProbeWorldPositionTexture.Load(int3(ProbeIndex, 0)).xyz;
+}
+
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
     // TODO: Implement this function
     return 0;
 }
 
-int GetProbeBasisCountFromRank (int Rank) {
-    return 1 << Rank;
+int GetProbeBasisCountFromClass (int ProbeClass) {
+    return 1 << Class;
 }
 
 // Get the coords of a probe within the adaptive probe index texture
@@ -98,6 +103,12 @@ int   GetScreenProbeBasisOffset (int2 ProbeIndex, bool bPrevious = false) {
     return Header.BasisOffset;
 }
 
+float3 GetScreenProbeNormal (int2 ProbeIndex, bool bPrevious = false) {
+    return bPrevious
+        ? OctahedronToUnitVector(g_RWPreviousProbeNormalTexture.Load(int3(ProbeIndex, 0)).xy * 2.f - 1.f)
+        : OctahedronToUnitVector(g_RWProbeNormalTexture.Load(int3(ProbeIndex, 0)).xy * 2.f - 1.f);
+}
+
 struct ScreenProbeMaterial {
     float3 Position;
     float  Depth;
@@ -119,6 +130,13 @@ ScreenProbeMaterial FetchScreenProbeMaterial (int2 ScreenCoords, bool HiRes) {
     return Material;
 }
 
+float3 GetScreenProbeIrradiance (int2 Index) {
+    return g_RWProbeIrradianceTexture[Index].xyz;
+}
+
+void   WriteScreenProbeIrradiance (int2 Index, float3 Irradiance) {
+    g_RWProbeIrradianceTexture[Index] = float4(Irradiance, 0);
+}
 
 
 #endif // MIGI_PROBES_HLSL

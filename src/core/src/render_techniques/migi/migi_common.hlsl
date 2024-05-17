@@ -122,8 +122,8 @@ struct ProbeHeader {
     // Screen pixel position of the probe
     int2 ScreenPosition;
     int BasisOffset;
-    // 0: 1, 1: 2, 2: 4, 3: 8, 4: 12
-    int  Rank;
+    // 0: 1, 1: 2, 2: 4, 3: 8, no larger than 8
+    int  Class;
     bool bValid;
     float  LinearDepth;
     float3 Position;
@@ -227,6 +227,7 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 #endif
 
 #define SSRC_MAX_NUM_BASIS_PER_PROBE 8
+#define SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE 128
 
 #ifdef __cplusplus
 }// namespace Capsaicin
