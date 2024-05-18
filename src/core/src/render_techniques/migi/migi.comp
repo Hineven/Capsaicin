@@ -415,10 +415,15 @@ int    LocalSGNewIndex[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 // Initialize probe cache from the previous frame, one group per probe
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
+    if(MI.ResetCache) return ;
     int2 ProbeIndex = int2(GroupID % MI.TileDimensions.x, GroupID / MI.TileDimensions.x);
     ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
-    // FIXME reprojection and clamping is missing!!!
-    asdfasfasdfasdfasdf
+    float4 PrevHomogeneousW = mul(MI.PrevCameraProjView, float4(Header.Position, 1));
+    if(PrevHomogeneousW.w <= 0) {
+        return ;
+    }sdfasfsdafdasfasdf
+    float3 PrevHomogeneous = PrevHomogeneousW.xyz / PrevHomogeneousW.w;
+    float2 PrevScreenPosition = MI.ScreenDimensions * NDC22UV(PrevHomogeneous.xy);
     SSRC_SampleData Sample;
     CalculateSSRCSampleWeights(
         Header.ScreenPosition,

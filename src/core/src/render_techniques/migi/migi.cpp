@@ -200,6 +200,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         C.Reprojection    = camera_matrices.reprojection;
         C.ForwardReprojection = glm::dmat4(camera_matrices.view_projection) * glm::inverse(glm::dmat4(camera_matrices.view_projection_prev));
+        C.PrevCameraProjView  = previous_constants_.CameraProjView;
         C.PreviousCameraPosition = previous_camera_.eye;
 
         C.FrameIndex = capsaicin.getFrameIndex();

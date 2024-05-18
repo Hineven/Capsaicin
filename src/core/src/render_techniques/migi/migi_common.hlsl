@@ -162,6 +162,8 @@ struct MIGI_Constants {
     // Prev    NDC -> Current NDC
     float4x4 ForwardReprojection;
 
+    float4x4 PrevCameraProjView;
+
     float3   PreviousCameraPosition;
 
     uint FrameIndex;
