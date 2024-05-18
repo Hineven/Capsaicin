@@ -42,8 +42,8 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal * 0.5f + 0.5f);
 }
 
-int2 GetTileJitter (int TileSize, bool bPrevious = false) {
-    return Hammersley16((bPrevious ? MI.PreviousFrameSeed : MI.FrameSeed) % 8, 8, 0) * TileSize;
+int2 GetTileJitter (bool bPrevious = false) {
+    return Hammersley16((bPrevious ? MI.PreviousFrameSeed : MI.FrameSeed) % 8, 8, 0) * SSRC_TILE_SIZE;
 }
 
 int2 GetScreenProbeScreenPosition (int2 ProbeIndex, bool bPrevious = false) {
@@ -67,7 +67,7 @@ int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {
-    return 1 << Class;
+    return (ProbeClass > 0) ? (1 << (ProbeClass - 1)) : 0;
 }
 
 // Get the coords of a probe within the adaptive probe index texture

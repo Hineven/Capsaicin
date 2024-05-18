@@ -144,8 +144,4 @@ ConstantBuffer<MIGI_Constants>              MI;
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
 RWStructuredBuffer<float3> g_RWDebugVisualizeIncidentRadianceBuffer;
 
-
-// Varying parameters for multiple invocations of the same kernel
-int g_AdaptiveProbeDownsampleFactor;
-
 #endif // MIGI_SHARED_PARAMETERS_HLSL

@@ -25,27 +25,12 @@ struct MIGIRenderOptions {
 
     bool     debug_freeze_frame_seed {false};
 
-    bool reset_screen_space_cache {false};
+    bool     reset_screen_space_cache {false};
 
     uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
-    // Maximum number of basis active in the screen space radiance cache
-    uint32_t SSRC_max_basis_count {256 * 1024};
-    // Min coverage for basis spawn
-    float SSRC_basis_spawn_coverage_threshold {3.f};
-    // Radius control for basis injection
-    float SSRC_min_weight_E {0.08f};
-    // Default initial W radius for newly generated basis
-    float SSRC_initial_W_radius {9.f};
-    // Resolution of the disk when doing rasterization for tile index injection
-    uint32_t SSRC_CR_disk_vertex_count {12};
-
-    // Ray budget for each frame
-    uint32_t SSRC_update_ray_budget {2 * 1024 * 1024};
-    // Used to pad W for cache coverage computation to prevent over allocation on surfaces parallel to the view direction
-    float    SSRC_W_coverage_padding {0.05f};
-
-    // Used to adjust the impact of importance sampling on ray allocation among tiles. 1: avg, 0: importance
-    float    SSRC_tile_fraction_padding {0.2f};
+    uint32_t SSRC_max_adaptive_probe_count {32 * 1024};
+    uint32_t SSRC_max_basis_count {4 * 1024 * 1024};
+    uint32_t SSRC_max_probe_count {};
 
     struct {
         uint32_t num_buckets_l2 {12}; // 1<<12 = 4096
@@ -72,24 +57,15 @@ struct MIGIRenderOptions {
     // If we disable importance sampling when generate update rays.
     // When enabled, rays are uniformly sampled in the hemisphere.
     bool no_importance_sampling = true;
-    // If we use fixed step size in gradient descent.
-    bool fixed_step_size = false;
+    // Whether to place adaptive probes
+    bool no_adaptive_probes = false;
     // Whether to render indirect lighting (using the hash grid cache)
     bool enable_indirect = true;
-    // Whether to freeze the allocation and deallocation of basis for visualization
-    bool freeze_basis_allocation {false};
-    // Guess the initial W (basis radius) when generating new basis
-    bool nonuniform_initial_w {false};
 
     float cache_update_learing_rate = 0.02f;
     bool  cache_update_SG_color {true};
     bool  cache_update_SG_direction {false};
     bool  cache_update_SG_lambda {false};
-    bool  cache_update_W_alpha {false};
-    bool  cache_update_W_lambda {false};
-
-    // Whether to shade with geometry normals only
-    bool shading_with_geometry_normal {false};
 
     std::string active_debug_view {};
     bool debug_view_switched {false};

@@ -15,6 +15,7 @@
 #include "components/blue_noise_sampler/blue_noise_sampler.h"
 #include "components/light_sampler_grid_stream/light_sampler_grid_stream.h"
 #include "components/stratified_sampler/stratified_sampler.h"
+#include "migi_internal.h"
 
 // Hack for missing functionalities in gfx
 
@@ -76,147 +77,68 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             defines_c.push_back(i.c_str());
         }
         defines_c.push_back("HIZ_MIN");
-        kernels_.precompute_HiZ_min = gfxCreateComputeKernel(
+        kernels_.PrecomputeHiZ_min = gfxCreateComputeKernel(
             gfx_, kernels_.program, "PrecomputeHiZ", defines_c.data(), (uint32_t)defines_c.size());
         defines_c.pop_back();
-        kernels_.precompute_HiZ_max = gfxCreateComputeKernel(
+        kernels_.PrecomputeHiZ_max = gfxCreateComputeKernel(
             gfx_, kernels_.program, "PrecomputeHiZ", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_clear_active_counter = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ClearActiveCounter", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_reproject_and_filter = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ReprojectAndFilter", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_clear_tile_injection_index = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ClearTileInjectionIndex", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_inject_generate_draw_indexed = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_InjectGenerateDrawIndexed", defines_c.data(), (uint32_t)defines_c.size());
-        GfxDrawState injection_draw_state = {};
-        // No culling
-        gfxDrawStateSetCullMode(injection_draw_state, D3D12_CULL_MODE_NONE);
-        kernels_.SSRC_inject_reprojected_basis = gfxCreateGraphicsKernel(gfx_, kernels_.program, injection_draw_state,
-            "SSRC_InjectReprojectedBasis", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_clip_overflow_tile_index = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ClipOverflowTileIndex", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_allocate_extra_slot_for_basis_generation = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_AllocateExtraSlotForBasisGeneration", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_compress_tile_basis_index = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_CompressTileBasisIndex", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_reproject_previous_update_error = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ReprojectPreviousUpdateError", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_precompute_ray_budget_for_tiles = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_PrecomputeRayBudgetForTiles", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_tiles_set_reduce_count_32 = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_TilesSetReduceCount32", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_tiles_set_reduce_count = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_TilesSetReduceCount", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_allocate_update_rays = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_AllocateUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_sample_update_rays = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_SampleUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_generate_trace_update_rays = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_GenerateTraceUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        // SSRC_trace_update_rays may be a DXR kernel, so it is created later
-        kernels_.purge_tiles = gfxCreateComputeKernel(
+
+        kernels_.GenerateDispatch = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.GenerateDispatchRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "GenerateDispatchRays", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.PurgeTiles = gfxCreateComputeKernel(
             gfx_, kernels_.program, "PurgeTiles", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.clear_counters = gfxCreateComputeKernel(
+        kernels_.ClearCounters = gfxCreateComputeKernel(
             gfx_, kernels_.program, "ClearCounters", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.clear_reservoirs = gfxCreateComputeKernel(
+        kernels_.SSRC_ClearCounters = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ClearCounters", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_AllocateUniformProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_AllocateUniformProbes", defines_c.data(), (uint32_t)defines_c.size());
+        for(int i = 0; i<SSRC_MAX_ADAPTIVE_PROBE_LAYERS; i++)
+        {
+            defines_c.push_back(("SSRC_ADAPTIVE_PROBE_LAYER=" + std::to_string(i)).c_str());
+            kernels_.SSRC_AllocateAdaptiveProbes[i] = gfxCreateComputeKernel(gfx_, kernels_.program,
+                "SSRC_AllocateAdaptiveProbes", defines_c.data(), (uint32_t)defines_c.size());
+            defines_c.pop_back();
+        }
+        kernels_.SSRC_WriteProbeDispatchParameters = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_WriteProbeDispatchParameters", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_ReprojectProbeHistory = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ReprojectProbeHistory", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_AllocateUpdateRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_AllocateUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_SampleUpdateRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_SampleUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_GenerateTraceUpdateRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_GenerateTraceUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        // SSRC_TraceUpdateRaysMain may be a DXR kernel, so it is created later
+        kernels_.SSRC_ReprojectPreviousUpdateError = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_ReprojectPreviousUpdateError", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.ClearReservoirs = gfxCreateComputeKernel(
             gfx_, kernels_.program, "ClearReservoirs", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.generate_reservoirs = gfxCreateComputeKernel(
+        kernels_.GenerateReservoirs = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateReservoirs", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.compact_reservoirs = gfxCreateComputeKernel(
+        kernels_.CompactReservoirs = gfxCreateComputeKernel(
             gfx_, kernels_.program, "CompactReservoirs", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.resample_reservoirs = gfxCreateComputeKernel(
+        kernels_.ResampleReservoirs = gfxCreateComputeKernel(
             gfx_, kernels_.program, "ResampleReservoirs", defines_c.data(), (uint32_t)defines_c.size());
         // PopulateCells may be a DXR kernel, so it is created later
-        kernels_.generate_update_tiles_dispatch = gfxCreateComputeKernel(
+        kernels_.GenerateUpdateTilesDispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateUpdateTilesDispatch", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.update_tiles = gfxCreateComputeKernel(
+        kernels_.UpdateTiles = gfxCreateComputeKernel(
             gfx_, kernels_.program, "UpdateTiles", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.resolve_cells = gfxCreateComputeKernel(
+        kernels_.ResolveCells = gfxCreateComputeKernel(
             gfx_, kernels_.program, "ResolveCells", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_precompute_cache_update = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_PrecomputeCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_compute_cache_update_step = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ComputeCacheUpdateStep", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_normalize_cache_update = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_NormalizeCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_normalize_cache_update_set_reduce_count = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_NormalizeCacheUpdateSetReduceCount", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_apply_cache_update = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ApplyCacheUpdate", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_spawn_new_basis = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_SpawnNewBasis", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_clip_over_allocation = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ClipOverAllocation", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_integrate_ASG = gfxCreateComputeKernel(
+        kernels_.SSRC_UpdateProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_IntegrateASG = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_accumulate_update_error = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_AccumulateUpdateError", defines_c.data(), (uint32_t)defines_c.size());
 
-        kernels_.SSRC_reset = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_Reset", defines_c.data(), (uint32_t)defines_c.size());
-
-        kernels_.DebugSSRC_visualize_coverage = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "DebugSSRC_VisualizeCoverage", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.DebugSSRC_visualize_tile_occupancy = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "DebugSSRC_VisualizeTileOccupancy", defines_c.data(), (uint32_t)defines_c.size());
-        GfxDrawState debug_basis_draw_state = {};
-        // No culling
-        gfxDrawStateSetCullMode(debug_basis_draw_state, D3D12_CULL_MODE_NONE);
-        gfxDrawStateSetDepthStencilTarget(debug_basis_draw_state, tex_.depth);
-        gfxDrawStateSetColorTarget(debug_basis_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
-        kernels_.DebugSSRC_basis = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_basis_draw_state,
-            "DebugSSRC_Basis", defines_c.data(), (uint32_t)defines_c.size());
-        gfxDrawStateSetFillMode(debug_basis_draw_state, D3D12_FILL_MODE_WIREFRAME);
-        kernels_.DebugSSRC_basis_3D = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_basis_draw_state,
-            "DebugSSRC_Basis3D", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.DebugSSRC_generate_draw_indexed = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "DebugSSRC_GenerateDrawIndexed", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.DebugSSRC_show_difference = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "DebugSSRC_ShowDifference", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.DebugSSRC_fetch_cursor_pos = gfxCreateComputeKernel(
+        kernels_.DebugSSRC_FetchCursorPos = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_FetchCursorPos", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.DebugSSRC_precompute_incident_radiance = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "DebugSSRC_PrecomputeIncidentRadiance", defines_c.data(), (uint32_t)defines_c.size());
-        GfxDrawState debug_incident_radiance_draw_state = {};
-        // No culling
-        gfxDrawStateSetCullMode(debug_incident_radiance_draw_state, D3D12_CULL_MODE_NONE);
-        // Depth test on
-        gfxDrawStateSetDepthStencilTarget(debug_incident_radiance_draw_state, tex_.depth);
-        gfxDrawStateSetDepthWriteMask(debug_incident_radiance_draw_state, D3D12_DEPTH_WRITE_MASK_ALL);
-        gfxDrawStateSetColorTarget(debug_incident_radiance_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
-        gfxDrawStateSetFillMode(debug_incident_radiance_draw_state, D3D12_FILL_MODE_SOLID);
-        __override_primitive_topology = true;
-        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-        kernels_.DebugSSRC_incident_radiance = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_incident_radiance_draw_state,
-            "DebugSSRC_IncidentRadiance", defines_c.data(), (uint32_t)defines_c.size());
-        __override_primitive_topology = false;
-        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-
-        kernels_.DebugSSRC_prepare_update_rays = gfxCreateComputeKernel(
+        kernels_.DebugSSRC_PrepareUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_PrepareUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        GfxDrawState debug_update_rays_draw_state = {};
-        // No culling
-        gfxDrawStateSetCullMode(debug_update_rays_draw_state, D3D12_CULL_MODE_NONE);
-        // Depth test on but no write
-        gfxDrawStateSetDepthStencilTarget(debug_update_rays_draw_state, tex_.depth);
-        gfxDrawStateSetDepthWriteMask(debug_update_rays_draw_state, D3D12_DEPTH_WRITE_MASK_ZERO);
-        gfxDrawStateSetColorTarget(debug_update_rays_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
-        gfxDrawStateSetFillMode(debug_update_rays_draw_state, D3D12_FILL_MODE_SOLID);
-        __override_primitive_topology = true;
-        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-        kernels_.DebugSSRC_update_rays         = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_incident_radiance_draw_state,
-            "DebugSSRC_UpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        __override_primitive_topology = false;
-        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-
-        kernels_.DebugSSRC_light = gfxCreateGraphicsKernel(gfx_, kernels_.program, debug_incident_radiance_draw_state,
-            "DebugSSRC_Light", defines_c.data(), (uint32_t)defines_c.size());
-
-        kernels_.generate_dispatch = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.generate_dispatch_rays = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "GenerateDispatchRays", defines_c.data(), (uint32_t)defines_c.size());
 
         if (options_.use_dxr10)
         {
@@ -231,7 +153,7 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             screen_cache_update_exports.push_back(MIGIRT::kScreenCacheUpdateClosestHitShaderName);
             std::vector<char const *> screen_cache_update_subobjects = base_subobjects;
             screen_cache_update_subobjects.push_back(MIGIRT::kScreenCacheUpdateHitGroupName);
-            kernels_.SSRC_trace_update_rays = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
+            kernels_.SSRC_TraceUpdateRaysMain = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
                 screen_cache_update_exports.data(), (uint32_t)screen_cache_update_exports.size(),
                 screen_cache_update_subobjects.data(), (uint32_t)screen_cache_update_subobjects.size(),
                 defines_c.data(), (uint32_t)defines_c.size());
@@ -243,12 +165,10 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             populate_cells_kernel_exports.push_back(MIGIRT::kPopulateCellsClosestHitShaderName);
             std::vector<char const *> populate_cells_kernel_subobjects = base_subobjects;
             populate_cells_kernel_subobjects.push_back(MIGIRT::kPopulateCellsHitGroupName);
-            kernels_.populate_cells = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
+            kernels_.PopulateCellsMain = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
                 populate_cells_kernel_exports.data(), (uint32_t)populate_cells_kernel_exports.size(),
                 populate_cells_kernel_subobjects.data(), (uint32_t)populate_cells_kernel_subobjects.size(),
                 defines_c.data(), (uint32_t)defines_c.size());
-
-            //generate_dispatch_rays_kernel_ = gfxCreateComputeKernel(gfx_, kernels_.program, "GenerateDispatchRays");
 
             uint32_t entry_count[kGfxShaderGroupType_Count] {
                 capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Raygen),
@@ -256,14 +176,14 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
                 gfxSceneGetInstanceCount(capsaicin.getScene())
                     * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
                 capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Callable)};
-            GfxKernel sbt_kernels[] {kernels_.SSRC_trace_update_rays, kernels_.populate_cells};
+            GfxKernel sbt_kernels[] {kernels_.SSRC_TraceUpdateRaysMain, kernels_.PopulateCellsMain};
             sbt_ = gfxCreateSbt(gfx_, sbt_kernels, ARRAYSIZE(sbt_kernels), entry_count);
         }
         else
         {
-            kernels_.SSRC_trace_update_rays                 = gfxCreateComputeKernel(
+            kernels_.SSRC_TraceUpdateRaysMain                 = gfxCreateComputeKernel(
                 gfx_, kernels_.program, "SSRC_TraceUpdateRaysMain", defines_c.data(), (uint32_t)defines_c.size());
-            kernels_.populate_cells = gfxCreateComputeKernel(
+            kernels_.PopulateCellsMain = gfxCreateComputeKernel(
                 gfx_, kernels_.program, "PopulateCellsMain", defines_c.data(), (uint32_t)defines_c.size());
         }
 
@@ -271,13 +191,67 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
     return true;
 }
 
-bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
-    auto divideAndRoundUp = [](uint32_t a, uint32_t b) -> uint32_t {
-        return (a + b - 1) / b;
-    };
+bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
+    // Do nothing
+    return true;
+}
 
-    tex_.cache_coverage = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, 1);
-    tex_.cache_coverage.setName("CacheCoverageTexture");
+bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
+
+    // Textures
+    int probe_texture_width = divideAndRoundUp(capsaicin.getWidth(), SSRC_TILE_SIZE);
+    int probe_texture_height_uniform = divideAndRoundUp(capsaicin.getHeight(), SSRC_TILE_SIZE);
+    int probe_texture_height = probe_texture_height_uniform + divideAndRoundUp(options_.SSRC_max_adaptive_probe_count, probe_texture_width);
+    if(probe_texture_height > 4096) {
+        std::cerr << "(Probe texture) Overflowing texture dimensions: " << probe_texture_height << std::endl;
+        return false;
+    }
+
+    tex_.probe_header_packed[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
+    tex_.probe_header_packed[0].setName("ProbeHeaderPacked0");
+    tex_.probe_header_packed[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
+    tex_.probe_header_packed[1].setName("ProbeHeaderPacked1");
+
+    tex_.probe_screen_position[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
+    tex_.probe_screen_position[0].setName("ProbeScreenPosition0");
+    tex_.probe_screen_position[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
+    tex_.probe_screen_position[1].setName("ProbeScreenPosition1");
+
+    tex_.probe_linear_depth[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_FLOAT);
+    tex_.probe_linear_depth[0].setName("ProbeLinearDepth0");
+    tex_.probe_linear_depth[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_FLOAT);
+    tex_.probe_linear_depth[1].setName("ProbeLinearDepth1");
+
+    tex_.probe_world_position[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32G32B32_FLOAT);
+    tex_.probe_world_position[0].setName("ProbeWorldPosition0");
+    tex_.probe_world_position[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32G32B32_FLOAT);
+    tex_.probe_world_position[1].setName("ProbeWorldPosition1");
+
+    tex_.probe_normal[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16_UNORM);
+    tex_.probe_normal[0].setName("ProbeNormal0");
+    tex_.probe_normal[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16_UNORM);
+    tex_.probe_normal[1].setName("ProbeNormal1");
+
+    tex_.probe_irradiance[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_irradiance[0].setName("ProbeIrradiance0");
+    tex_.probe_irradiance[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_irradiance[1].setName("ProbeIrradiance1");
+
+    int tile_texture_width = divideAndRoundUp(capsaicin.getWidth(), SSRC_TILE_SIZE);
+    int tile_texture_height = divideAndRoundUp(capsaicin.getHeight(), SSRC_TILE_SIZE);
+
+    tex_.tile_adaptive_probe_count[0] = gfxCreateTexture2D(gfx_, tile_texture_width, tile_texture_height, DXGI_FORMAT_R16_UINT);
+    tex_.tile_adaptive_probe_count[0].setName("TileAdaptiveProbeCount0");
+    tex_.tile_adaptive_probe_count[1] = gfxCreateTexture2D(gfx_, tile_texture_width, tile_texture_height, DXGI_FORMAT_R16_UINT);
+    tex_.tile_adaptive_probe_count[1].setName("TileAdaptiveProbeCount1");
+
+    int tile_index_texture_width = tile_texture_width * SSRC_TILE_SIZE;
+    int tile_index_texture_height = tile_texture_height * SSRC_TILE_SIZE;
+    tex_.tile_adaptive_probe_index[0] = gfxCreateTexture2D(gfx_, tile_index_texture_width, tile_index_texture_height, DXGI_FORMAT_R16_UINT);
+    tex_.tile_adaptive_probe_index[0].setName("TileAdaptiveProbeIndex0");
+    tex_.tile_adaptive_probe_index[1] = gfxCreateTexture2D(gfx_, tile_index_texture_width, tile_index_texture_height, DXGI_FORMAT_R16_UINT);
+    tex_.tile_adaptive_probe_index[1].setName("TileAdaptiveProbeIndex1");
+
     assert(capsaicin.getWidth() % 8 == 0 && capsaicin.getHeight() % 8 == 0);
     tex_.update_error_splat[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, SSRC_TILE_SIZE_L2 + 1);
     tex_.update_error_splat[0].setName("UpdateErrorSplat0");
@@ -293,71 +267,47 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.depth.setName("Depth (MIGI)");
 
     // Buffers
-    buf_.active_basis_count    = gfxCreateBuffer<uint32_t>(gfx_, 1);
-    buf_.active_basis_count.setName("ActiveBasisCount");
-    buf_.active_basis_index    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.active_basis_index.setName("ActiveBasisIndex");
-    buf_.basis_effective_radius= gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.basis_effective_radius.setName("BasisEffectiveRadius");
-    buf_.basis_film_position   = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.basis_film_position.setName("BasisFilmPosition");
-    buf_.basis_effective_radius_film = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.basis_effective_radius_film.setName("BasisEffectiveRadiusFilm");
-    buf_.basis_location        = gfxCreateBuffer<float3>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.basis_location.setName("BasisLocation");
-    buf_.basis_parameter       = gfxCreateBuffer<float>(gfx_, cfg_.basis_buffer_allocation * 4);
-    buf_.basis_parameter.setName("BasisParameter");
-    buf_.quantilized_basis_step= gfxCreateBuffer<uint>(gfx_, cfg_.basis_buffer_allocation * 7);
-    buf_.quantilized_basis_step.setName("QuantilizedBasisStep");
-    buf_.basis_average_gradient_scale = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation * 2);
-    buf_.basis_average_gradient_scale.setName("BasisAverageGradientScale");
-    buf_.basis_flags           = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.basis_flags.setName("BasisFlags");
-    buf_.free_basis_indices    = gfxCreateBuffer<uint32_t>(gfx_, cfg_.basis_buffer_allocation);
-    buf_.free_basis_indices.setName("FreeBasisIndices");
-    buf_.free_basis_indices_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
-    buf_.free_basis_indices_count.setName("FreeBasisIndicesCount");
-    assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
-    int ssrc_tile_count = options_.width / SSRC_TILE_SIZE * options_.height / SSRC_TILE_SIZE;
-    buf_.tile_basis_count      = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
-    buf_.tile_basis_count.setName("TileBasisCount");
-    buf_.tile_ray_count        = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
-    buf_.tile_ray_count.setName("TileRayCount");
-    buf_.tile_ray_offset       = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
-    buf_.tile_ray_offset.setName("TileRayOffset");
-    buf_.update_ray_direction  = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
-    buf_.update_ray_direction.setName("UpdateRayDirection");
-    buf_.update_ray_origin     = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
-    buf_.update_ray_origin.setName("UpdateRayOrigin");
-    buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
-    buf_.update_ray_radiance_inv_pdf.setName("UpdateRayRadiancePdf");
-    buf_.update_ray_cache      = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
-    buf_.update_ray_cache.setName("UpdateRayCache");
-    buf_.update_ray_count      = gfxCreateBuffer<uint32_t>(gfx_, 1);
-    buf_.update_ray_count.setName("UpdateRayCount");
-    buf_.tile_update_error_sums= gfxCreateBuffer<float>(gfx_, divideAndRoundUp(ssrc_tile_count, cfg_.wave_lane_count));
-    buf_.tile_update_error_sums.setName("TileUpdateErrorSums");
-    buf_.tile_update_error     = gfxCreateBuffer<float>(gfx_, 1);
-    buf_.tile_update_error.setName("TileUpdateError");
-    buf_.tile_basis_index_injection = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count * SSRC_MAX_BASIS_PER_TILE);
-    buf_.tile_basis_index_injection.setName("TileBasisIndexInjection");
-    buf_.tile_base_slot_offset = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count);
-    buf_.tile_base_slot_offset.setName("TileBaseSlotOffset");
-    buf_.tile_basis_index      = gfxCreateBuffer<uint32_t>(gfx_, ssrc_tile_count * (SSRC_MAX_BASIS_PER_TILE + 1));
-    buf_.tile_basis_index.setName("TileBasisIndex");
-
-    buf_.dispatch_count        = gfxCreateBuffer<uint32_t>(gfx_, 1);
-    buf_.dispatch_count.setName("DispatchCount");
-    buf_.dispatch_command      = gfxCreateBuffer<DispatchCommand>(gfx_, 1);
+    buf_.count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.count.setName("Count");
+    buf_.dispatch_command = gfxCreateBuffer<DispatchCommand>(gfx_, 1);
     buf_.dispatch_command.setName("DispatchCommand");
     buf_.dispatch_rays_command = gfxCreateBuffer<DispatchRaysCommand>(gfx_, 1);
     buf_.dispatch_rays_command.setName("DispatchRaysCommand");
-    buf_.draw_command          = gfxCreateBuffer<DrawCommand>(gfx_, 1);
+    buf_.draw_command = gfxCreateBuffer<DrawCommand>(gfx_, 1);
     buf_.draw_command.setName("DrawCommand");
-    buf_.draw_indexed_command  = gfxCreateBuffer<DrawIndexedCommand>(gfx_, 1);
+    buf_.draw_indexed_command = gfxCreateBuffer<DrawIndexedCommand>(gfx_, 1);
     buf_.draw_indexed_command.setName("DrawIndexedCommand");
-    buf_.reduce_count          = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.reduce_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.reduce_count.setName("ReduceCount");
+
+    buf_.probe_SG[0] = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_basis_count);
+    buf_.probe_SG[0].setName("ProbeSG0");
+    buf_.probe_SG[1] = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_basis_count);
+    buf_.probe_SG[1].setName("ProbeSG1");
+
+    buf_.allocated_probe_SG_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.allocated_probe_SG_count.setName("AllocatedProbeSGCount");
+
+    buf_.probe_update_ray_count = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_probe_count);
+    buf_.probe_update_ray_count.setName("ProbeUpdateRayCount");
+    buf_.probe_update_ray_offset = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_probe_count);
+    buf_.probe_update_ray_offset.setName("ProbeUpdateRayOffset");
+
+    buf_.update_ray_probe = gfxCreateBuffer<uint32_t>(gfx_, divideAndRoundUp(options_.SSRC_max_update_ray_count, cfg_.wave_lane_count));
+    buf_.update_ray_probe.setName("UpdateRayProbe");
+    buf_.update_ray_direction = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
+    buf_.update_ray_direction.setName("UpdateRayDirection");
+    buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
+    buf_.update_ray_radiance_inv_pdf.setName("UpdateRayRadiancePdf");
+    buf_.update_ray_linear_depth = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
+    buf_.update_ray_linear_depth.setName("UpdateRayLinearDepth");
+
+    buf_.adaptive_probe_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.adaptive_probe_count.setName("AdaptiveProbeCount");
+    buf_.probe_update_error = gfxCreateBuffer<float>(gfx_, options_.SSRC_max_probe_count);
+    buf_.probe_update_error.setName("ProbeUpdateError");
+
+    assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
 
     buf_.debug_visualize_incident_radiance = gfxCreateBuffer<float3>(gfx_, cfg_.max_debug_visualize_incident_radiance_num_points);
     buf_.debug_visualize_incident_radiance.setName("DebugVisualizeIncidentRadiance");
@@ -365,17 +315,6 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.debug_visualize_incident_radiance_sum.setName("DebugVisualizeIncidentRadianceSum");
     buf_.debug_cursor_world_pos = gfxCreateBuffer<float3>(gfx_, 1);
     buf_.debug_cursor_world_pos.setName("DebugCursorWorldPos");
-
-    // Initialize the disk index buffer for injection
-    std::vector<uint32_t> disk_index_buffer;
-    for(int i = 0; i<(int)options_.SSRC_CR_disk_vertex_count - 2; i++)
-    {
-        disk_index_buffer.push_back(0);
-        disk_index_buffer.push_back(i + 1);
-        disk_index_buffer.push_back(i + 2);
-    }
-    buf_.disk_index_buffer     = gfxCreateBuffer<uint32_t>(gfx_, (options_.SSRC_CR_disk_vertex_count - 2) * 3, disk_index_buffer.data());
-    buf_.disk_index_buffer.setName("DiskIndexBuffer");
 
     for(auto & e : buf_.readback)
     {
@@ -394,11 +333,15 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
     }
     updateRenderOptions(capsaicin);
 
+    if(!initKernels(capsaicin)) {
+        return false;
+    }
+
     if(!initResources(capsaicin)) {
         return false;
     }
 
-    if(!initKernels(capsaicin)) {
+    if(!initGraphicsKernels(capsaicin)) {
         return false;
     }
 
@@ -415,107 +358,43 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
     return true;
 }
 
-void MIGI::terminate() noexcept
+void MIGI::releaseKernels()
 {
-    // Config
-    cfg_ = {};
-    // Free all program & kernels
+    gfxDestroyKernel(gfx_, kernels_.PrecomputeHiZ_min);
+    gfxDestroyKernel(gfx_, kernels_.PrecomputeHiZ_max);
+    gfxDestroyKernel(gfx_, kernels_.GenerateDispatch);
+    gfxDestroyKernel(gfx_, kernels_.GenerateDispatchRays);
+    gfxDestroyKernel(gfx_, kernels_.PurgeTiles);
+    gfxDestroyKernel(gfx_, kernels_.ClearCounters);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_ClearCounters);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_AllocateUniformProbes);
+    for(int i = 0; i<SSRC_MAX_ADAPTIVE_PROBE_LAYERS; i++)
     {
-        gfxDestroyKernel(gfx_, kernels_.purge_tiles);
-        gfxDestroyKernel(gfx_, kernels_.clear_counters);
-        gfxDestroyKernel(gfx_, kernels_.clear_reservoirs);
-        gfxDestroyKernel(gfx_, kernels_.generate_reservoirs);
-        gfxDestroyKernel(gfx_, kernels_.compact_reservoirs);
-        gfxDestroyKernel(gfx_, kernels_.resample_reservoirs);
-        gfxDestroyKernel(gfx_, kernels_.populate_cells);
-        gfxDestroyKernel(gfx_, kernels_.generate_update_tiles_dispatch);
-        gfxDestroyKernel(gfx_, kernels_.update_tiles);
-        gfxDestroyKernel(gfx_, kernels_.resolve_cells);
-        gfxDestroyKernel(gfx_, kernels_.precompute_HiZ_min);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_clear_active_counter);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_reproject_and_filter);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_clear_tile_injection_index);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_inject_generate_draw_indexed);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_inject_reprojected_basis);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_clip_overflow_tile_index);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_allocate_extra_slot_for_basis_generation);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_compress_tile_basis_index);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_precompute_cache_update);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_compute_cache_update_step);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_normalize_cache_update);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_normalize_cache_update_set_reduce_count);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_apply_cache_update);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_spawn_new_basis);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_clip_over_allocation);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_integrate_ASG);
-        gfxDestroyKernel(gfx_, kernels_.SSRC_reset);
-
-        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_coverage);
-        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_visualize_tile_occupancy);
-        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis);
-        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_basis_3D);
-        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_generate_draw_indexed);
-        gfxDestroyKernel(gfx_, kernels_.DebugSSRC_show_difference);
-
-        gfxDestroyKernel(gfx_, kernels_.generate_dispatch);
-        gfxDestroyKernel(gfx_, kernels_.generate_dispatch_rays);
-        gfxDestroyKernel(gfx_, kernels_.debug_hash_grid_cells);
-
-        gfxDestroyProgram(gfx_, kernels_.program);
-
-        kernels_ = {};
+        gfxDestroyKernel(gfx_, kernels_.SSRC_AllocateAdaptiveProbes[i]);
     }
-    // Destroy all existing resources
-    {
+    gfxDestroyKernel(gfx_, kernels_.SSRC_WriteProbeDispatchParameters);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectProbeHistory);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_AllocateUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_SampleUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_GenerateTraceUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_TraceUpdateRaysMain);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
+    gfxDestroyKernel(gfx_, kernels_.ClearReservoirs);
+    gfxDestroyKernel(gfx_, kernels_.GenerateReservoirs);
+    gfxDestroyKernel(gfx_, kernels_.CompactReservoirs);
+    gfxDestroyKernel(gfx_, kernels_.ResampleReservoirs);
+    gfxDestroyKernel(gfx_, kernels_.PopulateCellsMain);
+    gfxDestroyKernel(gfx_, kernels_.GenerateUpdateTilesDispatch);
+    gfxDestroyKernel(gfx_, kernels_.UpdateTiles);
+    gfxDestroyKernel(gfx_, kernels_.ResolveCells);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareUpdateRays);
 
-        gfxDestroyTexture(gfx_, tex_.cache_coverage);
-        gfxDestroyTexture(gfx_, tex_.update_error_splat[0]);
-        gfxDestroyTexture(gfx_, tex_.update_error_splat[1]);
-        gfxDestroyTexture(gfx_, tex_.HiZ_min);
-        gfxDestroyTexture(gfx_, tex_.HiZ_max);
-        gfxDestroyTexture(gfx_, tex_.depth);
+    gfxDestroyProgram(gfx_, kernels_.program);
 
-        gfxDestroyBuffer(gfx_, buf_.active_basis_count);
-        gfxDestroyBuffer(gfx_, buf_.active_basis_index);
-        gfxDestroyBuffer(gfx_, buf_.basis_effective_radius);
-        gfxDestroyBuffer(gfx_, buf_.basis_film_position);
-        gfxDestroyBuffer(gfx_, buf_.basis_effective_radius_film);
-        gfxDestroyBuffer(gfx_, buf_.basis_location);
-        gfxDestroyBuffer(gfx_, buf_.basis_parameter);
-        gfxDestroyBuffer(gfx_, buf_.quantilized_basis_step);
-        gfxDestroyBuffer(gfx_, buf_.basis_average_gradient_scale);
-        gfxDestroyBuffer(gfx_, buf_.basis_flags);
-        gfxDestroyBuffer(gfx_, buf_.free_basis_indices);
-        gfxDestroyBuffer(gfx_, buf_.free_basis_indices_count);
-        gfxDestroyBuffer(gfx_, buf_.tile_basis_count);
-        gfxDestroyBuffer(gfx_, buf_.tile_ray_count);
-        gfxDestroyBuffer(gfx_, buf_.tile_ray_offset);
-        gfxDestroyBuffer(gfx_, buf_.update_ray_direction);
-        gfxDestroyBuffer(gfx_, buf_.update_ray_origin);
-        gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_inv_pdf);
-        gfxDestroyBuffer(gfx_, buf_.update_ray_cache);
-        gfxDestroyBuffer(gfx_, buf_.update_ray_count);
-        gfxDestroyBuffer(gfx_, buf_.tile_update_error_sums);
-        gfxDestroyBuffer(gfx_, buf_.tile_update_error);
-        gfxDestroyBuffer(gfx_, buf_.tile_basis_index_injection);
-        gfxDestroyBuffer(gfx_, buf_.tile_base_slot_offset);
-        gfxDestroyBuffer(gfx_, buf_.tile_basis_index);
-        gfxDestroyBuffer(gfx_, buf_.disk_index_buffer);
-        for(const auto & i : buf_.readback)
-        {
-            gfxDestroyBuffer(gfx_, i);
-        }
-
-        gfxDestroyBuffer(gfx_, buf_.dispatch_count);
-        gfxDestroyBuffer(gfx_, buf_.dispatch_command);
-        gfxDestroyBuffer(gfx_, buf_.dispatch_rays_command);
-        gfxDestroyBuffer(gfx_, buf_.draw_command);
-        gfxDestroyBuffer(gfx_, buf_.draw_indexed_command);
-        gfxDestroyBuffer(gfx_, buf_.reduce_count);
-
-        tex_ = {};
-        buf_ = {};
-    }
+    kernels_ = {};
 
     // Free SBT
     if (sbt_)
@@ -523,6 +402,70 @@ void MIGI::terminate() noexcept
         gfxDestroySbt(gfx_, sbt_);
         sbt_ = {};
     }
+}
+
+void MIGI::releaseResources()
+{
+    // Free textures
+    gfxDestroyTexture(gfx_, tex_.probe_header_packed[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_header_packed[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_screen_position[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_screen_position[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_linear_depth[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_linear_depth[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_world_position[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_world_position[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_normal[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_normal[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_irradiance[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_irradiance[1]);
+    gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[0]);
+    gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[1]);
+    gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_index[0]);
+    gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_index[1]);
+    gfxDestroyTexture(gfx_, tex_.update_error_splat[0]);
+    gfxDestroyTexture(gfx_, tex_.update_error_splat[1]);
+    gfxDestroyTexture(gfx_, tex_.HiZ_min);
+    gfxDestroyTexture(gfx_, tex_.HiZ_max);
+    gfxDestroyTexture(gfx_, tex_.depth);
+
+    // Free buffers
+    gfxDestroyBuffer(gfx_, buf_.count);
+    gfxDestroyBuffer(gfx_, buf_.dispatch_command);
+    gfxDestroyBuffer(gfx_, buf_.dispatch_rays_command);
+    gfxDestroyBuffer(gfx_, buf_.draw_command);
+    gfxDestroyBuffer(gfx_, buf_.draw_indexed_command);
+    gfxDestroyBuffer(gfx_, buf_.reduce_count);
+    gfxDestroyBuffer(gfx_, buf_.probe_SG[0]);
+    gfxDestroyBuffer(gfx_, buf_.probe_SG[1]);
+    gfxDestroyBuffer(gfx_, buf_.allocated_probe_SG_count);
+    gfxDestroyBuffer(gfx_, buf_.probe_update_ray_count);
+    gfxDestroyBuffer(gfx_, buf_.probe_update_ray_offset);
+    gfxDestroyBuffer(gfx_, buf_.update_ray_probe);
+    gfxDestroyBuffer(gfx_, buf_.update_ray_direction);
+    gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_inv_pdf);
+    gfxDestroyBuffer(gfx_, buf_.update_ray_linear_depth);
+    gfxDestroyBuffer(gfx_, buf_.adaptive_probe_count);
+    gfxDestroyBuffer(gfx_, buf_.probe_update_error);
+    gfxDestroyBuffer(gfx_, buf_.debug_cursor_world_pos);
+    gfxDestroyBuffer(gfx_, buf_.debug_visualize_incident_radiance);
+    gfxDestroyBuffer(gfx_, buf_.debug_visualize_incident_radiance_sum);
+
+    for(const auto & i : buf_.readback)
+    {
+        gfxDestroyBuffer(gfx_, i);
+    }
+
+    tex_ = {};
+    buf_ = {};
+}
+
+void MIGI::terminate() noexcept
+{
+    // Config
+    cfg_ = {};
+    releaseKernels();
+    releaseResources();
 }
 
 std::vector<std::string> MIGI::getShaderCompileDefinitions(const CapsaicinInternal & capsaicin) const
@@ -536,14 +479,14 @@ std::vector<std::string> MIGI::getShaderCompileDefinitions(const CapsaicinIntern
 
     for(auto e : light_sampler_defines) ret.push_back(e);
 
-    if (capsaicin.hasAOVBuffer("OcclusionAndBentNormal")) ret.push_back("HAS_OCCLUSION");
-    ret.push_back("USE_RESAMPLING");
+    if (capsaicin.hasAOVBuffer("OcclusionAndBentNormal")) ret.emplace_back("HAS_OCCLUSION");
+    ret.emplace_back("USE_RESAMPLING");
 
-    if(options_.enable_indirect) ret.push_back("ENABLE_INDIRECT");
+    if(options_.enable_indirect) ret.emplace_back("ENABLE_INDIRECT");
 
     if (capsaicin.getCurrentDebugView().starts_with("HashGridCache_"))
     {
-        ret.push_back("DEBUG_HASH_CELLS");
+        ret.emplace_back("DEBUG_HASH_CELLS");
     }
 
     return ret;

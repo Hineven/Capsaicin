@@ -10,29 +10,13 @@
 #include "components/stratified_sampler/stratified_sampler.h"
 
 #include "migi.h"
+#include "migi_internal.h"
 
 namespace Capsaicin {
 
 RenderOptionList MIGI::getRenderOptions() noexcept
 {
     auto ret = RenderOptionList();
-
-//    ret.emplace("lr_rate", options_.cache_update_learing_rate);
-//    ret.emplace("cache_update_SG_color", options_.cache_update_SG_color);
-//    ret.emplace("cache_update_SG_direction", options_.cache_update_SG_direction);
-//    ret.emplace("cache_update_SG_lambda", options_.cache_update_SG_lambda);
-//    ret.emplace("cache_update_W_lambda", options_.cache_update_W_lambda);
-
-//    ret.emplace("reset_screen_space_cache", options_.reset_screen_space_cache);
-
-    ret.emplace("SSRC_max_basis_count", options_.SSRC_max_basis_count);
-//    ret.emplace("SSRC_basis_spawn_coverage_threshold", options_.SSRC_basis_spawn_coverage_threshold);
-//    ret.emplace("SSRC_min_weight_E", options_.SSRC_min_weight_E);
-//    ret.emplace("SSRC_initial_W_radius", options_.SSRC_initial_W_radius);
-
-    ret.emplace("shading_with_geometry_normal", options_.shading_with_geometry_normal);
-//    ret.emplace("no_importance_sampling", options_.no_importance_sampling);
-    ret.emplace("fixed_step_size", options_.fixed_step_size);
     ret.emplace("enable_indirect", options_.enable_indirect);
 
     return ret;
@@ -64,21 +48,24 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     uint32_t new_width = capsaicin.getWidth();
     uint32_t new_height = capsaicin.getHeight();
     if(options_.width != new_width || options_.height != new_height) {
-        need_resize_ = true;
+        need_reload_memory_ = true;
     }
     options_.width = new_width;
     options_.height = new_height;
 
-    assert(options_.SSRC_update_ray_budget * 1.5 <= options_.SSRC_max_update_ray_count);
-    options_.SSRC_max_basis_count      = std::min((int)std::get<uint32_t>(in["SSRC_max_basis_count"]), cfg_.basis_buffer_allocation);
+    int uniform_probe_x = divideAndRoundUp(options_.width, SSRC_TILE_SIZE);
+    int uniform_probe_y = divideAndRoundUp(options_.height, SSRC_TILE_SIZE);
+    int uniform_probe_count = uniform_probe_x * uniform_probe_y;
+    int max_probe_count = options_.SSRC_max_adaptive_probe_count + uniform_probe_count;
+    if(options_.SSRC_max_probe_count != max_probe_count) {
+        need_reload_memory_ = true;
+    }
+    options_.SSRC_max_probe_count      = max_probe_count;
 
     // Only SSRC update rays request ReSTIR sampling.
     options_.restir.max_query_ray_count = options_.SSRC_max_update_ray_count;
 
 
-    options_.shading_with_geometry_normal = std::get<bool>(in["shading_with_geometry_normal"]);
-//    options_.no_importance_sampling = std::get<bool>(in["no_importance_sampling"]);
-    options_.fixed_step_size = std::get<bool>(in["fixed_step_size"]);
     auto new_enable_indirect = std::get<bool>(in["enable_indirect"]);
     if(options_.enable_indirect != new_enable_indirect) {
         need_reload_kernel_ = true;
@@ -109,14 +96,9 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     }
 
     // Reload flags
-    need_reload_hash_grid_cache_debug_view_ = capsaicin.getCurrentDebugView() != options_.active_debug_view
-                                            && ((options_.active_debug_view.starts_with("HashGridCache_")
-                                                    && !capsaicin.getCurrentDebugView().starts_with("HashGridCache_"))
-                                                || (!options_.active_debug_view.starts_with("HashGridCache_")
-                                                    && capsaicin.getCurrentDebugView().starts_with("HashGridCache_")));
-
     // The screen space cache needs to be reset if the render state changes (i.e. camera transaction).
     need_reset_screen_space_cache_ |= options_.reset_screen_space_cache || capsaicin.getFrameIndex() == 0;
+    need_reset_screen_space_cache_ |= need_reload_memory_ | need_reload_kernel_;
 }
 
 DebugViewList MIGI::getDebugViews() const noexcept

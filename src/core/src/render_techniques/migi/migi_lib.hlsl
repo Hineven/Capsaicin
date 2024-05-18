@@ -266,11 +266,11 @@ float3 SampleSG (float2 u, float lambda, out float pdf) {
     return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 }
 
-uint4 FetchBasisData_Packed (int BasisIndex) {
-    uint P0 = g_RWProbeSGBuffer[BasisIndex * 4];
-    uint P1 = g_RWProbeSGBuffer[BasisIndex * 4 + 1];
-    uint P2 = g_RWProbeSGBuffer[BasisIndex * 4 + 2];
-    uint P3 = g_RWProbeSGBuffer[BasisIndex * 4 + 3];
+uint4 FetchBasisData_Packed (int BasisIndex, bool bPrevious = false) {
+    uint P0 = bPrevious ? g_RWPreviousProbeSGBuffer[BasisIndex * 4] : g_RWProbeSGBuffer[BasisIndex * 4];
+    uint P1 = bPrevious ? g_RWPreviousProbeSGBuffer[BasisIndex * 4 + 1] : g_RWProbeSGBuffer[BasisIndex * 4 + 1];
+    uint P2 = bPrevious ? g_RWPreviousProbeSGBuffer[BasisIndex * 4 + 2] : g_RWProbeSGBuffer[BasisIndex * 4 + 2];
+    uint P3 = bPrevious ? g_RWPreviousProbeSGBuffer[BasisIndex * 4 + 3] : g_RWProbeSGBuffer[BasisIndex * 4 + 3];
     return uint4(P0, P1, P2, P3);
 }
 
@@ -316,8 +316,8 @@ void WriteBasisData (int BasisIndex, SGData SG) {
 }
 
 
-SGData FetchBasisData (int BasisIndex) {
-    uint4 Packed = FetchBasisData_Packed(BasisIndex);
+SGData FetchBasisData (int BasisIndex, bool bPrevious = false) {
+    uint4 Packed = FetchBasisData_Packed(BasisIndex, bPrevious);
     return UnpackBasisData(Packed);
 }
 

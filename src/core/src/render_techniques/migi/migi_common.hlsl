@@ -122,7 +122,7 @@ struct ProbeHeader {
     // Screen pixel position of the probe
     int2 ScreenPosition;
     int BasisOffset;
-    // 0: 1, 1: 2, 2: 4, 3: 8, no larger than 8
+    // 0: 0, 1: 1, 2: 2, 3: 4, 4: 8, no larger than 8
     int  Class;
     bool bValid;
     float  LinearDepth;
@@ -160,7 +160,7 @@ struct MIGI_Constants {
     // Current NDC -> Prev NDC
     float4x4 Reprojection;
     // Prev    NDC -> Current NDC
-    float4x4 ForwardProjection;
+    float4x4 ForwardReprojection;
 
     float3   PreviousCameraPosition;
 
@@ -180,8 +180,6 @@ struct MIGI_Constants {
 
     // Budget for update rays
     int    UpdateRayBudget; 
-    // Pad the fraction for ray allocation among probes, 0: error propotional, 1: avg.
-    float  UpdateRayFractionPadding;
 
     // SSRC parameters
     // Maximum number of adaptive probes to allocate
@@ -200,10 +198,6 @@ struct MIGI_Constants {
     uint  DebugVisualizeMode;
     uint  DebugVisualizeChannel;
     uint  DebugVisualizeIncidentRadianceNumPoints;
-
-    // Replace FrameSeed under certain conditions
-    uint  DebugFreezeFrameSeed;
-    uint  DebugFreezeFrameSeedValue;
 
     float DebugTonemapExposure;
     uint2 DebugCursorPixelCoords;
@@ -228,6 +222,8 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 
 #define SSRC_MAX_NUM_BASIS_PER_PROBE 8
 #define SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE 128
+
+#define SSRC_MAX_ADAPTIVE_PROBE_LAYERS 2
 
 #ifdef __cplusplus
 }// namespace Capsaicin

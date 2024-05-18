@@ -60,12 +60,27 @@ public:
     struct MIGIResources
     {
 
-        // Screen coverage of the cache, used for basis spawn
-        // fp16x2
-        GfxTexture cache_coverage {};
+        // Probe header, uint32 per probe
+        GfxTexture   probe_header_packed [2];
+        // Probe screen position, 2xuint16 packed in uint32
+        GfxTexture   probe_screen_position [2];
+        // Probe linear depth   1xfloat32
+        GfxTexture   probe_linear_depth [2];
+        // Probe world position 3xfloat32
+        GfxTexture   probe_world_position [2];
+        // Probe world normal   2xunorm16
+        GfxTexture   probe_normal [2];
+
+        // Probe irradiance     4xfloat16
+        GfxTexture   probe_irradiance [2];
+
+        // Tile adaptive probe count  uint16
+        GfxTexture   tile_adaptive_probe_count [2];
+        // Tile adaptive probe index  uint16
+        GfxTexture   tile_adaptive_probe_index [2];
 
         // Update error used to guide update ray spawnning
-        // fp16x2 with mipmaps up to the tile size (1/8 res), reprojection is done across frames
+        // fp16x2
         GfxTexture   update_error_splat [2]{};
 
         // Hierarchical z-buffer
@@ -103,6 +118,7 @@ public:
     } buf_{};
 
     bool initResources (const CapsaicinInternal &capsaicin);
+    void releaseResources () ;
 
     struct MIGIKernels {
 
@@ -111,6 +127,8 @@ public:
         GfxKernel  PrecomputeHiZ_min {};
         GfxKernel  PrecomputeHiZ_max {};
 
+        GfxKernel  PurgeTiles {};
+        GfxKernel  ClearCounters {};
         GfxKernel  SSRC_ClearCounters {};
         GfxKernel  SSRC_AllocateUniformProbes {};
         GfxKernel  SSRC_AllocateAdaptiveProbes[SSRC_MAX_ADAPTIVE_PROBE_LAYERS] {};
@@ -139,7 +157,11 @@ public:
 
     } kernels_;
 
+    // Called before initResources
     bool initKernels (const CapsaicinInternal & capsaicin);
+    // Called  after initResources
+    bool initGraphicsKernels (const CapsaicinInternal & capsaicin);
+    void releaseKernels () ;
 
     void clearHashGridCache () ;
 
@@ -162,25 +184,25 @@ protected:
 
     GfxSbt sbt_ {};
 
-    // If the render dimensions have changed.
-    bool need_resize_ {true};
-    // If the hash grid cache debug view mode changed.
-    bool need_reload_hash_grid_cache_debug_view_ {true};
     // If the kernel needs to be reloaded.
-    // Note: the kernels is loaded upon initialization, so we do not need to set it to true.
     bool need_reload_kernel_ {false};
+    // If the render resources should be reallocated.
+    bool need_reload_memory_ {false};
+    // If the screen space cache needs to be reset.
+    mutable bool need_reset_screen_space_cache_ {true};
     // If the hash grid cache needs to be reset.
     bool need_reset_hash_grid_cache_ {true};
     // If the reservoirs need to be reset.
     bool need_reset_world_space_reservoirs_ {true};
-    // If the screen space cache needs to be reset.
-    mutable bool need_reset_screen_space_cache_ {true};
 
     bool readback_pending_ [kGfxConstant_BackBufferCount] {};
     MIGIReadBackValues readback_values_;
 
     uint32_t internal_frame_index_ {};
+
+    MIGI_Constants previous_constants_ {};
 };
+
 }
 
 #endif // CAPSAICIN_MIGI_H
