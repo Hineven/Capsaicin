@@ -384,9 +384,10 @@ float DepthToLinearDepth (float Depth, float Near, float Far) {
     return Near * Far / (Far - Depth * (Far - Near));
 }
 
-float GetLinearDepth(in float depth)
+float GetLinearDepth(in float depth, bool bPrevious = false)
 {
-    return -MI.CameraNear * MI.CameraFar / (depth * (MI.CameraFar - MI.CameraNear) - g_CameraFar);
+    if(bPrevious) return -MI.PreviousCameraNear * MI.PreviousCameraFar / (depth * (MI.PreviousCameraFar - MI.PreviousCameraNear) - MI.PreviousCameraFar);
+    else return -MI.CameraNear * MI.CameraFar / (depth * (MI.CameraFar - MI.CameraNear) - MI.CameraFar);
 }
 
 float2 FibonacciLattice (uint i, uint n) {
@@ -408,18 +409,21 @@ float3 FibonacciSphere (uint i, uint n) {
     return float3(cos(phi * i) * r, sin(phi * i) * r, z);
 }
 
-void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
-    float3 AbsNormal = abs(Normal);
-    if(AbsNormal.x < AbsNormal.y && AbsNormal.x < AbsNormal.z) {
-        Bitangent = cross(Normal, float3(1, 0, 0));
-    } else if(AbsNormal.y < AbsNormal.z) {
-        Bitangent = cross(Normal, float3(0, 1, 0));
-    } else {
-        Bitangent = cross(Normal, float3(0, 0, 1));
-    }
-    Bitangent = normalize(Bitangent);
-    Tangent = normalize(cross(Bitangent, Normal));
-}
+// Replaced with the better impl from GI10 (GetOrthoVectors)
+// void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
+//     float3 AbsNormal = abs(Normal);
+//     if(AbsNormal.x < AbsNormal.y && AbsNormal.x < AbsNormal.z) {
+//         Bitangent = cross(Normal, float3(1, 0, 0));
+//     } else if(AbsNormal.y < AbsNormal.z) {
+//         Bitangent = cross(Normal, float3(0, 1, 0));
+//     } else {
+//         Bitangent = cross(Normal, float3(0, 0, 1));
+//     }
+//     Bitangent = normalize(Bitangent);
+//     Tangent = normalize(cross(Bitangent, Normal));
+// }
+
+
 
 float2 UV2NDC2 (float2 UV) {
     return float2(UV.x*2 - 1.f, 1.f - UV.y*2);

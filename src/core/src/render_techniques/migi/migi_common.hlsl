@@ -146,7 +146,9 @@ struct MIGI_Constants {
     float    CameraFoVY2;
     float    AspectRatio;
     float    CameraNear;
+    float    PreviousCameraNear;
     float    CameraFar;
+    float    PreviousCameraFar;
     float3   CameraUp;
     float3   CameraRight;
     float4x4 CameraView;
@@ -190,6 +192,7 @@ struct MIGI_Constants {
     // Misc parameters
     uint NoImportanceSampling;
     uint NoAdaptiveProbes;
+    uint ResetCache;
 
     // Learing parameters
     float CacheUpdateLearningRate;

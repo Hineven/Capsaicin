@@ -96,6 +96,9 @@ RWStructuredBuffer<uint>   g_RWAllocatedProbeSGCountBuffer;
 // Color : 16*3, Unused: 16
 RWTexture2D<float4>  g_RWProbeIrradianceTexture;
 RWTexture2D<float4>  g_RWPreviousProbeIrradianceBuffer;
+// The estimated accuracy of the current probe from temporal reprojection
+// [0, 1], used to guide update ratio
+RWTexture2D<float>  g_RWProbeHistoryTrustTexture;
 
 // Number of update rays allocated for each probe
 // Must be a multiple of WAVE_SIZE

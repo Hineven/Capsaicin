@@ -476,14 +476,17 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
     // Clear the tile index for injection
     {
-        const TimedSection timed_section(*this, "SSRC_AllocateAdaptiveProbes");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_AllocateAdaptiveProbes);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_clear_tile_injection_index);
-        assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
-        int tile_size = options_.width / SSRC_TILE_SIZE * options_.height / SSRC_TILE_SIZE;
-        uint32_t dispatch_size[] = {(tile_size + threads[0] - 1) / threads[0]};
-        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
-    }
+        for(int layer = 0; layer < SSRC_MAX_ADAPTIVE_PROBE_LAYERS; layer ++)
+        {
+            const TimedSection timed_section(*this, std::string("SSRC_AllocateAdaptiveProbes, Layer: ") + std::to_string(layer));
+            gfxCommandBindKernel(gfx_, kernels_.SSRC_AllocateAdaptiveProbes[layer]);
+            auto     threads         = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_AllocateAdaptiveProbes[layer]);
+            int tile_count = divideAndRoundUp(options_.width, SSRC_TILE_SIZE / (2 << layer))
+                           * divideAndRoundUp(options_.height, SSRC_TILE_SIZE / (2 << layer));
+            uint32_t dispatch_size[] = {(tile_count + threads[0] - 1) / threads[0]};
+            gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+        }
+    }asdasd
 
     // Inject tiles
     {

@@ -303,7 +303,8 @@ bool CapsaicinMain::initialise() noexcept
 {
     // Default application settings
     uint32_t windowWidth  = 1920;
-    uint32_t windowHeight = 1080;
+    // Must be a divisor of 16 for MIGI
+    uint32_t windowHeight = 1088;
 
     // Command line settings
     CLI::App app(programName.data());
