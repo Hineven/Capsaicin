@@ -271,6 +271,8 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.count.setName("Count");
     buf_.dispatch_command = gfxCreateBuffer<DispatchCommand>(gfx_, 1);
     buf_.dispatch_command.setName("DispatchCommand");
+    buf_.per_lane_dispatch_command = gfxCreateBuffer<DispatchCommand>(gfx_, 1);
+    buf_.per_lane_dispatch_command.setName("DispatchCommand");
     buf_.dispatch_rays_command = gfxCreateBuffer<DispatchRaysCommand>(gfx_, 1);
     buf_.dispatch_rays_command.setName("DispatchRaysCommand");
     buf_.draw_command = gfxCreateBuffer<DrawCommand>(gfx_, 1);
@@ -292,6 +294,9 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.probe_update_ray_count.setName("ProbeUpdateRayCount");
     buf_.probe_update_ray_offset = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_probe_count);
     buf_.probe_update_ray_offset.setName("ProbeUpdateRayOffset");
+
+    buf_.update_ray_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.update_ray_count.setName("UpdateRayCount");
 
     buf_.update_ray_probe = gfxCreateBuffer<uint32_t>(gfx_, divideAndRoundUp(options_.SSRC_max_update_ray_count, cfg_.wave_lane_count));
     buf_.update_ray_probe.setName("UpdateRayProbe");
@@ -432,6 +437,7 @@ void MIGI::releaseResources()
     // Free buffers
     gfxDestroyBuffer(gfx_, buf_.count);
     gfxDestroyBuffer(gfx_, buf_.dispatch_command);
+    gfxDestroyBuffer(gfx_, buf_.per_lane_dispatch_command);
     gfxDestroyBuffer(gfx_, buf_.dispatch_rays_command);
     gfxDestroyBuffer(gfx_, buf_.draw_command);
     gfxDestroyBuffer(gfx_, buf_.draw_indexed_command);
@@ -441,6 +447,7 @@ void MIGI::releaseResources()
     gfxDestroyBuffer(gfx_, buf_.allocated_probe_SG_count);
     gfxDestroyBuffer(gfx_, buf_.probe_update_ray_count);
     gfxDestroyBuffer(gfx_, buf_.probe_update_ray_offset);
+    gfxDestroyBuffer(gfx_, buf_.update_ray_count);
     gfxDestroyBuffer(gfx_, buf_.update_ray_probe);
     gfxDestroyBuffer(gfx_, buf_.update_ray_direction);
     gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_inv_pdf);

@@ -16,8 +16,8 @@ namespace Capsaicin
 {
 
 struct MIGIReadBackValues {
-    uint32_t active_basis_count {};
-    float    sum_step_scale {};
+    uint32_t adaptive_probe_count {};
+    uint32_t allocated_probe_SG_count {};
     uint32_t update_ray_count {};
     float    debug_visualize_incident_irradiance {};
 };
@@ -95,6 +95,7 @@ public:
     struct MIGIBuffers {
         GfxBuffer count {};
         GfxBuffer dispatch_command {};
+        GfxBuffer per_lane_dispatch_command {};
         GfxBuffer dispatch_rays_command {};
         GfxBuffer draw_command {};
         GfxBuffer draw_indexed_command {};
@@ -103,6 +104,7 @@ public:
         GfxBuffer allocated_probe_SG_count {};
         GfxBuffer probe_update_ray_count {};
         GfxBuffer probe_update_ray_offset {};
+        GfxBuffer update_ray_count {};
         GfxBuffer update_ray_probe {};
         GfxBuffer update_ray_direction {};
         GfxBuffer update_ray_radiance_inv_pdf {};
@@ -135,6 +137,7 @@ public:
         GfxKernel  SSRC_WriteProbeDispatchParameters {};
         GfxKernel  SSRC_ReprojectProbeHistory {};
         GfxKernel  SSRC_AllocateUpdateRays {};
+        GfxKernel  SSRC_SetUpdateRayCount {};
         GfxKernel  SSRC_SampleUpdateRays {};
         GfxKernel  SSRC_GenerateTraceUpdateRays {};
         GfxKernel  SSRC_TraceUpdateRaysMain {};

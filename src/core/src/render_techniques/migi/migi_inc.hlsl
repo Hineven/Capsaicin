@@ -60,6 +60,7 @@ Texture2D g_PrevCombinedIlluminationTexture;
 uint g_GroupSize;
 StructuredBuffer<uint> g_CountBuffer;
 RWStructuredBuffer<DispatchCommand>     g_RWDispatchCommandBuffer;
+RWStructuredBuffer<DispatchCommand>     g_RWPerLaneDispatchCommandBuffer;
 RWStructuredBuffer<DispatchRaysCommand> g_RWDispatchRaysCommandBuffer;
 RWStructuredBuffer<DrawCommand>         g_RWDrawCommandBuffer;
 RWStructuredBuffer<DrawIndexedCommand>  g_RWDrawIndexedCommandBuffer;
@@ -74,7 +75,7 @@ RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 // Probe headers
 // Use textures for better texture cache utilization (2x2)
 // BasisOffset : 24 bits
-// ProbeRank   : 4  bits
+// ProbeClass  : 4  bits
 // ProbeFlag   : 4  bits
 RWTexture2D<uint>   g_RWProbeHeaderPackedTexture;
 RWTexture2D<uint>   g_RWProbeScreenPositionTexture;
@@ -104,7 +105,9 @@ RWTexture2D<float>  g_RWProbeHistoryTrustTexture;
 // Must be a multiple of WAVE_SIZE
 RWStructuredBuffer<uint>  g_RWProbeUpdateRayCountBuffer;
 RWStructuredBuffer<uint>  g_RWProbeUpdateRayOffsetBuffer;
-// Probe index, unorm16x2 packed
+// Total number of allocated update rays
+RWStructuredBuffer<uint>  g_RWUpdateRayCountBuffer;
+// Index probe index with ray index, unorm16x2 packed
 RWStructuredBuffer<uint>  g_RWUpdateRayProbeBuffer;
 // Octahedral packed direction for each update ray (fp16x2)
 RWStructuredBuffer<uint>  g_RWUpdateRayDirectionBuffer;

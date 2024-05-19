@@ -15,8 +15,9 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         (void)capsaicin;
         if (ImGui::CollapsingHeader("MIGI Statistics", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::LabelText("Active Basis", "%d", readback_values_.active_basis_count);
-            ImGui::LabelText("Sum Step Scale", "%.4f (%.4f)", readback_values_.sum_step_scale, readback_values_.sum_step_scale / readback_values_.active_basis_count);
+            ImGui::LabelText("Adaptive Probe", "%d", readback_values_.adaptive_probe_count);
+            int probe_count = (int)readback_values_.adaptive_probe_count + (int)(options_.width * options_.height) / (SSRC_TILE_SIZE * SSRC_TILE_SIZE);
+            ImGui::LabelText("SG Allocation", "%d (%.2f)", readback_values_.allocated_probe_SG_count, (float)readback_values_.allocated_probe_SG_count / probe_count);
             ImGui::LabelText("Allocated Rays", "%d", readback_values_.update_ray_count);
             ImGui::LabelText("Irradiance (Debug)", "%.4f", readback_values_.debug_visualize_incident_irradiance);
         }
@@ -83,19 +84,12 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             need_reset_screen_space_cache_ = true;
         }
         ImGui::Checkbox("Always Reset", &options_.reset_screen_space_cache);
-        ImGui::SliderInt("Ray Budget", (int*)&options_.SSRC_update_ray_budget, 0, 2 * 1024 * 1024);
-        ImGui::SliderFloat("Learing Rate", &options_.cache_update_learing_rate, 0.0f, 0.05f);
-        ImGui::SliderFloat("W Initial Radius", &options_.SSRC_initial_W_radius, 3.0f, 32.0f);
-        ImGui::SliderFloat("Min Coverage", &options_.SSRC_basis_spawn_coverage_threshold, 0.0f, 6.0f);
-        ImGui::SliderFloat("Injection E", &options_.SSRC_min_weight_E, 0.0f, 0.2f);
+        ImGui::SliderFloat("Learning Rate", &options_.cache_update_learing_rate, 0.0f, 0.05f);
         ImGui::Checkbox("Optimize SGColor", &options_.cache_update_SG_color);
         ImGui::Checkbox("Optimize SGDirection", &options_.cache_update_SG_direction);
         ImGui::Checkbox("Optimize SGLambda", &options_.cache_update_SG_lambda);
-        ImGui::Checkbox("Optimize WAlpha", &options_.cache_update_W_alpha);
-        ImGui::Checkbox("Optimize WLambda", &options_.cache_update_W_lambda);
         ImGui::Checkbox("No Importance Sampling", &options_.no_importance_sampling);
-        ImGui::Checkbox("Nonuniform Initial W", &options_.nonuniform_initial_w);
-        ImGui::Checkbox("Freeze Basis Allocation", &options_.freeze_basis_allocation);
+        ImGui::Checkbox("No Adaptive Probes", &options_.no_adaptive_probes);
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);

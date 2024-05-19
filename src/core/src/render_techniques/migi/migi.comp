@@ -407,6 +407,16 @@ void SSRC_WriteProbeDispatchParameters () {
     Command.num_groups_y = 1;
     Command.num_groups_z = 1;
     g_RWDispatchCommandBuffer[0] = Command;
+
+    Command.num_groups_x = (MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + g_GroupSize - 1) / g_GroupSize;
+    Command.num_groups_y = 1;
+    Command.num_groups_z = 1;
+    g_RWPerLaneDispatchCommandBuffer[0] = Command;
+
+    // Also, set the reduce count for scan sum update rays
+    // Pad 1 for the last element
+    g_RWReduceCountBuffer[0] = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + 1;
+
 }
 
 float  LocalSGSize4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
@@ -656,6 +666,9 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
 // Allocate update rays for each probe
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0]) {
+        return;
+    }
     // NOTE: the allocation number must be a multiple of WAVE_SIZE
     // NOTE: and no greater than SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE
     int2 ProbeIndex = int2(DispatchID % MI.TileDimensions.x, DispatchID / MI.TileDimensions.x);
@@ -666,6 +679,12 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
 }
 
 // A scan sum is performed to accumulate allocated raycount for each probe
+
+[numthreads(1, 1, 1)]
+void SSRC_SetUpdateRayCount () {
+    int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0];
+    g_RWUpdateRayCountBuffer[0] = g_RWProbeUpdateRayOffsetBuffer[ProbeCount];
+}
 
 
 // TODO: Should we study from Lumen to use a large number?
