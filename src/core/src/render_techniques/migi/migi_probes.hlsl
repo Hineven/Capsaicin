@@ -30,19 +30,19 @@ ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
     uint   Flags        = (Packed >> 28) & 0x0F;
     Header.ScreenPosition = UnpackUint16x2(
         bPrevious
-        ? g_RWPreviousProbeScreenPositionTexture.Load(int3(ProbeIndex, 0)).x
-        : g_RWProbeScreenPositionTexture.Load(int3(ProbeIndex, 0)).x
+        ? g_RWPreviousProbeScreenPositionTexture[ProbeIndex].x
+        : g_RWProbeScreenPositionTexture[ProbeIndex].x
     );
     Header.LinearDepth  = 
-        bPrevious ? g_RWPreviousProbeLinearDepthTexture.Load(int3(ProbeIndex, 0)).x
-        : g_RWProbeLinearDepthTexture.Load(int3(ProbeIndex, 0)).x;
+        bPrevious ? g_RWPreviousProbeLinearDepthTexture[ProbeIndex].x
+        : g_RWProbeLinearDepthTexture[ProbeIndex].x;
     Header.Position     = 
-        bPrevious ? g_RWPreviousProbePositionTexture.Load(int3(ProbeIndex, 0)).xyz
-        : g_RWProbeWorldPositionTexture.Load(int3(ProbeIndex, 0)).xyz;
+        bPrevious ? g_RWPreviousProbeWorldPositionTexture[ProbeIndex].xyz
+        : g_RWProbeWorldPositionTexture[ProbeIndex].xyz;
     Header.Normal       = 
         OctahedronToUnitVector(
-            (bPrevious ? g_RWPreviousProbeNormalTexture.Load(int3(ProbeIndex, 0)).xy 
-            : g_RWProbeNormalTexture.Load(int3(ProbeIndex, 0)).xy)
+            (bPrevious ? g_RWPreviousProbeNormalTexture[ProbeIndex].xy 
+            : g_RWProbeNormalTexture[ProbeIndex].xy)
              * 2.f - 1.f);
             
     Header.bValid       =  Header.LinearDepth > 0;
@@ -57,7 +57,7 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     g_RWProbeHeaderPackedTexture[ProbeIndex] = Packed;
     g_RWProbeScreenPositionTexture[ProbeIndex] = PackUint16x2(Header.ScreenPosition);
     g_RWProbeLinearDepthTexture[ProbeIndex] = Header.LinearDepth;
-    g_RWProbeWorldPositionTexture[ProbeIndex] = Header.Position;
+    g_RWProbeWorldPositionTexture[ProbeIndex] = float4(Header.Position, 0.f);
     g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal * 0.5f + 0.5f);
 }
 
@@ -76,8 +76,8 @@ int2 GetScreenProbeScreenPosition (int2 ProbeIndex, bool bPrevious = false) {
 }
 
 float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
-    return bPrevious ? g_RWPreviousProbePositionTexture.Load(int3(ProbeIndex, 0)).xyz
-        : g_RWProbeWorldPositionTexture.Load(int3(ProbeIndex, 0)).xyz;
+    return bPrevious ? g_RWPreviousProbeWorldPositionTexture[ProbeIndex].xyz
+        : g_RWProbeWorldPositionTexture[ProbeIndex].xyz;
 }
 
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
@@ -100,8 +100,8 @@ int2 GetAdaptiveProbeIndexCoords (int2 TileCoords, int AdaptiveProbeListIndex) {
 
 int  GetAdaptiveProbeIndex (int2 TileCoords, int AdaptiveProbeListIndex, bool bPrevious = false) {
     int2 IndexCoords = GetAdaptiveProbeIndexCoords(TileCoords, AdaptiveProbeListIndex);
-    return bPrevious ? g_RWPreviousTileAdaptiveProbeIndexTexture.Load(int3(IndexCoords, 0)).x
-        : g_RWTileAdaptiveProbeIndexTexture.Load(int3(IndexCoords, 0)).x;
+    return bPrevious ? g_RWPreviousTileAdaptiveProbeIndexTexture[IndexCoords].x
+        : g_RWTileAdaptiveProbeIndexTexture[IndexCoords].x;
 }
 
 int2 GetUniformScreenProbeScreenPosition (int2 TileCoords, bool bPrevious = false) {
@@ -124,8 +124,8 @@ int   GetScreenProbeBasisOffset (int2 ProbeIndex, bool bPrevious = false) {
 
 float3 GetScreenProbeNormal (int2 ProbeIndex, bool bPrevious = false) {
     return bPrevious
-        ? OctahedronToUnitVector(g_RWPreviousProbeNormalTexture.Load(int3(ProbeIndex, 0)).xy * 2.f - 1.f)
-        : OctahedronToUnitVector(g_RWProbeNormalTexture.Load(int3(ProbeIndex, 0)).xy * 2.f - 1.f);
+        ? OctahedronToUnitVector(g_RWPreviousProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f)
+        : OctahedronToUnitVector(g_RWProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f);
 }
 
 struct ScreenProbeMaterial {
@@ -137,9 +137,9 @@ struct ScreenProbeMaterial {
 
 ScreenProbeMaterial FetchScreenProbeMaterial (int2 ScreenCoords, bool HiRes) {
     ScreenProbeMaterial Material;
-    Material.Depth = g_RWProbeLinearDepthTexture.Load(int3(ScreenCoords, 0)).x;
+    Material.Depth = g_RWProbeLinearDepthTexture[ScreenCoords].x;
     Material.GeometryNormal = OctahedronToUnitVector(
-        g_RWProbeNormalTexture.Load(int3(ScreenCoords, 0)).xy * 2.f - 1.f);
+        g_RWProbeNormalTexture[ScreenCoords].xy * 2.f - 1.f);
     Material.bValid = Material.Depth > 0;
     float2 UV = (ScreenCoords + 0.5f) * MI.ScreenDimensionsInv;
     Material.Position = 

@@ -66,7 +66,7 @@ public:
         GfxTexture   probe_screen_position [2];
         // Probe linear depth   1xfloat32
         GfxTexture   probe_linear_depth [2];
-        // Probe world position 3xfloat32
+        // Probe world position 4xfloat32 because 3xfloat32 is not supported in most hardware
         GfxTexture   probe_world_position [2];
         // Probe world normal   2xunorm16
         GfxTexture   probe_normal [2];
@@ -74,8 +74,12 @@ public:
         // Probe irradiance     4xfloat16
         GfxTexture   probe_irradiance [2];
 
-        // Tile adaptive probe count  uint16
+        // Used to measure the trust of reprojected result from last frame [0, 1]
+        GfxTexture   probe_history_trust;
+
+        // Tile adaptive probe count  uint32 (Don't use R16, there are silent bugs)
         GfxTexture   tile_adaptive_probe_count [2];
+        GfxTexture   next_tile_adaptive_probe_count;
         // Tile adaptive probe index  uint16
         GfxTexture   tile_adaptive_probe_index [2];
 

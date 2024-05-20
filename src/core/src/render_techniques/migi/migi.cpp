@@ -150,6 +150,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeIrradianceTexture", tex_.probe_irradiance[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeIrradianceTexture", tex_.probe_irradiance[1 - flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeHistoryTrustTexture", tex_.probe_history_trust);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayCountBuffer", buf_.probe_update_ray_count);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayOffsetBuffer", buf_.probe_update_ray_offset);
@@ -160,6 +161,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayRadianceInvPdfBuffer", buf_.update_ray_radiance_inv_pdf);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayLinearDepthBuffer", buf_.update_ray_linear_depth);
 
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileAdaptiveProbeCountTexture", tex_.tile_adaptive_probe_count[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousTileAdaptiveProbeCountTexture", tex_.tile_adaptive_probe_count[1 - flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWNextTileAdaptiveProbeCountTexture", tex_.next_tile_adaptive_probe_count);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileAdaptiveProbeIndexTexture", tex_.tile_adaptive_probe_index[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousTileAdaptiveProbeIndexTexture", tex_.tile_adaptive_probe_index[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWAdaptiveProbeCountBuffer", buf_.adaptive_probe_count);
@@ -185,21 +189,24 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         auto camera_right = glm::cross(camera_forward, camera_up);
         camera_up = normalize(cross(camera_right, camera_forward));
         // Half the height of the standard camera plane
-        float scale = tanf(camera.fovY / 2.f);
-        float aspect = capsaicin.getCamera().aspect;
+        float scale   = tanf(camera.fovY / 2.f);
+        float aspect  = capsaicin.getCamera().aspect;
         camera_right *= scale * aspect;
-        camera_up *= scale;
+        camera_up    *= scale;
         bool taa_enable = false;
         if(capsaicin.getOptions().find("taa_enable") != capsaicin.getOptions().end())
             taa_enable = std::get<bool>(capsaicin.getOptions()["taa_enable"]);
         auto const   &camera_matrices       = capsaicin.getCameraMatrices(taa_enable);
         C.CameraPosition  = camera.eye;
+        C.CameraFoVY      = camera.fovY;
         C.CameraDirection = camera_forward;
         C.CameraFoVY2     = camera.fovY / 2.f;
         C.AspectRatio     = aspect;
         C.CameraNear      = camera.nearZ;
+        C.PreviousCameraNear = previous_camera_.nearZ;
         C.CameraFar       = camera.farZ;
         C.CameraUp        = camera_up;
+        C.PreviousCameraFar = previous_camera_.farZ;
         C.CameraRight     = camera_right;
         C.CameraView      = camera_matrices.view;
         C.CameraProjView  = camera_matrices.view_projection;
@@ -487,17 +494,24 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
     }
 
-    // Clear the tile index for injection
     {
+        static std::string section_names[SSRC_MAX_ADAPTIVE_PROBE_LAYERS];
         for(int layer = 0; layer < SSRC_MAX_ADAPTIVE_PROBE_LAYERS; layer ++)
         {
-            const TimedSection timed_section(*this, std::string("SSRC_AllocateAdaptiveProbes, Layer: ") + std::to_string(layer));
+            if(section_names[layer] == "")
+                section_names[layer] = std::string("SSRC_AllocateAdaptiveProbes, Layer: ") + std::to_string(layer);
+            const TimedSection timed_section(*this, section_names[layer]);
+
+            if(layer == 0) gfxCommandCopyTexture(gfx_, tex_.next_tile_adaptive_probe_count, tex_.tile_adaptive_probe_count[internal_frame_index_ & 1]);
+
             gfxCommandBindKernel(gfx_, kernels_.SSRC_AllocateAdaptiveProbes[layer]);
             auto     threads         = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_AllocateAdaptiveProbes[layer]);
             int tile_count = divideAndRoundUp(options_.width,  SSRC_TILE_SIZE / (2 << layer))
                            * divideAndRoundUp(options_.height, SSRC_TILE_SIZE / (2 << layer));
             uint32_t dispatch_size[] = {(tile_count + threads[0] - 1) / threads[0]};
             gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+
+            gfxCommandCopyTexture(gfx_, tex_.tile_adaptive_probe_count[internal_frame_index_ & 1], tex_.next_tile_adaptive_probe_count);
         }
     }
 
@@ -824,6 +838,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     previous_camera_ = capsaicin.getCamera();
     // Increment internal frame index, which is different from the frame index in Capsaicin
     internal_frame_index_ ++;
+
+#ifndef NDEBUG
+    fflush(stdout);
+#endif
 }
 
 void MIGI::clearHashGridCache () {

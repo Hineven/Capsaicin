@@ -80,12 +80,12 @@ RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 RWTexture2D<uint>   g_RWProbeHeaderPackedTexture;
 RWTexture2D<uint>   g_RWProbeScreenPositionTexture;
 RWTexture2D<float>  g_RWProbeLinearDepthTexture;
-RWTexture2D<float3> g_RWProbeWorldPositionTexture; 
+RWTexture2D<float4> g_RWProbeWorldPositionTexture; 
 RWTexture2D<unorm float2> g_RWProbeNormalTexture;
 RWTexture2D<uint>   g_RWPreviousProbeHeaderPackedTexture;
 RWTexture2D<uint>   g_RWPreviousProbeScreenPositionTexture;
 RWTexture2D<float>  g_RWPreviousProbeLinearDepthTexture;
-RWTexture2D<float3> g_RWPreviousProbePositionTexture;
+RWTexture2D<float4> g_RWPreviousProbeWorldPositionTexture;
 RWTexture2D<unorm float2> g_RWPreviousProbeNormalTexture; 
 // The SG storage for SSRC probes
 // Color : 16*3, Lambda: 16, Normal: 32packed, Linear Depth: 32
@@ -93,7 +93,7 @@ RWStructuredBuffer<uint>   g_RWProbeSGBuffer;
 RWStructuredBuffer<uint>   g_RWPreviousProbeSGBuffer;
 // Used when allocating SGs to probes
 RWStructuredBuffer<uint>   g_RWAllocatedProbeSGCountBuffer;
-// Irradiance (actually mean radiance in all incident directions on the sphere) for SSRC probes
+// Irradiance (actually mean radiance in all incident directions on the hemisphere) for SSRC probes
 // Color : 16*3, Unused: 16
 RWTexture2D<float4>  g_RWProbeIrradianceTexture;
 RWTexture2D<float4>  g_RWPreviousProbeIrradianceBuffer;
@@ -118,6 +118,7 @@ RWStructuredBuffer<float>  g_RWUpdateRayLinearDepthBuffer;
 // Number of adaptive probes within each tile
 RWTexture2D<uint>          g_RWTileAdaptiveProbeCountTexture;
 RWTexture2D<uint>          g_RWPreviousTileAdaptiveProbeCountTexture;
+RWTexture2D<uint>          g_RWNextTileAdaptiveProbeCountTexture;
 // Adaptive probe indices for each tile. The indexing rules are the same as Lumen.
 RWTexture2D<uint>          g_RWTileAdaptiveProbeIndexTexture;
 RWTexture2D<uint>          g_RWPreviousTileAdaptiveProbeIndexTexture;
