@@ -94,13 +94,13 @@ void PurgeTiles(in uint did : SV_DispatchThreadID)
     uint tile_index = g_HashGridCache_PreviousPackedTileIndexBuffer[did];
     uint tile_decay = g_HashGridCache_DecayTileBuffer[tile_index];
 
-    if (g_FrameIndex < tile_decay)   // account for integer wraparound case
+    if (MI.FrameIndex < tile_decay)   // account for integer wraparound case
     {
-        tile_decay = ((0xFFFFFFFFu - tile_decay) + g_FrameIndex + 1);
+        tile_decay = ((0xFFFFFFFFu - tile_decay) + MI.FrameIndex + 1);
     }
     else
     {
-        tile_decay = (g_FrameIndex - tile_decay);
+        tile_decay = (MI.FrameIndex - tile_decay);
     }
 
     if (tile_decay >= kHashGridCache_TileDecay)
@@ -419,11 +419,11 @@ void SSRC_WriteProbeDispatchParameters () {
 
 }
 
-float  LocalSGSize4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
-SGData LocalSGData4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
-SGData LocalSGData4New[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
-int    LocalSGMaxMatchIndex[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
-int    LocalSGNewIndex[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
+groupshared float  LocalSGSize4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
+groupshared SGData LocalSGData4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
+groupshared SGData LocalSGData4New[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
+groupshared int    LocalSGMaxMatchIndex[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
+groupshared int    LocalSGNewIndex[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 // Initialize probe cache from the previous frame, one group per probe
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
@@ -575,8 +575,9 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                 SGData CurrentSG = LocalSGData4[BasisRank];
                 [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * 4)]
                 for (int i = 0; i<NumBasis; i++) {
-                    float X = EvaluateSG(LocalSGData4[BasisRank], CurrentSG.Direction);
-                    float Y = EvaluateSG(CurrentSG, LocalSGData4[i].Direction);
+                    // TODO better similarity computation
+                    float X = EvaluateSGRaw(LocalSGData4[BasisRank], CurrentSG.Direction);
+                    float Y = EvaluateSGRaw(CurrentSG, LocalSGData4[i].Direction);
                     float Similarity = X * Y;
                     if(Similarity > MaxSimilarity) {
                         MaxSimilarity = Similarity;
@@ -690,8 +691,8 @@ void SSRC_SetUpdateRayCount () {
 // TODO: Should we study from Lumen to use a large number?
 #define MIN_PDF_TO_TRACE 1e-4f //1e-1f
 
-SGData LocalSGData[SSRC_MAX_NUM_BASIS_PER_PROBE];
-float LocalSGSize[SSRC_MAX_NUM_BASIS_PER_PROBE];
+groupshared SGData LocalSGData[SSRC_MAX_NUM_BASIS_PER_PROBE];
+groupshared float LocalSGSize[SSRC_MAX_NUM_BASIS_PER_PROBE];
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
 
@@ -973,7 +974,7 @@ void SSRC_TraceUpdateRays (uint DispatchID) {
         float  CosTheta = dot(normalize(LightPos - RayOrigin), RayDirection);
         float3 L = (CosTheta > MaxCosTheta) ? MI.DebugLightColor : 0.f;
         g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(L, InvPdf));
-        float3 RayLenSqr = DistSqr - R2;
+        float  RayLenSqr = DistSqr - R2;
         g_RWUpdateRayLinearDepthBuffer[DispatchID] = sqrt(RayLenSqr);
         return ;
     }
@@ -1077,7 +1078,7 @@ void SSRC_ReprojectPreviousUpdateError (int2 DispatchID : SV_DispatchThreadID) {
     float  Depth       = homogeneous.z;
 
     // Severe precision loss here if we use the following reprojection method
-    // float2 UV = (float2(DispatchID) + 0.5f) * MI.OutputDimensionsInv;
+    // float2 UV = (float2(DispatchID) + 0.5f) * MI.ScreenDimensionsInv;
     // float Depth = g_DepthTexture.Load(int3(UV, 0)).x;
     // float3 Normal = normalize(2.f * g_GeometryNormalTexture.Load(int3(UV, 0)).xyz - 1.f);
     // float3 homogeneous = float3(UV2NDC2(UV), Depth);
@@ -1187,7 +1188,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
 
             if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
             {
-                float3 homogeneous2 = transformPointProjection(float3(2.0f * float2(uv.x, 1.0f - uv.y) - 1.0f, depth), g_Reprojection);
+                float3 homogeneous2 = transformPointProjection(float3(2.0f * float2(uv.x, 1.0f - uv.y) - 1.0f, depth), MI.Reprojection);
                 homogeneous2.z      = GetLinearDepth(homogeneous2.z);
 
                 float  previous_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
@@ -1225,7 +1226,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     MaterialEvaluated material2 = MakeMaterialEvaluated(material, mesh_uv);
     MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
     // Make the seed different from the one used in TraceUpdateRays
-    Random random = MakeRandom(DispatchID ^ 0x8a197727, g_FrameSeed);
+    Random random = MakeRandom(DispatchID ^ 0x8a197727, MI.FrameSeed);
     LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
 
@@ -1326,7 +1327,7 @@ void ResampleReservoirs(in uint did : SV_DispatchThreadID)
     reservoir.M = 1.0f;
 
     // Make the random numbers different from previous samples
-    Random random = MakeRandom(did + MI.OutputDimensions.x * MI.OutputDimensions.y, g_FrameSeed);
+    Random random = MakeRandom(did + MI.ScreenDimensions.x * MI.ScreenDimensions.y, MI.FrameSeed);
 
     // Locate our hash table cell
     float3 b1, b2;
@@ -1711,13 +1712,13 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
 
 
 // Update the probe cache
-float3 LocalEvaluatedRadiance[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
-float3 LocalDColorPrefixSum[WAVE_SIZE];
-float3 LocalDDirectionPrefixSum[WAVE_SIZE];
-float3 LocalDLambdaPrefixSum[WAVE_SIZE];
+groupshared float3 LocalEvaluatedRadiance[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
+groupshared float3 LocalDColorPrefixSum[WAVE_SIZE];
+groupshared float3 LocalDDirectionPrefixSum[WAVE_SIZE];
+groupshared float  LocalDLambdaPrefixSum[WAVE_SIZE];
 
-float  LocalSampleWeightPrefixSum[WAVE_SIZE];
-float  LocalDirectionWeightPrefixSum[WAVE_SIZE];
+groupshared float  LocalSampleWeightPrefixSum[WAVE_SIZE];
+groupshared float  LocalDirectionWeightPrefixSum[WAVE_SIZE];
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
     int2 ProbeIndex = int2(GroupID % MI.TileDimensions.x, GroupID / MI.TileDimensions.x);
@@ -1725,7 +1726,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     int  BasisCount = GetProbeBasisCountFromClass(Header.Class);
     int  ProbeRayCount   = g_RWProbeUpdateRayCountBuffer[GroupID];
     int  ProbeRayOffset  = g_RWProbeUpdateRayOffsetBuffer[GroupID];
-    float3 ProbeIrradiance = g_RWProbeIrradianceTexture[ProbeIndex];
+    float3 ProbeIrradiance = g_RWProbeIrradianceTexture[ProbeIndex].xyz;
     
     if(LocalID < BasisCount) {
         LocalSGData[LocalID] = FetchBasisData(Header.BasisOffset + LocalID);
@@ -1762,10 +1763,15 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     SumWeightedRadiance     = WaveActiveSum(SumWeightedRadiance);
     GroupMemoryBarrierWithGroupSync();
 
+
+    // Update the basis
+    // FIXME temporary resort
+    // TODO this must be unstable for now
+    float3 ImpactFactors = g_RWProbeHistoryTrustTexture[ProbeIndex].x;
     // The chosen thread to update the irradiance
     if(WaveIsFirstLane()) {
-        float3 NewProbeIrradiance = lerp(ProbeIrradiance, SumWeightedRadiance, );
-        g_RWProbeIrradianceTexture[ProbeIndex] = NewProbeIrradiance;
+        float3 NewProbeIrradiance = lerp(ProbeIrradiance, SumWeightedRadiance, min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f));
+        g_RWProbeIrradianceTexture[ProbeIndex] = float4(NewProbeIrradiance, 0.f);
     }
 
     int ThreadPerBasis = WAVE_SIZE / BasisCount;
@@ -1839,15 +1845,11 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             SumStepSize.dDirection /= SumSampleWeight;
 #endif
 
-            // Update the basis
-            // FIXME temporary resort
-            // TODO this must be unstable for now
-            float3 ImpactFactors = 1.f + g_RWProbeHistoryTrustTexture[ProbeIndex].x;
             if(MI.CacheUpdate_SGColor) {
 #ifdef OPTIMAL_COLOR_UPDATE
-                SG.Color = lerp(SG.Color, SumStepSize.dColor, MI.CacheUpdateLearningRate * ImpactFactors.x);
+                SG.Color = lerp(SG.Color, SumStepSize.dColor, min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f));
 #else
-                SG.Color += SumStepSize.dColor     * MI.CacheUpdateLearningRate * ImpactFactors.x;
+                SG.Color += SumStepSize.dColor     * MI.CacheUpdateLearningRate * (2 - ImpactFactors.x);
 #endif
                 SG.Color = max(SG.Color, 0.001f.xxx); // Color is in [0.001, inf)
             }
@@ -1855,19 +1857,19 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #ifndef HEURISTIC_DIRECTION_UPDATE
                 // Prevent violent directional flipping across frames by orthogonalizing the delta direction
                 float3 Ortho  = SumStepSize.dDirection - dot(SumStepSize.dDirection, SG.Direction) * SG.Direction;
-                SG.Direction += Ortho * MI.CacheUpdateLearningRate * ImpactFactors.y;
+                SG.Direction += Ortho * MI.CacheUpdateLearningRate * (2 - ImpactFactors.y);
                 SG.Direction  = normalize(SG.Direction);
 #else 
                 // Heuristic direction update
-                float DstFactor = MI.CacheUpdateLearningRate * ImpactFactors.y;
+                float DstFactor = MI.CacheUpdateLearningRate;
                 // Larger SG is harder to shift direction
-                float SrcFactor = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx);
+                float SrcFactor = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx) * ImpactFactors.y;
                 SG.Direction = SG.Direction * SrcFactor + SumStepSize.dDirection * DstFactor;
                 SG.Direction = normalize(SG.Direction);
 #endif
             }
             if(MI.CacheUpdate_SGLambda) {
-                SG.Lambda    += SumStepSize.dLambda    * MI.CacheUpdateLearningRate * ImpactFactors.z;
+                SG.Lambda    += SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (2 - ImpactFactors.z);
                 SG.Lambda    = clamp(SG.Lambda, 0.8f, 100.f); // Lambda is in [0.8f, 100.f]
             }
         }
@@ -2042,13 +2044,13 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
 
 // [numthreads(8, 8, 1)]
 // void DebugSSRC_ShowDifference (uint2 DispatchID : SV_DispatchThreadID) {
-//     if(any(DispatchID >= MI.OutputDimensions)) {
+//     if(any(DispatchID >= MI.ScreenDimensions)) {
 //         return;
 //     }
 //     if(g_DebugVisualizeMode == 0) {
 //         float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
 //         if(Depth < 1.f) {
-//             float2 UV = (DispatchID + 0.5f.xx) / MI.OutputDimensions;
+//             float2 UV = (DispatchID + 0.5f.xx) / MI.ScreenDimensions;
 //             float Difference = g_UpdateErrorSplatTexture.SampleLevel(g_LinearSampler, UV, ERROR_BLUR_LOD).x;
 //             g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(Difference * g_DebugTonemapExposure), 1.f);
 //         } else {
@@ -2175,8 +2177,9 @@ void DebugSSRC_PrepareUpdateRays () {
         if(Sample.Weights[3] < Sample.Weights[MinIndex]) {
             MinIndex = 3;
         }
-        int ProbeIndex = Sample.Index[MinIndex];
-        int ProbeRayCount = g_RWProbeUpdateRayCountBuffer[ProbeIndex];
+        int2 ProbeIndex  = Sample.Index[MinIndex];
+        int  ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
+        int  ProbeRayCount = g_RWProbeUpdateRayCountBuffer[ProbeIndex1];
         DrawCommand draw_command = (DrawCommand)0;
         draw_command.vertex_count_per_instance = 2;
         draw_command.instance_count  = ProbeRayCount;

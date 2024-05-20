@@ -3,11 +3,30 @@
 
 #include "migi_lib.hlsl"
 
+struct ProbeHeader {
+    // Screen pixel position of the probe
+    int2 ScreenPosition;
+    int BasisOffset;
+    // 0: 0, 1: 1, 2: 2, 3: 4, 4: 8, no larger than 8
+    int  Class;
+    bool bValid;
+    float  LinearDepth;
+    float3 Position;
+    float3 Normal;
+};  
+
+struct SSRC_SampleData {
+    // Base atlas coords
+    int2 Index[4];
+    // Interpolation weights
+    float4 Weights;
+};
+
 ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
     uint Packed = bPrevious ? g_RWPreviousProbeHeaderPackedTexture[ProbeIndex] : g_RWProbeHeaderPackedTexture[ProbeIndex];
     ProbeHeader Header;
     Header.BasisOffset  = Packed & 0x00FFFFFF;
-    Header.Rank         = (Packed >> 24) & 0x0F;
+    Header.Class        = (Packed >> 24) & 0x0F;
     uint   Flags        = (Packed >> 28) & 0x0F;
     Header.ScreenPosition = UnpackUint16x2(
         bPrevious
@@ -33,12 +52,12 @@ ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
 void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     uint Packed;
     Packed = Header.BasisOffset & 0x00FFFFFF;
-    Packed |= (Header.Rank & 0x0F) << 24;
+    Packed |= (Header.Class & 0x0F) << 24;
     // Packed |= (Header.bValid ? 1 : 0) << 28;
     g_RWProbeHeaderPackedTexture[ProbeIndex] = Packed;
     g_RWProbeScreenPositionTexture[ProbeIndex] = PackUint16x2(Header.ScreenPosition);
     g_RWProbeLinearDepthTexture[ProbeIndex] = Header.LinearDepth;
-    g_RWProbeWorldPositionTexture[ProbeIndex] = float4(Header.Position, 0);
+    g_RWProbeWorldPositionTexture[ProbeIndex] = Header.Position;
     g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal * 0.5f + 0.5f);
 }
 
@@ -47,9 +66,9 @@ int2 GetTileJitter (bool bPrevious = false) {
 }
 
 int2 GetScreenProbeScreenPosition (int2 ProbeIndex, bool bPrevious = false) {
-    int2 TileJitter = GetTileJitter(SSRC_TILE_SIZE, bPrevious);
+    int2 TileJitter = GetTileJitter(bPrevious);
     int2 UniformScreenProbeScreenPosition = ProbeIndex * SSRC_TILE_SIZE + TileJitter;
-    if(ProbeIndex >= MI.UniformScreenProbeCount) {
+    if(any(ProbeIndex >= MI.TileDimensions)) {
         ProbeHeader Header = GetScreenProbeHeader(ProbeIndex, bPrevious);
         UniformScreenProbeScreenPosition = Header.ScreenPosition;
     }
@@ -67,7 +86,7 @@ int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {
-    return (ProbeClass > 0) ? (1 << (ProbeClass - 1)) : 0;
+    return (ProbeClass > 0) ? (1u << (ProbeClass - 1)) : 0;
 }
 
 // Get the coords of a probe within the adaptive probe index texture
@@ -79,14 +98,14 @@ int2 GetAdaptiveProbeIndexCoords (int2 TileCoords, int AdaptiveProbeListIndex) {
 	return CoordsWithinTile * MI.TileDimensions + TileCoords;
 }
 
-int2 GetAdaptiveProbeIndex (int2 TileCoords, int AdaptiveProbeListIndex, bool bPrevious = false) {
+int  GetAdaptiveProbeIndex (int2 TileCoords, int AdaptiveProbeListIndex, bool bPrevious = false) {
     int2 IndexCoords = GetAdaptiveProbeIndexCoords(TileCoords, AdaptiveProbeListIndex);
     return bPrevious ? g_RWPreviousTileAdaptiveProbeIndexTexture.Load(int3(IndexCoords, 0)).x
         : g_RWTileAdaptiveProbeIndexTexture.Load(int3(IndexCoords, 0)).x;
 }
 
 int2 GetUniformScreenProbeScreenPosition (int2 TileCoords, bool bPrevious = false) {
-    return TileCoords * SSRC_TILE_SIZE + GetTileJitter(SSRC_TILE_SIZE, bPrevious);
+    return TileCoords * SSRC_TILE_SIZE + GetTileJitter(bPrevious);
 }
 
 float2 GetUniformScreenProbeScreenUV (int2 TileCoords, bool bPrevious = false) {

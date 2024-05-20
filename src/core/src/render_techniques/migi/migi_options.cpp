@@ -57,7 +57,7 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     int uniform_probe_y = divideAndRoundUp(options_.height, SSRC_TILE_SIZE);
     int uniform_probe_count = uniform_probe_x * uniform_probe_y;
     int max_probe_count = options_.SSRC_max_adaptive_probe_count + uniform_probe_count;
-    if(options_.SSRC_max_probe_count != max_probe_count) {
+    if((int)options_.SSRC_max_probe_count != max_probe_count) {
         need_reload_memory_ = true;
     }
     options_.SSRC_max_probe_count      = max_probe_count;

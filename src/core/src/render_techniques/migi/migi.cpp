@@ -210,7 +210,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.Reprojection    = camera_matrices.reprojection;
         C.ForwardReprojection = glm::dmat4(camera_matrices.view_projection) * glm::inverse(glm::dmat4(camera_matrices.view_projection_prev));
         C.PrevCameraProjView  = previous_constants_.CameraProjView;
-        C.PreviousCameraPosition = previous_camera_.eye;
+        C.PreviousCameraPosition  = previous_camera_.eye;
+        C.PreviousCameraDirection = normalize(previous_camera_.center - previous_camera_.eye);
+        C.MaxBasisCount           = options_.SSRC_max_basis_count;
 
         C.FrameIndex = capsaicin.getFrameIndex();
         C.FrameSeed  = options_.debug_freeze_frame_seed ? 123 : C.FrameIndex;
@@ -688,8 +690,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     // Update the SSRC
     {
         TimedSection const timed_section(*this, "SSRC_UpdateProbes");
-
-        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_UpdateProbes);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_WriteProbeDispatchParameters);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_UpdateProbes);
@@ -703,7 +703,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         const TimedSection timed_section(*this, "SSRC_IntegrateASG");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_IntegrateASG);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_IntegrateASG);
         uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
         assert(dispatch_size[0] * SSRC_TILE_SIZE == options_.width && dispatch_size[1] * SSRC_TILE_SIZE == options_.height);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
@@ -730,6 +729,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
     // Specify whether the GI output is copied to debug drawing as a background
     bool debug_buffer_copied = false;
+    (void)debug_buffer_copied;
 
     if(options_.active_debug_view == "SSRC_ProbeAllocation") {
         // TODO

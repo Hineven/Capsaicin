@@ -104,18 +104,6 @@ float3 InverseProject(in float4x4 transform, in float2 uv, in float depth)
     return homogeneous.xyz / homogeneous.w; // perspective divide
 }
 
-// The ray reaches out to the camera near plane
-float3 GetCameraRayDirectionUnnormalized (float2 NDC) {
-    float Scale = tan(g_CameraFoVY * 0.5f);
-    float3 Right = g_CameraRight * Scale * g_AspectRatio;
-    float3 Up = g_CameraUp * Scale;
-    return NDC.x * Right + NDC.y * Up + g_CameraDirection;
-}
-
-float3 GetCameraRayDirection (float2 NDC) {
-    return normalize(GetCameraRayDirectionUnnormalized(NDC));
-}
-
 /**
  * Determine a transformation matrix to correctly transform normal vectors.
  * @param transform The original transform matrix.
@@ -173,7 +161,7 @@ float3 EvaluateSG(SGData SG, float3 Direction)
     return SG.Color * exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
 }
 
-float3 EvaluateSGRaw (SGData SG, float3 Direction) {
+float  EvaluateSGRaw (SGData SG, float3 Direction) {
     return exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
 }
 
@@ -332,7 +320,7 @@ void WriteUpdateRay(int2 ProbeIndex, int2 ProbeScreenPosition, int RayRank, floa
     int RayIndex = BaseOffset + RayRank;
     if(WaveIsFirstLane()) g_RWUpdateRayProbeBuffer[RayIndex / WAVE_SIZE] = PackUint16x2(ProbeIndex);
     g_RWUpdateRayDirectionBuffer[RayIndex] = packUnorm2x16(UnitVectorToOctahedron(RayDirection) * 0.5 + 0.5);
-    g_RWUpdateRayRadianceInvPdfBuffer[RayIndex] = float4(0.f.xxx, 1.f / RayPdf);
+    g_RWUpdateRayRadianceInvPdfBuffer[RayIndex] = PackFp16x4Safe(float4(0.f.xxx, 1.f / RayPdf));
 }
 
 // Misc
@@ -579,6 +567,18 @@ SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11
     Result.Lambda = lerp(lerp(X00.Lambda, X01.Lambda, UV.x), lerp(X10.Lambda, X11.Lambda, UV.x), UV.y);
     Result.Color = lerp(lerp(X00.Color, X01.Color, UV.x), lerp(X10.Color, X11.Color, UV.x), UV.y);
     return Result;
+}
+
+// TODO improve this
+SGData MergeSG (SGData SG1, SGData SG2) {
+    float W1 = SGIntegrate(SG1.Lambda) * dot(SG1.Color, 1.f.xxx) + 1e-4f;
+    float W2 = SGIntegrate(SG2.Lambda) * dot(SG2.Color, 1.f.xxx) + 1e-4f;
+    SGData Result;
+    Result.Direction = normalize(SG1.Direction*W1 + SG2.Direction*W2);
+    Result.Lambda = (SG1.Lambda*W1 + SG2.Lambda*W2) / (W1 + W2);
+    Result.Color = (SG1.Color*W1 + SG2.Color*W2) / (W1 + W2);
+    return Result;
+
 }
 
 // Removes NaNs from the color values.

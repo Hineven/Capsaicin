@@ -118,45 +118,26 @@ struct RTConstants
     uint2                           padding2;
 };
 
-struct ProbeHeader {
-    // Screen pixel position of the probe
-    int2 ScreenPosition;
-    int BasisOffset;
-    // 0: 0, 1: 1, 2: 2, 3: 4, 4: 8, no larger than 8
-    int  Class;
-    bool bValid;
-    float  LinearDepth;
-    float3 Position;
-    float3 Normal;
-};  
-
-struct SSRC_SampleData {
-    // Base atlas coords
-    int2 Index[4];
-    // Interpolation weights
-    float4 Weights;
-};
-
 struct MIGI_Constants {
     
     // Common view parameters
     float3   CameraPosition;
+    float    CameraFoVY;//
     float3   CameraDirection;
-    float    CameraFoVY;
-    float    CameraFoVY2;
+    float    CameraFoVY2;//
     float    AspectRatio;
     float    CameraNear;
     float    PreviousCameraNear;
-    float    CameraFar;
-    float    PreviousCameraFar;
+    float    CameraFar;//
     float3   CameraUp;
+    float    PreviousCameraFar;//
     float3   CameraRight;
+    // The scale of a single pixel in the standard camera plane (z = 1)
+    float    CameraPixelScale;//
     float4x4 CameraView;
     float4x4 CameraProjView;
     float4x4 CameraViewInv;
     float4x4 CameraProjViewInv;
-    // The scale of a single pixel in the standard camera plane (z = 1)
-    float    CameraPixelScale;
 
     // Note: NDC in MIGI means [-1, 1] x [-1, 1] x [0, 1], and 1 stands for the far plane.
     // Current NDC -> Prev NDC
@@ -168,22 +149,27 @@ struct MIGI_Constants {
 
     float3   PreviousCameraPosition;
 
-    uint FrameIndex;
+    uint FrameIndex;//
+    
+    float3    PreviousCameraDirection;
+    // Maximum number of basis to allocate to probes
+    uint      MaxBasisCount;
+
     // Normally this is the same as FrameIndex, used for random number generation
     uint FrameSeed; 
     uint PreviousFrameSeed;
 
     // Screen resolution
-    int2   ScreenDimensions;
+    int2   ScreenDimensions;//
     float2 ScreenDimensionsInv;
     // Screen resolution, counted in tiles
-    int2   TileDimensions;
+    int2   TileDimensions;//
     float2 TileDimensionsInv;
     // Number of tiles / uniform screen probes
     int    UniformScreenProbeCount;
 
     // Budget for update rays
-    int    UpdateRayBudget; 
+    int    UpdateRayBudget; //
 
     // SSRC parameters
     // Maximum number of adaptive probes to allocate
@@ -192,26 +178,28 @@ struct MIGI_Constants {
     // Misc parameters
     uint NoImportanceSampling;
     uint NoAdaptiveProbes;
-    uint ResetCache;
+    uint ResetCache;//
 
     // Learing parameters
     float CacheUpdateLearningRate;
     uint  CacheUpdate_SGColor;
     uint  CacheUpdate_SGDirection;
-    uint  CacheUpdate_SGLambda;
+    uint  CacheUpdate_SGLambda;//
 
     uint  DebugVisualizeMode;
     uint  DebugVisualizeChannel;
     uint  DebugVisualizeIncidentRadianceNumPoints;
 
-    float DebugTonemapExposure;
+    float DebugTonemapExposure;//
     uint2 DebugCursorPixelCoords;
 
     // Used for single virtual emitter debugging
     uint   DebugLight;
+    uint Padding0;//
     float3 DebugLightPosition;
-    float  DebugLightSize;
+    float  DebugLightSize;//
     float3 DebugLightColor;
+    uint Padding1;
 };
 
 

@@ -57,7 +57,7 @@ RWStructuredBuffer<uint4>  g_Reservoir_PreviousIndirectSampleReservoirBuffer;
 // Gets the size of the reservoir cell for the given world-space position.
 float Reservoir_GetCellSize(in float3 position)
 {
-    float distance_to_cell = distance(g_CameraPosition, position);
+    float distance_to_cell = distance(MI.CameraPosition, position);
     float cell_size_step = distance_to_cell * g_WorldSpaceReSTIRConstants.cell_size;
     uint log_step_multiplier = uint(log2(1e3f * cell_size_step));
     return 1e-3f * exp2(log_step_multiplier);
@@ -67,7 +67,7 @@ float Reservoir_GetCellSize(in float3 position)
 uint2 Reservoir_GetIndexAndHash(in float3 position)
 {
     uint2 index_and_hash;
-    float distance_to_cell = distance(g_CameraPosition, position);
+    float distance_to_cell = distance(MI.CameraPosition, position);
     float cell_size_step = distance_to_cell * g_WorldSpaceReSTIRConstants.cell_size;
     uint log_step_multiplier = uint(log2(1e3f * cell_size_step));
     float cell_size = 1e-3f * exp2(log_step_multiplier);
@@ -85,7 +85,7 @@ uint2 Reservoir_GetIndexAndHash(in float3 position)
 uint2 Reservoir_GetPreviousIndexAndHash(in float3 position)
 {
     uint2 index_and_hash;
-    float distance_to_cell = distance(g_PreviousCameraPosition, position);
+    float distance_to_cell = distance(MI.PreviousCameraPosition, position);
     float cell_size_step = distance_to_cell * g_WorldSpaceReSTIRConstants.cell_size;
     uint log_step_multiplier = uint(log2(1e3f * cell_size_step));
     float cell_size = 1e-3f * exp2(log_step_multiplier);

@@ -192,6 +192,7 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
 }
 
 bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
+    (void)capsaicin;
     // Do nothing
     return true;
 }

@@ -90,7 +90,7 @@ RWStructuredBuffer<float4> g_HashGridCache_BuffersFloat4[] : register(space98);
 // Gets the size of the hash cell for the given world-space position.
 float HashGridCache_GetCellSize(in float3 position)
 {
-    float cell_size_step = max(distance(g_CameraPosition, position) * g_HashGridCacheConstants.cell_size, g_HashGridCacheConstants.min_cell_size);
+    float cell_size_step = max(distance(MI.CameraPosition, position) * g_HashGridCacheConstants.cell_size, g_HashGridCacheConstants.min_cell_size);
     uint log_step_multiplier = uint(log2(HASHGRIDCACHE_STEP_FACTOR * cell_size_step));
     float hit_cell_size = HASHGRIDCACHE_SIZE_FACTOR * exp2(log_step_multiplier);
     return hit_cell_size;
