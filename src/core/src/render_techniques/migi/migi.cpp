@@ -43,10 +43,25 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     {
         if (need_reload_kernel_)
         {
-            terminate();
-            init(capsaicin);
-            need_reload_kernel_ = false;
+            releaseKernels();
+            initKernels(capsaicin);
         }
+
+        if(need_reload_memory_)
+        {
+            releaseResources();
+            initResources(capsaicin);
+        }
+
+        // Make sure the frame buffers for graphics kernels are initialized before reloading them.
+        if(need_reload_kernel_ || need_reload_memory_)
+        {
+            initGraphicsKernels(capsaicin);
+        }
+
+        need_reload_kernel_ = false;
+        need_reload_memory_ = false;
+
 
         // Clear the hash-grid cache if user's changed the cell size
         if (need_reset_hash_grid_cache_)
@@ -222,6 +237,14 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.MaxBasisCount           = options_.SSRC_max_basis_count;
 
         C.FrameIndex = capsaicin.getFrameIndex();
+
+        C.PreviousCameraRight     = previous_constants_.CameraRight;
+        C.PreviousCameraUp        = previous_constants_.CameraUp;
+
+        glm::vec2 jitter          = {camera_matrices.projection[2][0], camera_matrices.projection[2][1]};
+        C.TAAJitterUV             = jitter;
+        C.PreviousTAAJitterUV     = previous_constants_.TAAJitterUV;
+
         C.FrameSeed  = options_.debug_freeze_frame_seed ? 123 : C.FrameIndex;
         C.PreviousFrameSeed = previous_constants_.FrameSeed;
 
@@ -237,6 +260,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.MaxAdaptiveProbeCount   = options_.SSRC_max_adaptive_probe_count;
         C.NoImportanceSampling    = options_.no_importance_sampling;
         C.NoAdaptiveProbes        = options_.no_adaptive_probes;
+        // need_reset_screen_space_cache_ is cleared at the end of the render() function
         C.ResetCache              = need_reset_screen_space_cache_;
 
         C.CacheUpdateLearningRate = options_.cache_update_learing_rate;
@@ -714,7 +738,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     {
         // Resolving requires the wrap sampler for material textures
         gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearWrapSampler());
-
         const TimedSection timed_section(*this, "SSRC_IntegrateASG");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_IntegrateASG);
         uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
@@ -743,10 +766,23 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
     // Specify whether the GI output is copied to debug drawing as a background
     bool debug_buffer_copied = false;
-    (void)debug_buffer_copied;
 
     if(options_.active_debug_view == "SSRC_ProbeAllocation") {
-        // TODO
+        const TimedSection timed_section(*this, "SSRC_ProbeAllocation");
+
+        if(!debug_buffer_copied)
+        {
+            // Copy the depth buffer to the depth buffer for debug visualization
+            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            debug_buffer_copied = true;
+        }
+
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeProbePlacement);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_VisualizeProbePlacement);
+        int tile_count = divideAndRoundUp(options_.width, SSRC_TILE_SIZE) * divideAndRoundUp(options_.height, SSRC_TILE_SIZE);
+        uint32_t dispatch_size[] = {(tile_count + threads[0] - 1) / threads[0]};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
     } else if(options_.active_debug_view == "SSRC_Complexity") {
 //        const TimedSection timed_section(*this, "SSRC_Complexity");
 //        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_show_difference);
@@ -838,6 +874,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     previous_camera_ = capsaicin.getCamera();
     // Increment internal frame index, which is different from the frame index in Capsaicin
     internal_frame_index_ ++;
+
+    // Clear flags
+    need_reset_screen_space_cache_ = false;
 
 #ifndef NDEBUG
     fflush(stdout);

@@ -58,7 +58,7 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     g_RWProbeScreenPositionTexture[ProbeIndex] = PackUint16x2(Header.ScreenPosition);
     g_RWProbeLinearDepthTexture[ProbeIndex] = Header.LinearDepth;
     g_RWProbeWorldPositionTexture[ProbeIndex] = float4(Header.Position, 0.f);
-    g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal * 0.5f + 0.5f);
+    g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal) * 0.5f + 0.5f;
 }
 
 int2 GetTileJitter (bool bPrevious = false) {
@@ -149,12 +149,17 @@ ScreenProbeMaterial FetchScreenProbeMaterial (int2 ScreenCoords, bool HiRes) {
     return Material;
 }
 
-float3 GetScreenProbeIrradiance (int2 Index) {
-    return g_RWProbeIrradianceTexture[Index].xyz;
+float3 GetScreenProbeIrradiance (int2 Index, bool bPrevious = false) {
+    return bPrevious ? g_RWPreviousProbeIrradianceTexture[Index].xyz
+         : g_RWProbeIrradianceTexture[Index].xyz;
 }
 
 void   WriteScreenProbeIrradiance (int2 Index, float3 Irradiance) {
     g_RWProbeIrradianceTexture[Index] = float4(Irradiance, 0);
+}
+
+bool   IsScreenProbeValid (int2 Index) {
+    return g_RWProbeLinearDepthTexture[Index].x > 0;
 }
 
 

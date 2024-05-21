@@ -96,7 +96,7 @@ RWStructuredBuffer<uint>   g_RWAllocatedProbeSGCountBuffer;
 // Irradiance (actually mean radiance in all incident directions on the hemisphere) for SSRC probes
 // Color : 16*3, Unused: 16
 RWTexture2D<float4>  g_RWProbeIrradianceTexture;
-RWTexture2D<float4>  g_RWPreviousProbeIrradianceBuffer;
+RWTexture2D<float4>  g_RWPreviousProbeIrradianceTexture;
 // The estimated accuracy of the current probe from temporal reprojection
 // [0, 1], used to guide update ratio
 RWTexture2D<float>  g_RWProbeHistoryTrustTexture;

@@ -320,7 +320,7 @@ void WriteUpdateRay(int2 ProbeIndex, int2 ProbeScreenPosition, int RayRank, floa
     int RayIndex = BaseOffset + RayRank;
     if(WaveIsFirstLane()) g_RWUpdateRayProbeBuffer[RayIndex / WAVE_SIZE] = PackUint16x2(ProbeIndex);
     g_RWUpdateRayDirectionBuffer[RayIndex] = packUnorm2x16(UnitVectorToOctahedron(RayDirection) * 0.5 + 0.5);
-    g_RWUpdateRayRadianceInvPdfBuffer[RayIndex] = PackFp16x4Safe(float4(0.f.xxx, 1.f / RayPdf));
+    g_RWUpdateRayRadianceInvPdfBuffer[RayIndex] = PackFp16x4Safe(float4(0.f.xxx, RayPdf == 0 ? 0 : (1.f / RayPdf)));
 }
 
 // Misc

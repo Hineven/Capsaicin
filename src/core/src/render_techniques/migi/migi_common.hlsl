@@ -150,6 +150,15 @@ struct MIGI_Constants {
     float3   PreviousCameraPosition;
 
     uint FrameIndex;//
+
+    float3 PreviousCameraRight;
+    uint Padding2;//
+    float3 PreviousCameraUp;
+    uint Padding3;//
+
+    // Add these values to UV when using camera coordinate system to recover pixel world positions
+    float2 TAAJitterUV;
+    float2 PreviousTAAJitterUV;
     
     float3    PreviousCameraDirection;
     // Maximum number of basis to allocate to probes

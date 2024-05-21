@@ -21,7 +21,9 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::LabelText("Allocated Rays", "%d", readback_values_.update_ray_count);
             ImGui::LabelText("Irradiance (Debug)", "%.4f", readback_values_.debug_visualize_incident_irradiance);
         }
-        std::vector<std::string> debug_views = {"None", "SSRC_Coverage", "SSRC_TileOccupancy", "SSRC_Basis", "SSRC_Basis3D", "SSRC_Difference", "SSRC_IncidentRadiance", "SSRC_UpdateRays"};
+        std::vector<std::string> debug_views = {"None"};
+        auto migi_debug_views = getDebugViews();
+        debug_views.insert(debug_views.end(), migi_debug_views.begin(), migi_debug_views.end());
         auto view_it = std::find(debug_views.begin(), debug_views.end(), options_.active_debug_view);
         if(view_it == debug_views.end())
         {
@@ -39,22 +41,9 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::EndCombo();
         }
         std::vector<std::string> debug_visualize_mode_names;
-        if (options_.active_debug_view == "SSRC_Coverage")
+        if (options_.active_debug_view == "SSRC_ProbeAllocation")
         {
-            debug_visualize_mode_names = {"Coverage"};
-        }
-        else if (options_.active_debug_view == "SSRC_TileOccupancy")
-        {
-            debug_visualize_mode_names = {"Heat", "Occupancy", "Occupancy PCol"};
-        }
-        else if (options_.active_debug_view == "SSRC_Basis")
-        {
-            debug_visualize_mode_names = {"Injection", "ID", "Radius", "PCol"};
-        }
-        else if(options_.active_debug_view == "SSRC_Basis3D") {
-            debug_visualize_mode_names = {"Intensity", "Lambda", "WAlpha", "ERadius"};
-        } else if(options_.active_debug_view == "SSRC_Difference") {
-            debug_visualize_mode_names = {"Difference", "Ray Allocation", "Raw Difference"};
+            debug_visualize_mode_names = {"Allocation"};
         } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
             debug_visualize_mode_names = {"Distribution"};
         } else if(options_.active_debug_view == "SSRC_UpdateRays") {
@@ -90,6 +79,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Optimize SGLambda", &options_.cache_update_SG_lambda);
         ImGui::Checkbox("No Importance Sampling", &options_.no_importance_sampling);
         ImGui::Checkbox("No Adaptive Probes", &options_.no_adaptive_probes);
+        ImGui::Checkbox("Freeze Seed", &options_.debug_freeze_frame_seed);
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);

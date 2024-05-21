@@ -157,6 +157,7 @@ public:
         GfxKernel  SSRC_UpdateProbes {};
         GfxKernel  SSRC_IntegrateASG {};
         GfxKernel  DebugSSRC_FetchCursorPos {};
+        GfxKernel  DebugSSRC_VisualizeProbePlacement {};
         GfxKernel  DebugSSRC_PrepareUpdateRays {};
 
         GfxKernel  GenerateDispatch {};

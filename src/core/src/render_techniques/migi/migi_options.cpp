@@ -74,7 +74,6 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 
 
     // Debugging
-    options_.debug_freeze_frame_seed = false;
 
     options_.debug_view_switched = options_.active_debug_view != capsaicin.getCurrentDebugView();
     options_.active_debug_view = capsaicin.getCurrentDebugView();
@@ -104,11 +103,7 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 DebugViewList MIGI::getDebugViews() const noexcept
 {
     auto ret = DebugViewList();
-    ret.emplace_back("SSRC_Coverage");
-    ret.emplace_back("SSRC_TileOccupancy");
-    ret.emplace_back("SSRC_Basis");
-    ret.emplace_back("SSRC_Basis3D");
-    ret.emplace_back("SSRC_Difference");
+    ret.emplace_back("SSRC_ProbeAllocation");
     ret.emplace_back("SSRC_IncidentRadiance");
     ret.emplace_back("SSRC_UpdateRays");
     return ret;
