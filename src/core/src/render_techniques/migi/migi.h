@@ -117,6 +117,7 @@ public:
         GfxBuffer probe_update_error {};
 
         GfxBuffer debug_cursor_world_pos {};
+        GfxBuffer debug_probe_world_position {};
         GfxBuffer debug_visualize_incident_radiance {};
         GfxBuffer debug_visualize_incident_radiance_sum {};
 
@@ -158,6 +159,8 @@ public:
         GfxKernel  SSRC_IntegrateASG {};
         GfxKernel  DebugSSRC_FetchCursorPos {};
         GfxKernel  DebugSSRC_VisualizeProbePlacement {};
+        GfxKernel  DebugSSRC_PrepareProbeIncidentRadiance {};
+        GfxKernel  DebugSSRC_VisualizeIncidentRadiance {};
         GfxKernel  DebugSSRC_PrepareUpdateRays {};
 
         GfxKernel  GenerateDispatch {};

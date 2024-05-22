@@ -282,7 +282,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         previous_constants_ = C;
 
-
         GfxBuffer MI_constants    = capsaicin.allocateConstantBuffer<MIGI_Constants>(1);
         gfxBufferGetData<MIGI_Constants>(gfx_, MI_constants)[0] = C;
         gfxProgramSetParameter(gfx_, kernels_.program, "MI", MI_constants);
@@ -355,6 +354,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugCursorWorldPosBuffer",
         buf_.debug_cursor_world_pos);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugProbeWorldPositionBuffer",
+        buf_.debug_probe_world_position);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugVisualizeIncidentRadianceBuffer",
         buf_.debug_visualize_incident_radiance);
 
@@ -790,26 +791,30 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 //        uint dispatch_size[] = {divideAndRoundUp(options_.width, threads[0]), divideAndRoundUp(options_.height, threads[1])};
 //        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
-//        const TimedSection timed_section(*this, "SSRC_IncidentRadiance");
-//        if(options_.cursor_dragging)
-//        {
-//            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_fetch_cursor_pos);
-//            gfxCommandDispatch(gfx_, 1, 1, 1);
-//        }
-//        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_precompute_incident_radiance);
-//        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_precompute_incident_radiance);
-//        gfxCommandDispatch(gfx_, divideAndRoundUp(options_.debug_visualize_incident_radiance_num_points, threads[0]), 1, 1);
-//        // Copy the depth buffer to the depth buffer for debug visualization
-//        gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
-//        debug_buffer_copied = true;
-//        __override_primitive_topology = true;
-//        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-//        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_incident_radiance);
-//        gfxCommandDraw(gfx_, options_.debug_visualize_incident_radiance_num_points);
-//        __override_primitive_topology = false;
-//        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//        // Additionally accumulate the radiance buffer to compute the numerical integral of incoming radiance
-//        gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Float, buf_.debug_visualize_incident_radiance_sum, buf_.debug_visualize_incident_radiance, &buf_.reduce_count);
+        const TimedSection timed_section(*this, "SSRC_IncidentRadiance");
+        if(options_.cursor_dragging)
+        {
+            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
+            gfxCommandDispatch(gfx_, 1, 1, 1);
+        }
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
+        gfxCommandDispatch(gfx_, divideAndRoundUp(options_.debug_visualize_incident_radiance_num_points, threads[0]), 1, 1);
+        // Copy the depth buffer to the depth buffer for debug visualization
+        if(!debug_buffer_copied)
+        {
+            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            debug_buffer_copied = true;
+        }
+        __override_primitive_topology = true;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeIncidentRadiance);
+        gfxCommandDraw(gfx_, options_.debug_visualize_incident_radiance_num_points);
+        __override_primitive_topology = false;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        // Additionally accumulate the radiance buffer to compute the numerical integral of incoming radiance
+        gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Float, buf_.debug_visualize_incident_radiance_sum, buf_.debug_visualize_incident_radiance, &buf_.reduce_count);
     } else if(options_.active_debug_view == "SSRC_UpdateRays") {
 //        const TimedSection timed_section(*this, "SSRC_UpdateRays");
 //        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_prepare_update_rays);

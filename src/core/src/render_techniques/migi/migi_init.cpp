@@ -143,6 +143,9 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "DebugSSRC_FetchCursorPos", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_VisualizeProbePlacement = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_VisualizeProbePlacement", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_PrepareProbeIncidentRadiance = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_PrepareProbeIncidentRadiance", defines_c.data(), (uint32_t)defines_c.size());
+        // DebugSSRC_VisualizeIncidentRadiance is a graphics kernel and is created in initGraphicsKernels()
         kernels_.DebugSSRC_PrepareUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_PrepareUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
 
@@ -198,8 +201,21 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
 }
 
 bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
-    (void)capsaicin;
-    // Do nothing
+
+    auto defines = getShaderCompileDefinitions(capsaicin);
+    std::vector<const char*> defines_c;
+    for (auto &i : defines)
+    {
+        defines_c.push_back(i.c_str());
+    }
+
+    GfxDrawState visualize_incident_radiance_draw_state {};
+    gfxDrawStateSetColorTarget(visualize_incident_radiance_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+    gfxDrawStateSetDepthStencilTarget(visualize_incident_radiance_draw_state, tex_.depth);
+    kernels_.DebugSSRC_VisualizeIncidentRadiance = gfxCreateGraphicsKernel(
+        gfx_, kernels_.program, visualize_incident_radiance_draw_state, "DebugSSRC_VisualizeIncidentRadiance",
+        defines_c.data(), (uint32_t)defines_c.size());
+
     return true;
 }
 
@@ -327,6 +343,8 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
 
     assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
 
+    buf_.debug_probe_world_position = gfxCreateBuffer<float3>(gfx_, 1);
+    buf_.debug_probe_world_position.setName("DebugProbeWorldPosition");
     buf_.debug_visualize_incident_radiance = gfxCreateBuffer<float3>(gfx_, cfg_.max_debug_visualize_incident_radiance_num_points);
     buf_.debug_visualize_incident_radiance.setName("DebugVisualizeIncidentRadiance");
     buf_.debug_visualize_incident_radiance_sum = gfxCreateBuffer<float>(gfx_, 1);
@@ -410,6 +428,8 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbePlacement);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeIncidentRadiance);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareUpdateRays);
 
     gfxDestroyProgram(gfx_, kernels_.program);
@@ -472,6 +492,7 @@ void MIGI::releaseResources()
     gfxDestroyBuffer(gfx_, buf_.adaptive_probe_count);
     gfxDestroyBuffer(gfx_, buf_.probe_update_error);
     gfxDestroyBuffer(gfx_, buf_.debug_cursor_world_pos);
+    gfxDestroyBuffer(gfx_, buf_.debug_probe_world_position);
     gfxDestroyBuffer(gfx_, buf_.debug_visualize_incident_radiance);
     gfxDestroyBuffer(gfx_, buf_.debug_visualize_incident_radiance_sum);
 

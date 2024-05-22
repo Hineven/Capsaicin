@@ -85,7 +85,7 @@ float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
     // TODO: Implement this function
     // FIXME
-    return 3;
+    return 1;
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {
@@ -153,6 +153,7 @@ ScreenProbeMaterial FetchScreenProbeMaterial (int2 ScreenCoords, bool HiRes) {
 }
 
 float3 GetScreenProbeIrradiance (int2 Index, bool bPrevious = false) {
+    // return 0.f;
     return bPrevious ? g_RWPreviousProbeIrradianceTexture[Index].xyz
          : g_RWProbeIrradianceTexture[Index].xyz;
 }

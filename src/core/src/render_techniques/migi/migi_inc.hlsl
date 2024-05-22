@@ -11,7 +11,7 @@
 // Flags set with compiler flags
 
 // Use heuristic for direction update
-// #define HEURISTIC_DIRECTION_UPDATE
+#define HEURISTIC_DIRECTION_UPDATE
 // Use numerical approx for color update
 // #define OPTIMAL_COLOR_UPDATE
 // Use RMSE to guide update ray allocation
@@ -149,6 +149,7 @@ ConstantBuffer<MIGI_Constants>              MI;
 
 // Debugging
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
+RWStructuredBuffer<float3> g_RWDebugProbeWorldPositionBuffer;
 RWStructuredBuffer<float3> g_RWDebugVisualizeIncidentRadianceBuffer;
 
 #endif // MIGI_SHARED_PARAMETERS_HLSL

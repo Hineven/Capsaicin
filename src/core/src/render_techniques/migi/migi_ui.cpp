@@ -45,9 +45,9 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         {
             debug_visualize_mode_names = {"Allocation"};
         } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
-            debug_visualize_mode_names = {"Distribution"};
+            debug_visualize_mode_names = {"Probe", "Pixel"};
         } else if(options_.active_debug_view == "SSRC_UpdateRays") {
-            debug_visualize_mode_names = {"Rays", "Rays (3x3 Adjacent Pixels in Tile)"};
+            debug_visualize_mode_names = {"Rays"};
         }
         if (debug_visualize_mode_names.empty())
         {
@@ -83,7 +83,6 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);
-
             ImGui::Checkbox("Debug Light", &options_.debug_light);
             ImGui::SliderFloat3("Light Position", &options_.debug_light_position.x, -3.0f, 3.0f);
             ImGui::SliderFloat("Light Size", &options_.debug_light_size, 0.0f, 0.5f);

@@ -471,7 +471,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     float3 PrevHomogeneous = PrevHomogeneousW.xyz / PrevHomogeneousW.w;
     // TODO TAA should be in place of the noise effect, but it malfunctions
     // (consistent directional biased blur during reprojection).
-    float2 NoiseOffset = (BlueNoise_Sample2D(ProbeIndex, MI.FrameIndex) * 2 - 1) * MI.ScreenDimensionsInv;
+    float2 NoiseOffset = (BlueNoise_Sample2D(ProbeIndex, MI.FrameSeed) * 2 - 1) * MI.ScreenDimensionsInv;
     float2 PrevScreenPosition = MI.ScreenDimensions * NDC22UV(clamp(PrevHomogeneous.xy + NoiseOffset, -1.f, 1.f));
     // TODO use the previous camera parameters to recover linear depth
     float  PrevLinearDepth    = GetLinearDepth(PrevHomogeneous.z);
@@ -525,7 +525,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             } else {
                 int Mid = NumBasis0 + BasisCount[2];
                 BasisOffset = BasisOffsets[BasisRank < Mid ? 2 : 3] 
-                    + BasisRank - NumBasis0 - (BasisRank < Mid ? 0 : BasisCount[2]);
+                    + BasisRank - (BasisRank < Mid ? NumBasis0 : Mid);
                 Weight      = Sample.Weights[BasisRank < Mid ? 2 : 3];
             }
             SGData SG = FetchBasisData(BasisOffset, true);
@@ -569,7 +569,8 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     int MergeCount = max(NumBasis - CurrentProbeBasisCount, 0);
 
     // Progressively merges the candidate SGs.
-    {
+    // TODO: Accumulate SG radiance into irradiance if CurrentProbeBasisCount equals to 0.
+    if(CurrentProbeBasisCount > 0) {
         const int REPEAT = (SSRC_MAX_NUM_BASIS_PER_PROBE * 4 + WAVE_SIZE-1) / WAVE_SIZE;   
         [unroll(4)]
         for(int Iteration = 0; MergeCount > 0 && Iteration < 4; Iteration ++) {
@@ -585,8 +586,8 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                         // TODO better similarity computation
                         float X = EvaluateSGRaw(LocalSGData4[BasisRank], CurrentSG.Direction);
                         float Y = EvaluateSGRaw(CurrentSG, LocalSGData4[i].Direction);
-                        float Similarity = (i == BasisRank) ? 0.f : (X * Y);
-                        if(Similarity > MaxSimilarity) {
+                        float Similarity = X * Y;
+                        if(i != BasisRank && Similarity > MaxSimilarity) {
                             MaxSimilarity = Similarity;
                             MaxIndex = i;
                         }
@@ -603,15 +604,17 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                 for(int i = 0; i<NumBasis; i++) {
                     int MaxIndex = LocalSGMaxMatchIndex[i];
                     if(MaxIndex >= 0) {
+                        bool AllocateNewSlot = false;
                         // A not matched basis
                         if(MergeCount > 0) {
                             if(MaxIndex > i) {
                                 // Matched, so cancel the matching for MaxIndex
                                 LocalSGMaxMatchIndex[MaxIndex] = -1;
                                 MergeCount --;
+                                AllocateNewSlot = true;
                             } else {
                                 int OpponentMatchIndex = LocalSGMaxMatchIndex[MaxIndex];
-                                if(OpponentMatchIndex == OpponentMatchIndex) {
+                                if(MaxIndex == OpponentMatchIndex) {
                                     // Matched.
                                     LocalSGMaxMatchIndex[MaxIndex] = i;
                                     LocalSGMaxMatchIndex[i] = -1;
@@ -620,13 +623,15 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                                     // Failed, the opponent has already matched.
                                     // Match with itself.
                                     LocalSGMaxMatchIndex[i] = i;
+                                    AllocateNewSlot = true;
                                 }
                             }
                         } else {
                             // No need for further merging. Match with itself
                             LocalSGMaxMatchIndex[i] = i;
+                            AllocateNewSlot = true;
                         }
-                        LocalSGNewIndex[i] = NumNewBasis++;
+                        if(AllocateNewSlot) LocalSGNewIndex[i] = NumNewBasis++;
                     }
                 }
             }
@@ -661,8 +666,8 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     }
     // Write the new SGs to the buffer
     {
-#if SSRC_MAX_NUM_BASIS_PER_PROBE * 4 > WAVE_SIZE
-#error "SSRC_MAX_NUM_BASIS_PER_PROBE * 4 must be less than or equal to WAVE_SIZE"
+#if SSRC_MAX_NUM_BASIS_PER_PROBE > WAVE_SIZE
+#error "SSRC_MAX_NUM_BASIS_PER_PROBE must be less than or equal to WAVE_SIZE"
 #endif
         // Reproject irradiance
         if(WaveIsFirstLane()) {
@@ -675,7 +680,19 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
         }
         int BasisOffset = Header.BasisOffset;
         if(LocalID < CurrentProbeBasisCount) {
-            WriteBasisData(BasisOffset + LocalID, LocalSGData4[LocalID]);
+            SGData SG;
+            if(LocalID < NumBasis) SG = LocalSGData4[LocalID];
+            else {
+                // Initialize the basis
+                SG.Color = 1e-4f;
+                SG.Lambda = 0.65f + 0.2f * NumBasis;
+                SG.Depth  = 1.f;
+                float3 Direction = FibonacciSphere(LocalID, CurrentProbeBasisCount);
+                float3 Tangent, Bitangent;
+                GetOrthoVectors(Header.Normal, Tangent, Bitangent);
+                SG.Direction = normalize(Direction.x * Tangent + Direction.y * Bitangent + Direction.z * Header.Normal);
+            }
+            WriteBasisData(BasisOffset + LocalID, SG);
         }
     }
 }
@@ -1741,10 +1758,10 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
 groupshared float3 LocalEvaluatedRadiance[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
 groupshared float3 LocalDColorPrefixSum[WAVE_SIZE];
 groupshared float3 LocalDDirectionPrefixSum[WAVE_SIZE];
+groupshared float3 LocalSGWeightedSampleWeightSum[WAVE_SIZE];
 groupshared float  LocalDLambdaPrefixSum[WAVE_SIZE];
 
 groupshared float  LocalSampleWeightPrefixSum[WAVE_SIZE];
-groupshared float  LocalDirectionWeightPrefixSum[WAVE_SIZE];
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
 
@@ -1776,11 +1793,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             SGData SG = LocalSGData[LocalID];
             SG.Color     = 0.001f.xxx;
             // TODO better initialization
-            SG.Lambda    = 0.85f * (0.8f + 0.2f * BasisCount);
+            SG.Lambda    = 0.65f + 0.2f * BasisCount;
 
             float3 Direction = FibonacciSphere(LocalID, BasisCount);
             Direction.z      = abs(Direction.z);
-            // Direction = float3(0.f, 0.f, 1.f);
             float3 Normal    = Header.Normal;
             float3 Tangent, Bitangent;
             GetOrthoVectors(Normal, Tangent, Bitangent);
@@ -1839,11 +1855,13 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     int ThreadPerBasis = WAVE_SIZE / BasisCount;
     int BasisRank      = LocalID / ThreadPerBasis;
     int BasisThread    = LocalID % ThreadPerBasis;
-    SGData SG = LocalSGData[BasisRank];
-    SGGradients SumStepSize = (SGGradients)0;
 
     if(BasisRank < BasisCount) {
-        
+        SGData SG = LocalSGData[BasisRank];
+        SGGradients SumStepSize = (SGGradients)0;
+#ifdef OPTIMAL_COLOR_UPDATE
+        float3 SGWeightedSampleWeightSum = 0;
+#endif
         // TODO classifying update ray count & basis count into different levels running different kernels,
         // so we can completely unroll the loops
         [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
@@ -1871,9 +1889,13 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     // The weight for balancing sample distribution
                     float  SampleWeight     = InvPdf;
 #ifndef OPTIMAL_COLOR_UPDATE
+// TODO linear reg
+// FIXME incorrect now.
                     SumStepSize.dColor     -= X * Gradients.dColor     * SampleWeight;
 #else
-                    SumStepSize.dColor     += TargetRadiance * SGEvaluatedRaw * SampleWeight;
+                    SGWeightedSampleWeightSum += SGEvaluatedRaw * SampleWeight;
+                    // FIXME
+                    SumStepSize.dColor        += TargetRadiance * SGEvaluatedRaw * SampleWeight;
 #endif
                     
 #ifndef HEURISTIC_DIRECTION_UPDATE
@@ -1887,21 +1909,24 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             }
         }
         // Accumulate weights
+#ifdef OPTIMAL_COLOR_UPDATE
+        LocalSGWeightedSampleWeightSum[LocalID] = WavePrefixSum(SGWeightedSampleWeightSum);
+#endif
         LocalDColorPrefixSum[LocalID]     = WavePrefixSum(SumStepSize.dColor);
         LocalDDirectionPrefixSum[LocalID] = WavePrefixSum(SumStepSize.dDirection);
         LocalDLambdaPrefixSum[LocalID]    = WavePrefixSum(SumStepSize.dLambda);
-#ifdef HEURISTIC_DIRECTION_UPDATE
-        LocalDirectionWeightPrefixSum[LocalID] = WavePrefixSum(SumDirectionWeight);
-#endif
         GroupMemoryBarrierWithGroupSync();
         // The chosen thread for updating each basis
         if(BasisThread == ThreadPerBasis - 1) {
             // Accumulate and normalize
-            SumStepSize.dColor     += SumStepSize.dColor + LocalDColorPrefixSum[LocalID] - LocalDColorPrefixSum[LocalID - ThreadPerBasis + 1];
-            SumStepSize.dDirection += SumStepSize.dDirection + LocalDDirectionPrefixSum[LocalID] - LocalDDirectionPrefixSum[LocalID - ThreadPerBasis + 1];
-            SumStepSize.dLambda    += SumStepSize.dLambda + LocalDLambdaPrefixSum[LocalID] - LocalDLambdaPrefixSum[LocalID - ThreadPerBasis + 1];
 #ifdef OPTIMAL_COLOR_UPDATE
-            SumStepSize.dColor     /= SumSampleWeight;
+            SGWeightedSampleWeightSum = SGWeightedSampleWeightSum + LocalSGWeightedSampleWeightSum[LocalID] - LocalSGWeightedSampleWeightSum[LocalID - ThreadPerBasis + 1];
+#endif
+            SumStepSize.dColor        = SumStepSize.dColor + LocalDColorPrefixSum[LocalID] - LocalDColorPrefixSum[LocalID - ThreadPerBasis + 1];
+            SumStepSize.dDirection    = SumStepSize.dDirection + LocalDDirectionPrefixSum[LocalID] - LocalDDirectionPrefixSum[LocalID - ThreadPerBasis + 1];
+            SumStepSize.dLambda       = SumStepSize.dLambda + LocalDLambdaPrefixSum[LocalID] - LocalDLambdaPrefixSum[LocalID - ThreadPerBasis + 1];
+#ifdef OPTIMAL_COLOR_UPDATE
+            SumStepSize.dColor     /= SGWeightedSampleWeightSum;
 #else       
             SumStepSize.dColor     /= ProbeRayCount;
 #endif
@@ -1913,7 +1938,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 
             if(MI.CacheUpdate_SGColor) {
 #ifdef OPTIMAL_COLOR_UPDATE
-                SG.Color = lerp(SG.Color, SumStepSize.dColor, min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f));
+                // FIXME too unstable to apply ImpactFactors.x for places with high frequency incident radiance
+                SG.Color = lerp(SG.Color, SumStepSize.dColor, min(MI.CacheUpdateLearningRate, 1.f));
 #else
                 SG.Color += SumStepSize.dColor     * MI.CacheUpdateLearningRate * (1 + ImpactFactors.x);
 #endif
@@ -1929,13 +1955,13 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 // Heuristic direction update
                 float DstFactor = MI.CacheUpdateLearningRate;
                 // Larger SG is harder to shift direction
-                float SrcFactor = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx) * ImpactFactors.y;
+                float SrcFactor = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx) * max(0, 1.f - ImpactFactors.y);
                 SG.Direction = SG.Direction * SrcFactor + SumStepSize.dDirection * DstFactor;
                 SG.Direction = normalize(SG.Direction);
 #endif
             }
             if(MI.CacheUpdate_SGLambda) {
-                SG.Lambda    += SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (2 - ImpactFactors.z);
+                SG.Lambda    += SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
                 SG.Lambda    = clamp(SG.Lambda, 0.8f, 100.f); // Lambda is in [0.8f, 100.f]
             }
 
@@ -2210,45 +2236,53 @@ void DebugSSRC_VisualizeProbePlacement (int DispatchID : SV_DispatchThreadID) {
     }
 }
 
-// [numthreads(WAVE_SIZE, 1, 1)]
-// void DebugSSRC_PrecomputeIncidentRadiance (uint DispatchID : SV_DispatchThreadID) {
-//     if(DispatchID >= MI.DebugVisualizeIncidentRadianceNumPoints) {
-//         return;
-//     }
-//     if(DispatchID == 0) {
-//         // 3 channel sum
-//         g_RWReduceCountBuffer[0] = MI.DebugVisualizeIncidentRadianceNumPoints * 3;
-//     }
-//     float3 Direction      = FibonacciSphere(DispatchID, MI.DebugVisualizeIncidentRadianceNumPoints);
-//     float3 DebugWorldPos  = g_RWDebugCursorWorldPosBuffer[0];
-//     float3 Homogeneous    = transformPointProjection(DebugWorldPos, MI.CameraProjView);
-//     float2 UV             = NDC22UV(Homogeneous.xy);
-//     int2   TexCoords      = int2(UV * MI.ScreenDimensions);
-//     int2   TileCoords     = int2(TexCoords.x / SSRC_TILE_SIZE, TexCoords.y / SSRC_TILE_SIZE);
-//     int    TileID         = TileCoords.x + TileCoords.y * g_TileDimensions.x;
-//     int    TileBasisCount = g_RWTileBasisCountBuffer[TileID];
-//     int    TileBasisOffset= g_RWTileBaseSlotOffsetBuffer[TileID];
-//     float3 SumRadiance = 0.f.xxx;
-//     float  SumWeight   = 0.f;
-//     for(int i = 0; i < TileBasisCount; i++) {
-//         int BasisIndex = g_RWTileBasisIndexBuffer[TileBasisOffset + i];
-//         SGData SG;
-//         WData  W;
-//         FetchBasisData_W(BasisIndex, SG, W);
-//         float3 BasisWorldPosition;
-//         FetchBasisLocation(BasisIndex, BasisWorldPosition);
-//         float3 DeltaPosition = BasisWorldPosition - DebugWorldPos;
-//         float  EvaluatedW    = EvaluateW(W, DeltaPosition);
-//         float3 EvaluatedSG   = EvaluateSG(SG, Direction);
-//         SumRadiance += EvaluatedSG * EvaluatedW;
-//         SumWeight   += EvaluatedW;
-//     }
-//     if(SumWeight > 0) {
-//         g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = SumRadiance / SumWeight;
-//     } else {
-//         g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = 0.f.xxx;
-//     }
-// }
+[numthreads(WAVE_SIZE, 1, 1)]
+void DebugSSRC_PrepareProbeIncidentRadiance (uint DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= MI.DebugVisualizeIncidentRadianceNumPoints) {
+        return;
+    }
+    if(DispatchID == 0) {
+        // 3 channel sum
+        g_RWReduceCountBuffer[0] = MI.DebugVisualizeIncidentRadianceNumPoints * 3;
+    }
+    float3 Direction      = FibonacciSphere(DispatchID, MI.DebugVisualizeIncidentRadianceNumPoints);
+    float3 DebugWorldPos  = g_RWDebugCursorWorldPosBuffer[0];
+    float3 Homogeneous    = transformPointProjection(DebugWorldPos, MI.CameraProjView);
+    float2 UV             = NDC22UV(Homogeneous.xy);
+    int2   TexCoords      = int2(UV * MI.ScreenDimensions);
+    
+    int2   TileIndex       = int2(TexCoords.x / SSRC_TILE_SIZE, TexCoords.y / SSRC_TILE_SIZE);
+    int2   ProbeIndex      = TileIndex;
+    ProbeHeader Header     = GetScreenProbeHeader(ProbeIndex);
+    float  MinScreenDistance = Header.bValid ? length(UV - Header.ScreenCoords - 0.5) : 1e6f;
+    int AdaptiveProbeCount = g_RWTileAdaptiveProbeCountTexture[TileIndex];
+    for(int AdaptiveProbeRank = 0; AdaptiveProbeRank < AdaptiveProbeCount; AdaptiveProbeRank++) {
+        int ScreenProbeIndex1 = GetAdaptiveProbeIndex(ProbeIndex, AdaptiveProbeRank) + MI.UniformScreenProbeCount;
+        int2 ScreenProbeIndex = int2(ScreenProbeIndex1 % MI.TileDimensions.x, ScreenProbeIndex1 / MI.TileDimensions.x);
+        ProbeHeader AdaptiveHeader = GetScreenProbeHeader(ScreenProbeIndex);
+        float ScreenDistance  = length(UV - AdaptiveHeader.ScreenCoords - 0.5);
+        if(!Header.bValid || ScreenDistance < MinScreenDistance) {
+            ProbeIndex = ScreenProbeIndex;
+            Header = AdaptiveHeader;
+            MinScreenDistance = ScreenDistance;
+        }
+    }
+
+    if(DispatchID == 0) {
+        g_RWDebugProbeWorldPositionBuffer[0] = Header.Position;
+    }
+    
+    int BasisCount = GetProbeBasisCountFromClass(Header.Class);
+
+    float3 SumRadiance = 0.f.xxx;
+    for(int i = 0; i < BasisCount; i++) {
+        int BasisIndex = Header.BasisOffset + i;
+        SGData SG = FetchBasisData(BasisIndex);
+        float3 EvaluatedSG   = EvaluateSG(SG, Direction);
+        SumRadiance += EvaluatedSG;
+    }
+    g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = SumRadiance + GetScreenProbeIrradiance(ProbeIndex);
+}
 
 [numthreads(1, 1, 1)]
 void DebugSSRC_PrepareUpdateRays () {
