@@ -63,7 +63,7 @@ public:
         // Probe header, uint32 per probe
         GfxTexture   probe_header_packed [2];
         // Probe screen position, 2xuint16 packed in uint32
-        GfxTexture   probe_screen_position [2];
+        GfxTexture probe_screen_coords[2];
         // Probe linear depth   1xfloat32
         GfxTexture   probe_linear_depth [2];
         // Probe world position 4xfloat32 because 3xfloat32 is not supported in most hardware

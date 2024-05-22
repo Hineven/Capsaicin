@@ -149,12 +149,12 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     {
         int flip = (int)internal_frame_index_ & 1;
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeHeaderPackedTexture",tex_.probe_header_packed[flip]);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeScreenPositionTexture",tex_.probe_screen_position[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeScreenCoordsTexture",tex_.probe_screen_coords[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeLinearDepthTexture", tex_.probe_linear_depth[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeWorldPositionTexture", tex_.probe_world_position[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeNormalTexture", tex_.probe_normal[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeHeaderPackedTexture", tex_.probe_header_packed[1 - flip]);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeScreenPositionTexture", tex_.probe_screen_position[1 - flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeScreenCoordsTexture", tex_.probe_screen_coords[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeLinearDepthTexture", tex_.probe_linear_depth[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeWorldPositionTexture", tex_.probe_world_position[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeNormalTexture", tex_.probe_normal[1 - flip]);
@@ -242,7 +242,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.PreviousCameraUp        = previous_constants_.CameraUp;
 
         glm::vec2 jitter          = {camera_matrices.projection[2][0], camera_matrices.projection[2][1]};
-        C.TAAJitterUV             = jitter;
+        C.TAAJitterUV             = jitter * 0.5f;
         C.PreviousTAAJitterUV     = previous_constants_.TAAJitterUV;
 
         C.FrameSeed  = options_.debug_freeze_frame_seed ? 123 : C.FrameIndex;

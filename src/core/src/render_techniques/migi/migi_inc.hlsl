@@ -78,12 +78,12 @@ RWTexture2D<float4> g_RWGlobalIlluminationOutput;
 // ProbeClass  : 4  bits
 // ProbeFlag   : 4  bits
 RWTexture2D<uint>   g_RWProbeHeaderPackedTexture;
-RWTexture2D<uint>   g_RWProbeScreenPositionTexture;
+RWTexture2D<uint>   g_RWProbeScreenCoordsTexture;
 RWTexture2D<float>  g_RWProbeLinearDepthTexture;
 RWTexture2D<float4> g_RWProbeWorldPositionTexture; 
 RWTexture2D<unorm float2> g_RWProbeNormalTexture;
 RWTexture2D<uint>   g_RWPreviousProbeHeaderPackedTexture;
-RWTexture2D<uint>   g_RWPreviousProbeScreenPositionTexture;
+RWTexture2D<uint>   g_RWPreviousProbeScreenCoordsTexture;
 RWTexture2D<float>  g_RWPreviousProbeLinearDepthTexture;
 RWTexture2D<float4> g_RWPreviousProbeWorldPositionTexture;
 RWTexture2D<unorm float2> g_RWPreviousProbeNormalTexture; 

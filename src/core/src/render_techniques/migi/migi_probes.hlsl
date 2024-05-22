@@ -4,8 +4,8 @@
 #include "migi_lib.hlsl"
 
 struct ProbeHeader {
-    // Screen pixel position of the probe
-    int2 ScreenPosition;
+    // Screen pixel coords of the probe
+    int2 ScreenCoords;
     int BasisOffset;
     // 0: 0, 1: 1, 2: 2, 3: 4, 4: 8, no larger than 8
     int  Class;
@@ -28,10 +28,10 @@ ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
     Header.BasisOffset  = Packed & 0x00FFFFFF;
     Header.Class        = (Packed >> 24) & 0x0F;
     uint   Flags        = (Packed >> 28) & 0x0F;
-    Header.ScreenPosition = UnpackUint16x2(
+    Header.ScreenCoords = UnpackUint16x2(
         bPrevious
-        ? g_RWPreviousProbeScreenPositionTexture[ProbeIndex].x
-        : g_RWProbeScreenPositionTexture[ProbeIndex].x
+        ? g_RWPreviousProbeScreenCoordsTexture[ProbeIndex].x
+        : g_RWProbeScreenCoordsTexture[ProbeIndex].x
     );
     Header.LinearDepth  = 
         bPrevious ? g_RWPreviousProbeLinearDepthTexture[ProbeIndex].x
@@ -46,6 +46,8 @@ ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
              * 2.f - 1.f);
             
     Header.bValid       =  Header.LinearDepth > 0;
+    // If this is not a valid probe, hint the caller that it has no valid SGs
+    if(!Header.bValid)  Header.Class = 0;
     return Header;
 }
 
@@ -55,7 +57,7 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     Packed |= (Header.Class & 0x0F) << 24;
     // Packed |= (Header.bValid ? 1 : 0) << 28;
     g_RWProbeHeaderPackedTexture[ProbeIndex] = Packed;
-    g_RWProbeScreenPositionTexture[ProbeIndex] = PackUint16x2(Header.ScreenPosition);
+    g_RWProbeScreenCoordsTexture[ProbeIndex] = PackUint16x2(Header.ScreenCoords);
     g_RWProbeLinearDepthTexture[ProbeIndex] = Header.LinearDepth;
     g_RWProbeWorldPositionTexture[ProbeIndex] = float4(Header.Position, 0.f);
     g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal) * 0.5f + 0.5f;
@@ -65,14 +67,14 @@ int2 GetTileJitter (bool bPrevious = false) {
     return Hammersley16((bPrevious ? MI.PreviousFrameSeed : MI.FrameSeed) % 8, 8, 0) * SSRC_TILE_SIZE;
 }
 
-int2 GetScreenProbeScreenPosition (int2 ProbeIndex, bool bPrevious = false) {
+int2 GetScreenProbeScreenCoords (int2 ProbeIndex, bool bPrevious = false) {
     int2 TileJitter = GetTileJitter(bPrevious);
-    int2 UniformScreenProbeScreenPosition = ProbeIndex * SSRC_TILE_SIZE + TileJitter;
+    int2 UniformScreenProbeScreenCoords = ProbeIndex * SSRC_TILE_SIZE + TileJitter;
     if(any(ProbeIndex >= MI.TileDimensions)) {
         ProbeHeader Header = GetScreenProbeHeader(ProbeIndex, bPrevious);
-        UniformScreenProbeScreenPosition = Header.ScreenPosition;
+        UniformScreenProbeScreenCoords = Header.ScreenCoords;
     }
-    return UniformScreenProbeScreenPosition;
+    return UniformScreenProbeScreenCoords;
 }
 
 float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
@@ -82,7 +84,8 @@ float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
 
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
     // TODO: Implement this function
-    return 0;
+    // FIXME
+    return 3;
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {
@@ -104,12 +107,12 @@ int  GetAdaptiveProbeIndex (int2 TileCoords, int AdaptiveProbeListIndex, bool bP
         : g_RWTileAdaptiveProbeIndexTexture[IndexCoords].x;
 }
 
-int2 GetUniformScreenProbeScreenPosition (int2 TileCoords, bool bPrevious = false) {
+int2 GetUniformScreenProbeScreenCoords (int2 TileCoords, bool bPrevious = false) {
     return TileCoords * SSRC_TILE_SIZE + GetTileJitter(bPrevious);
 }
 
 float2 GetUniformScreenProbeScreenUV (int2 TileCoords, bool bPrevious = false) {
-    return (GetUniformScreenProbeScreenPosition(TileCoords, bPrevious) + 0.5) * MI.ScreenDimensionsInv;
+    return (GetUniformScreenProbeScreenCoords(TileCoords, bPrevious) + 0.5) * MI.ScreenDimensionsInv;
 }
 
 float GetScreenProbeLinearDepth (int2 ProbeIndex, bool bPrevious = false) {

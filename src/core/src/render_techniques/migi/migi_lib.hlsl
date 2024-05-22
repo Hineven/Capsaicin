@@ -195,11 +195,6 @@ void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gr
     Gradients.dColor     = W2.xxx;
 
     Gradients.dDirection = TargetDirection * W2 * SGColorScale * SG.Lambda;
-    // We need to accumulate the gradients of Direction that are parallel
-    // to the current Direction on dColor.
-    // FIXME
-    //float dZ = W2 * SGColorScale * SG.Lambda * dot(SG.Direction, TargetDirection);
-    //dColorExtra = SG.Color * dZ;
     dColorExtra = 0.f.xxx;
 }
 
@@ -571,12 +566,18 @@ SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11
 
 // TODO improve this
 SGData MergeSG (SGData SG1, SGData SG2) {
-    float W1 = SGIntegrate(SG1.Lambda) * dot(SG1.Color, 1.f.xxx) + 1e-4f;
-    float W2 = SGIntegrate(SG2.Lambda) * dot(SG2.Color, 1.f.xxx) + 1e-4f;
+    float W1 = max(SGIntegrate(SG1.Lambda) * dot(SG1.Color, 1.f.xxx), 0) + 1e-4f;
+    float W2 = max(SGIntegrate(SG2.Lambda) * dot(SG2.Color, 1.f.xxx), 0) + 1e-4f;
     SGData Result;
     Result.Direction = normalize(SG1.Direction*W1 + SG2.Direction*W2);
+    float DirectionNorm = dot(Result.Direction, Result.Direction);
+    // TODO: This may be slow
+    if(isnan(DirectionNorm) || DirectionNorm < 1e-4f || isinf(DirectionNorm)) {
+        Result.Direction = W1 > W2 ? SG1.Direction : SG2.Direction;
+    }
     Result.Lambda = (SG1.Lambda*W1 + SG2.Lambda*W2) / (W1 + W2);
-    Result.Color = (SG1.Color*W1 + SG2.Color*W2) / (W1 + W2);
+    Result.Color  = (SG1.Color*W1 + SG2.Color*W2) / (W1 + W2);
+    Result.Depth  = (SG1.Depth*W1 + SG2.Depth*W2) / (W1 + W2);
     return Result;
 
 }

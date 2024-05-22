@@ -219,10 +219,10 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.probe_header_packed[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
     tex_.probe_header_packed[1].setName("ProbeHeaderPacked1");
 
-    tex_.probe_screen_position[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
-    tex_.probe_screen_position[0].setName("ProbeScreenPosition0");
-    tex_.probe_screen_position[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
-    tex_.probe_screen_position[1].setName("ProbeScreenPosition1");
+    tex_.probe_screen_coords[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
+    tex_.probe_screen_coords[0].setName("ProbeScreenCoords0");
+    tex_.probe_screen_coords[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
+    tex_.probe_screen_coords[1].setName("ProbeScreenCoords1");
 
     tex_.probe_linear_depth[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_FLOAT);
     tex_.probe_linear_depth[0].setName("ProbeLinearDepth0");
@@ -244,7 +244,7 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.probe_irradiance[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
     tex_.probe_irradiance[1].setName("ProbeIrradiance1");
 
-    tex_.probe_history_trust = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height_uniform, DXGI_FORMAT_R32_FLOAT);
+    tex_.probe_history_trust = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_FLOAT);
     tex_.probe_history_trust.setName("ProbeHistoryTrust");
 
     int tile_texture_width = divideAndRoundUp(capsaicin.getWidth(), SSRC_TILE_SIZE);
@@ -316,7 +316,7 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.update_ray_direction = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
     buf_.update_ray_direction.setName("UpdateRayDirection");
     buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
-    buf_.update_ray_radiance_inv_pdf.setName("UpdateRayRadiancePdf");
+    buf_.update_ray_radiance_inv_pdf.setName("UpdateRayRadianceInvPdf");
     buf_.update_ray_linear_depth = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
     buf_.update_ray_linear_depth.setName("UpdateRayLinearDepth");
 
@@ -429,8 +429,8 @@ void MIGI::releaseResources()
     // Free textures
     gfxDestroyTexture(gfx_, tex_.probe_header_packed[0]);
     gfxDestroyTexture(gfx_, tex_.probe_header_packed[1]);
-    gfxDestroyTexture(gfx_, tex_.probe_screen_position[0]);
-    gfxDestroyTexture(gfx_, tex_.probe_screen_position[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_screen_coords[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_screen_coords[1]);
     gfxDestroyTexture(gfx_, tex_.probe_linear_depth[0]);
     gfxDestroyTexture(gfx_, tex_.probe_linear_depth[1]);
     gfxDestroyTexture(gfx_, tex_.probe_world_position[0]);
