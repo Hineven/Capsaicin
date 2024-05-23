@@ -472,20 +472,29 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     // TODO TAA should be in place of the noise effect, but it malfunctions
     // (consistent directional biased blur during reprojection).
     float2 NoiseOffset = (BlueNoise_Sample2D(ProbeIndex, MI.FrameSeed) * 2 - 1) * MI.ScreenDimensionsInv;
-    float2 PrevScreenPosition = MI.ScreenDimensions * NDC22UV(clamp(PrevHomogeneous.xy + NoiseOffset, -1.f, 1.f));
+    float2 PrevScreenPosition = MI.ScreenDimensions * NDC22UV(PrevHomogeneous.xy + NoiseOffset);
+    float2 PrevProbeHistoryDimensionsMin = GetTileJitter(true) + 0.5f;
+    float2 PrevProbeHistoryDimensionsMax = MI.ScreenDimensions - SSRC_TILE_SIZE + GetTileJitter(true) + 0.5f;
+    float2 PrevScreenPositionClamped = clamp(PrevScreenPosition, PrevProbeHistoryDimensionsMin, PrevProbeHistoryDimensionsMax);
     // TODO use the previous camera parameters to recover linear depth
     float  PrevLinearDepth    = GetLinearDepth(PrevHomogeneous.z);
     SSRC_SampleData Sample;
     // TODO is it okay to use the clamped screen position? 
     CalculateSSRCSampleWeights(
-        PrevScreenPosition,
+        PrevScreenPositionClamped,
         Header.Position,
         PrevLinearDepth,
         Header.Normal,
         Sample,
         true
     );
-    float HistoryTrust = min(dot(Sample.Weights, 1), 1.f);
+    float2 OutOfRangeDecay2 = max(
+        PrevScreenPosition - PrevProbeHistoryDimensionsMax,
+        PrevProbeHistoryDimensionsMin - PrevScreenPosition
+    );
+    OutOfRangeDecay2 = max(OutOfRangeDecay2, 0.f);
+    float  OutOfRangeDecay  = max(1.f - 2.f * length(OutOfRangeDecay2) / SSRC_TILE_SIZE, 0.f);
+    float HistoryTrust = min(dot(Sample.Weights, 1), 1.f) * OutOfRangeDecay;
     if(WaveIsFirstLane()) {
         g_RWProbeHistoryTrustTexture[ProbeIndex] = HistoryTrust;
     }
@@ -530,6 +539,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             }
             SGData SG = FetchBasisData(BasisOffset, true);
             // FIXME directional reprojection is missing
+
             // Scale the color by the weight
             SG.Color = SG.Color * Weight;
             LocalSGData4[BasisRank] = SG;
@@ -569,7 +579,6 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     int MergeCount = max(NumBasis - CurrentProbeBasisCount, 0);
 
     // Progressively merges the candidate SGs.
-    // TODO: Accumulate SG radiance into irradiance if CurrentProbeBasisCount equals to 0.
     if(CurrentProbeBasisCount > 0) {
         const int REPEAT = (SSRC_MAX_NUM_BASIS_PER_PROBE * 4 + WAVE_SIZE-1) / WAVE_SIZE;   
         [unroll(4)]
@@ -644,9 +653,12 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                 if(BasisRank < NumBasis) {
                     int MaxIndex  = LocalSGMaxMatchIndex[BasisRank];
                     if(MaxIndex >= 0) {
-                        SGData X = LocalSGData4[BasisRank];
-                        SGData Y = LocalSGData4[MaxIndex];
-                        SGData NewSG = MergeSG(X, Y);
+                        SGData NewSG;
+                        if(MaxIndex != BasisRank) {
+                            SGData X = LocalSGData4[BasisRank];
+                            SGData Y = LocalSGData4[MaxIndex];
+                            NewSG = CombineSG(X, Y);
+                        } else NewSG = LocalSGData4[BasisRank];
                         LocalSGData4New[LocalSGNewIndex[BasisRank]] = NewSG;
                     }
                 }
@@ -679,6 +691,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             WriteScreenProbeIrradiance(ProbeIndex, Irradiance);
         }
         int BasisOffset = Header.BasisOffset;
+        // TODO: Accumulate SG radiance into irradiance when dropping overflowing SGs 
         if(LocalID < CurrentProbeBasisCount) {
             SGData SG;
             if(LocalID < NumBasis) SG = LocalSGData4[LocalID];
@@ -792,14 +805,15 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
         // TODO: weight the cosine term when sampling
         // Really necessary? Lumen may not be doing that.
         float3 RayDirection, SampleNormal;
+        float2 u2 = rng.rand2();
         if(BasisRank == BasisCount) {
             // Sample from the irradiance (uniform hemisphere)
-            RayDirection  = UniformSampleHemisphere(rng.rand2());
+            RayDirection  = UniformSampleHemisphere(u2);
             SampleNormal  = Header.Normal;
         } else {
             SGData SG = LocalSGData[BasisRank];
             float RayPdfTmp;
-            RayDirection = SampleSG(rng.rand2(), SG.Lambda, RayPdfTmp);
+            RayDirection = SampleSG(u2, SG.Lambda, RayPdfTmp);
             SampleNormal = SG.Direction;
         }
         float3 Tangent, Bitangent;
@@ -817,6 +831,13 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
                 RayPdf += UniformSampleHemispherePdf() * IrradianceSize;
             }
             RayPdf = RayPdf / max(SumSize, Epsilon);
+        }
+        if(MI.NoImportanceSampling) {
+            RayPdf = UniformSampleHemispherePdf();
+            RayDirection = UniformSampleHemisphere(u2);
+            float3 Tangent, Bitangent;
+            GetOrthoVectors(Header.Normal, Tangent, Bitangent);
+            RayDirection = normalize(Tangent * RayDirection.x + Bitangent * RayDirection.y + SampleNormal * RayDirection.z);
         }
         // Pack the ray
         // TODO jitter the ray origin ? may be useless
@@ -1758,7 +1779,7 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
 groupshared float3 LocalEvaluatedRadiance[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
 groupshared float3 LocalDColorPrefixSum[WAVE_SIZE];
 groupshared float3 LocalDDirectionPrefixSum[WAVE_SIZE];
-groupshared float3 LocalSGWeightedSampleWeightSum[WAVE_SIZE];
+groupshared float  LocalAFactorSum[WAVE_SIZE];
 groupshared float  LocalDLambdaPrefixSum[WAVE_SIZE];
 
 groupshared float  LocalSampleWeightPrefixSum[WAVE_SIZE];
@@ -1807,7 +1828,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
     }
     GroupMemoryBarrierWithGroupSync();
-
 
     float  SumSampleWeight = 0;
     float3 SumWeightedDiffRadiance = 0.f.xxx;
@@ -1860,7 +1880,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         SGData SG = LocalSGData[BasisRank];
         SGGradients SumStepSize = (SGGradients)0;
 #ifdef OPTIMAL_COLOR_UPDATE
-        float3 SGWeightedSampleWeightSum = 0;
+        float  SumAFactor = 0;
 #endif
         // TODO classifying update ray count & basis count into different levels running different kernels,
         // so we can completely unroll the loops
@@ -1875,7 +1895,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float3 RayRadiance       = RayRadianceInvPdf.xyz;
                 float  InvPdf            = RayRadianceInvPdf.w;
                 if(InvPdf > 0) {
-                    float3 SGEvaluatedRaw    = EvaluateSGRaw(SG, RayDirection);
+                    float  SGEvaluatedRaw    = EvaluateSGRaw(SG, RayDirection);
                     float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG.Color;
 
                     float3 dColorExtra;
@@ -1889,13 +1909,13 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     // The weight for balancing sample distribution
                     float  SampleWeight     = InvPdf;
 #ifndef OPTIMAL_COLOR_UPDATE
-// TODO linear reg
-// FIXME incorrect now.
                     SumStepSize.dColor     -= X * Gradients.dColor     * SampleWeight;
 #else
-                    SGWeightedSampleWeightSum += SGEvaluatedRaw * SampleWeight;
-                    // FIXME
-                    SumStepSize.dColor        += TargetRadiance * SGEvaluatedRaw * SampleWeight;
+                    // Linear regression
+                    // Clip rays that only evaluates to a tiny value on SG to prevent outflares
+                    float SGClampedRaw         = max(SGEvaluatedRaw, 1e-2);
+                    SumAFactor                += 2.f * SGClampedRaw   * SGClampedRaw   * SampleWeight;
+                    SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
 #endif
                     
 #ifndef HEURISTIC_DIRECTION_UPDATE
@@ -1910,7 +1930,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
         // Accumulate weights
 #ifdef OPTIMAL_COLOR_UPDATE
-        LocalSGWeightedSampleWeightSum[LocalID] = WavePrefixSum(SGWeightedSampleWeightSum);
+        LocalAFactorSum[LocalID] = WavePrefixSum(SumAFactor);
 #endif
         LocalDColorPrefixSum[LocalID]     = WavePrefixSum(SumStepSize.dColor);
         LocalDDirectionPrefixSum[LocalID] = WavePrefixSum(SumStepSize.dDirection);
@@ -1920,13 +1940,14 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         if(BasisThread == ThreadPerBasis - 1) {
             // Accumulate and normalize
 #ifdef OPTIMAL_COLOR_UPDATE
-            SGWeightedSampleWeightSum = SGWeightedSampleWeightSum + LocalSGWeightedSampleWeightSum[LocalID] - LocalSGWeightedSampleWeightSum[LocalID - ThreadPerBasis + 1];
+            SumAFactor = SumAFactor + LocalAFactorSum[LocalID] - LocalAFactorSum[LocalID - ThreadPerBasis + 1];
 #endif
             SumStepSize.dColor        = SumStepSize.dColor + LocalDColorPrefixSum[LocalID] - LocalDColorPrefixSum[LocalID - ThreadPerBasis + 1];
             SumStepSize.dDirection    = SumStepSize.dDirection + LocalDDirectionPrefixSum[LocalID] - LocalDDirectionPrefixSum[LocalID - ThreadPerBasis + 1];
             SumStepSize.dLambda       = SumStepSize.dLambda + LocalDLambdaPrefixSum[LocalID] - LocalDLambdaPrefixSum[LocalID - ThreadPerBasis + 1];
 #ifdef OPTIMAL_COLOR_UPDATE
-            SumStepSize.dColor     /= SGWeightedSampleWeightSum;
+            // It's possible for SumAFactor to be very tiny (because of large SG Lambdas), so we clamp it to prevent outflares
+            SumStepSize.dColor     /= max(SumAFactor, Epsilon);
 #else       
             SumStepSize.dColor     /= ProbeRayCount;
 #endif
@@ -1938,8 +1959,12 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 
             if(MI.CacheUpdate_SGColor) {
 #ifdef OPTIMAL_COLOR_UPDATE
-                // FIXME too unstable to apply ImpactFactors.x for places with high frequency incident radiance
-                SG.Color = lerp(SG.Color, SumStepSize.dColor, min(MI.CacheUpdateLearningRate, 1.f));
+// TODO Clamping is not the smartest choice for outflares
+// it relates to lambda and importance sampling
+// No clamping is not the cause of outflares when moving the viewport!!!
+                float3 NewColor = lerp(SG.Color, SumStepSize.dColor, min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f));
+                float3 DeltaColor = NewColor - SG.Color;
+                SG.Color += DeltaColor;//sign(DeltaColor) * min(abs(DeltaColor), 5.f);
 #else
                 SG.Color += SumStepSize.dColor     * MI.CacheUpdateLearningRate * (1 + ImpactFactors.x);
 #endif

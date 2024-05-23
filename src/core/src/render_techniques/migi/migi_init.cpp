@@ -216,6 +216,13 @@ bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
         gfx_, kernels_.program, visualize_incident_radiance_draw_state, "DebugSSRC_VisualizeIncidentRadiance",
         defines_c.data(), (uint32_t)defines_c.size());
 
+    GfxDrawState visualize_light_draw_state {};
+    gfxDrawStateSetColorTarget(visualize_light_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+    gfxDrawStateSetDepthStencilTarget(visualize_light_draw_state, tex_.depth);
+    kernels_.DebugSSRC_VisualizeLight = gfxCreateGraphicsKernel(
+        gfx_, kernels_.program, visualize_light_draw_state, "DebugSSRC_VisualizeLight",
+        defines_c.data(), (uint32_t)defines_c.size());
+
     return true;
 }
 
@@ -431,6 +438,7 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeIncidentRadiance);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeLight);
 
     gfxDestroyProgram(gfx_, kernels_.program);
 

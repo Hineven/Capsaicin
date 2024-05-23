@@ -832,22 +832,22 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     }
 
     if(options_.debug_light) {
-//        const TimedSection timed_section(*this, "DebugLight");
-//        if(!debug_buffer_copied) {
-//            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
-//            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
-//            debug_buffer_copied = true;
-//        }
-//        __override_primitive_topology = true;
-//        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-//        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_light);
-//        gfxCommandDraw(gfx_, 32768);
-//        __override_primitive_topology = false;
-//        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//        if(options_.active_debug_view == "None") {
-//            // Copy the buffer back
-//            gfxCommandCopyTexture(gfx_, gi_output_aov, capsaicin.getAOVBuffer("Debug"));
-//        }
+        const TimedSection timed_section(*this, "DebugLight");
+        if(!debug_buffer_copied) {
+            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            debug_buffer_copied = true;
+        }
+        __override_primitive_topology = true;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeLight);
+        gfxCommandDraw(gfx_, 32768);
+        __override_primitive_topology = false;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        if(options_.active_debug_view == "None") {
+            // Copy the buffer back
+            gfxCommandCopyTexture(gfx_, gi_output_aov, capsaicin.getAOVBuffer("Debug"));
+        }
     }
 
     {

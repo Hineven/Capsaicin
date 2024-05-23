@@ -162,6 +162,7 @@ public:
         GfxKernel  DebugSSRC_PrepareProbeIncidentRadiance {};
         GfxKernel  DebugSSRC_VisualizeIncidentRadiance {};
         GfxKernel  DebugSSRC_PrepareUpdateRays {};
+        GfxKernel  DebugSSRC_VisualizeLight {};
 
         GfxKernel  GenerateDispatch {};
         GfxKernel  GenerateDispatchRays {};

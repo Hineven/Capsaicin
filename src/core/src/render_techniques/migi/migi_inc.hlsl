@@ -13,7 +13,7 @@
 // Use heuristic for direction update
 #define HEURISTIC_DIRECTION_UPDATE
 // Use numerical approx for color update
-// #define OPTIMAL_COLOR_UPDATE
+#define OPTIMAL_COLOR_UPDATE
 // Use RMSE to guide update ray allocation
 // #define ERROR_RMSE
 

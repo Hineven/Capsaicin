@@ -69,19 +69,19 @@ DebugIncidentRadiance_Output DebugSSRC_VisualizeIncidentRadiance (
 // }
 
 
-// struct DebugLight_Output {
-//     float4 Position : SV_Position;
-//     float4 Color    : COLOR;
-// };
+struct DebugLight_Output {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
 
-// DebugLight_Output DebugSSRC_Light (
-//     in uint VertexIndex : SV_VertexID // Vertex index
-// ) {
-//     float3 Direction = FibonacciSphere(VertexIndex, 32768);
-//     float3 World     = g_DebugLightPosition + Direction * g_DebugLightSize;
-//     DebugLight_Output Output;
-//     Output.Position  = mul(g_CameraProjView, float4(World, 1.f));
-//     float3 Color     = g_DebugLightColor;
-//     Output.Color     = float4(Color, 1.f);
-//     return Output;
-// }
+DebugLight_Output DebugSSRC_VisualizeLight (
+    in uint VertexIndex : SV_VertexID // Vertex index
+) {
+    float3 Direction = FibonacciSphere(VertexIndex, 32768);
+    float3 World     = MI.DebugLightPosition + Direction * MI.DebugLightSize;
+    DebugLight_Output Output;
+    Output.Position  = mul(MI.CameraProjView, float4(World, 1.f));
+    float3 Color     = MI.DebugLightColor;
+    Output.Color     = float4(Color, 1.f);
+    return Output;
+}
