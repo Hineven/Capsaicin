@@ -153,6 +153,8 @@ ScreenProbeMaterial FetchScreenProbeMaterial (int2 ScreenCoords, bool HiRes) {
 }
 
 float3 GetScreenProbeIrradiance (int2 Index, bool bPrevious = false) {
+    // FIXME
+    return 0.f;
     return bPrevious ? g_RWPreviousProbeIrradianceTexture[Index].xyz
          : g_RWProbeIrradianceTexture[Index].xyz;
 }

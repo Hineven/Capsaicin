@@ -1884,6 +1884,43 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #endif
         // TODO classifying update ray count & basis count into different levels running different kernels,
         // so we can completely unroll the loops
+
+        // Update the direction first (if we're using heuristic update)
+#ifdef HEURISTIC_DIRECTION_UPDATE
+        [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+        for(int RayGroupOffset = 0; RayGroupOffset < ProbeRayCount; RayGroupOffset += ThreadPerBasis) {
+            int RayRank = RayGroupOffset + BasisThread;
+            if(RayRank < ProbeRayCount) {
+                int RayIndex = ProbeRayOffset + RayRank;
+                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+                float  RayLinearDepth    = g_RWUpdateRayLinearDepthBuffer[RayIndex];
+                float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+                float3 RayRadiance       = RayRadianceInvPdf.xyz;
+                float  InvPdf            = RayRadianceInvPdf.w;
+                float3 DiffRadiance      = RayRadiance - LocalEvaluatedRadiance[RayRank];
+                float  SGEvaluatedRaw    = EvaluateSGRaw(SG, RayDirection);
+                float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG.Color;
+                float3 TargetRadiance    = DiffRadiance + SGEvaluatedRadiance;
+                float  TargetRadianceWeight = max(dot(TargetRadiance, 1.f.xxx), 0.f);
+                // The weight for balancing sample distribution
+                float  SampleWeight      = InvPdf;
+                SumStepSize.dDirection  += RayDirection * TargetRadianceWeight * SampleWeight;
+            }
+        }
+        LocalDDirectionPrefixSum[LocalID] = WavePrefixSum(SumStepSize.dDirection);
+        GroupMemoryBarrierWithGroupSync();
+        SumStepSize.dDirection    = SumStepSize.dDirection + LocalDDirectionPrefixSum[LocalID] - LocalDDirectionPrefixSum[LocalID - ThreadPerBasis + 1];
+        SumStepSize.dDirection /= SumSampleWeight;
+        if(MI.CacheUpdate_SGDirection) {
+            // Heuristic direction update
+            float DstFactor = MI.CacheUpdateLearningRate;
+            // Larger SG is harder to shift direction
+            float SrcFactor = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx) * max(0, 1.f - ImpactFactors.y);
+            SG.Direction = SG.Direction * SrcFactor + SumStepSize.dDirection * DstFactor;
+            SG.Direction = normalize(SG.Direction);
+        }
+#endif
+
         [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
         for(int RayGroupOffset = 0; RayGroupOffset < ProbeRayCount; RayGroupOffset += ThreadPerBasis) {
             int RayRank = RayGroupOffset + BasisThread;
@@ -1913,15 +1950,17 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #else
                     // Linear regression
                     // Clip rays that only evaluates to a tiny value on SG to prevent outflares
-                    float SGClampedRaw         = max(SGEvaluatedRaw, 1e-2);
-                    SumAFactor                += 2.f * SGClampedRaw   * SGClampedRaw   * SampleWeight;
-                    SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
+                    if(SGEvaluatedRaw > 2e-2f) {
+                        SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight;
+                        SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
+                    }
 #endif
                     
 #ifndef HEURISTIC_DIRECTION_UPDATE
                     SumStepSize.dDirection -= Y * Gradients.dDirection * SampleWeight;
 #else
-                    float  TargetRadianceWeight = dot(TargetRadiance, TargetRadiance);
+                    // FIXME not good enough heuristic
+                    float  TargetRadianceWeight = max(dot(TargetRadiance, 1.f.xxx), 0.f);//TargetRadiance);
                     SumStepSize.dDirection += RayDirection * TargetRadianceWeight * SampleWeight;
 #endif
                     SumStepSize.dLambda    -= Y * Gradients.dLambda    * SampleWeight;
@@ -1933,7 +1972,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         LocalAFactorSum[LocalID] = WavePrefixSum(SumAFactor);
 #endif
         LocalDColorPrefixSum[LocalID]     = WavePrefixSum(SumStepSize.dColor);
+#ifndef HEURISTIC_DIRECTION_UPDATE
         LocalDDirectionPrefixSum[LocalID] = WavePrefixSum(SumStepSize.dDirection);
+#endif
         LocalDLambdaPrefixSum[LocalID]    = WavePrefixSum(SumStepSize.dLambda);
         GroupMemoryBarrierWithGroupSync();
         // The chosen thread for updating each basis
@@ -1943,7 +1984,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             SumAFactor = SumAFactor + LocalAFactorSum[LocalID] - LocalAFactorSum[LocalID - ThreadPerBasis + 1];
 #endif
             SumStepSize.dColor        = SumStepSize.dColor + LocalDColorPrefixSum[LocalID] - LocalDColorPrefixSum[LocalID - ThreadPerBasis + 1];
+#ifndef HEURISTIC_DIRECTION_UPDATE
             SumStepSize.dDirection    = SumStepSize.dDirection + LocalDDirectionPrefixSum[LocalID] - LocalDDirectionPrefixSum[LocalID - ThreadPerBasis + 1];
+#endif
             SumStepSize.dLambda       = SumStepSize.dLambda + LocalDLambdaPrefixSum[LocalID] - LocalDLambdaPrefixSum[LocalID - ThreadPerBasis + 1];
 #ifdef OPTIMAL_COLOR_UPDATE
             // It's possible for SumAFactor to be very tiny (because of large SG Lambdas), so we clamp it to prevent outflares
@@ -1951,9 +1994,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #else       
             SumStepSize.dColor     /= ProbeRayCount;
 #endif
-#ifdef HEURISTIC_DIRECTION_UPDATE
-            SumStepSize.dDirection /= SumSampleWeight;
-#else
+#ifndef HEURISTIC_DIRECTION_UPDATE
             SumStepSize.dDirection /= ProbeRayCount;
 #endif
 
@@ -1970,23 +2011,19 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #endif
                 SG.Color = max(SG.Color, 0.001f.xxx); // Color is in [0.001, inf)
             }
-            if(MI.CacheUpdate_SGDirection) {
 #ifndef HEURISTIC_DIRECTION_UPDATE
+            if(MI.CacheUpdate_SGDirection) {
                 // Prevent violent directional flipping across frames by orthogonalizing the delta direction
                 float3 Ortho  = SumStepSize.dDirection - dot(SumStepSize.dDirection, SG.Direction) * SG.Direction;
                 SG.Direction += Ortho * MI.CacheUpdateLearningRate * (1 + ImpactFactors.y);
                 SG.Direction  = normalize(SG.Direction);
-#else 
-                // Heuristic direction update
-                float DstFactor = MI.CacheUpdateLearningRate;
-                // Larger SG is harder to shift direction
-                float SrcFactor = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx) * max(0, 1.f - ImpactFactors.y);
-                SG.Direction = SG.Direction * SrcFactor + SumStepSize.dDirection * DstFactor;
-                SG.Direction = normalize(SG.Direction);
-#endif
+
             }
+#endif
             if(MI.CacheUpdate_SGLambda) {
                 SG.Lambda    += SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
+                // Decay to make it more stable
+                // SG.Lambda     = SG.Lambda >= 1.5 ? SG.Lambda * 0.95f : SG.Lambda;
                 SG.Lambda    = clamp(SG.Lambda, 0.8f, 100.f); // Lambda is in [0.8f, 100.f]
             }
 
