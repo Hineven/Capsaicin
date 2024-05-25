@@ -80,6 +80,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("No Importance Sampling", &options_.no_importance_sampling);
         ImGui::Checkbox("No Adaptive Probes", &options_.no_adaptive_probes);
         ImGui::Checkbox("Freeze Seed", &options_.debug_freeze_frame_seed);
+        ImGui::Checkbox("Freeze Tile Jitter", &options_.debug_freeze_tile_jitter);
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);

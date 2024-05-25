@@ -151,5 +151,6 @@ ConstantBuffer<MIGI_Constants>              MI;
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
 RWStructuredBuffer<float3> g_RWDebugProbeWorldPositionBuffer;
 RWStructuredBuffer<float3> g_RWDebugVisualizeIncidentRadianceBuffer;
+RWStructuredBuffer<int2>   g_RWDebugProbeIndexBuffer;
 
 #endif // MIGI_SHARED_PARAMETERS_HLSL

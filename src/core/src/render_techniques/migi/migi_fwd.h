@@ -24,6 +24,7 @@ struct MIGIRenderOptions {
     uint32_t debug_visualize_incident_radiance_num_points {128 * 1024};
 
     bool     debug_freeze_frame_seed {false};
+    bool     debug_freeze_tile_jitter {false};
 
     bool     reset_screen_space_cache {false};
 

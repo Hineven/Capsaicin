@@ -239,7 +239,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.FrameIndex = capsaicin.getFrameIndex();
 
         C.PreviousCameraRight     = previous_constants_.CameraRight;
+        C.TileJitterFrameSeed     = options_.debug_freeze_tile_jitter ? 123 : C.FrameIndex;
         C.PreviousCameraUp        = previous_constants_.CameraUp;
+        C.PreviousTileJitterFrameSeed = previous_constants_.TileJitterFrameSeed;
 
         glm::vec2 jitter          = {camera_matrices.projection[2][0], camera_matrices.projection[2][1]};
         C.TAAJitterUV             = jitter * 0.5f;
@@ -358,6 +360,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         buf_.debug_probe_world_position);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugVisualizeIncidentRadianceBuffer",
         buf_.debug_visualize_incident_radiance);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugProbeIndexBuffer", buf_.debug_probe_index);
 
     {
         float exposure = 1.f;
@@ -811,6 +814,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeIncidentRadiance);
         gfxCommandDraw(gfx_, options_.debug_visualize_incident_radiance_num_points);
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeSGDirection);
+        gfxCommandDraw(gfx_, 2, SSRC_MAX_NUM_BASIS_PER_PROBE);
         __override_primitive_topology = false;
         __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         // Additionally accumulate the radiance buffer to compute the numerical integral of incoming radiance

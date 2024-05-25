@@ -152,9 +152,9 @@ struct MIGI_Constants {
     uint FrameIndex;//
 
     float3 PreviousCameraRight;
-    uint Padding2;//
+    uint TileJitterFrameSeed;//
     float3 PreviousCameraUp;
-    uint Padding3;//
+    uint PreviousTileJitterFrameSeed;//
 
     // Add these values to UV when using camera coordinate system to recover pixel world positions
     float2 TAAJitterUV;

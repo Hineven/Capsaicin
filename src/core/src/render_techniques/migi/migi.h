@@ -120,6 +120,7 @@ public:
         GfxBuffer debug_probe_world_position {};
         GfxBuffer debug_visualize_incident_radiance {};
         GfxBuffer debug_visualize_incident_radiance_sum {};
+        GfxBuffer debug_probe_index {};
 
         GfxBuffer readback[kGfxConstant_BackBufferCount] {};
     } buf_{};
@@ -161,6 +162,7 @@ public:
         GfxKernel  DebugSSRC_VisualizeProbePlacement {};
         GfxKernel  DebugSSRC_PrepareProbeIncidentRadiance {};
         GfxKernel  DebugSSRC_VisualizeIncidentRadiance {};
+        GfxKernel  DebugSSRC_VisualizeProbeSGDirection {};
         GfxKernel  DebugSSRC_PrepareUpdateRays {};
         GfxKernel  DebugSSRC_VisualizeLight {};
 

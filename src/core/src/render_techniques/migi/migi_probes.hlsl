@@ -64,7 +64,7 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
 }
 
 int2 GetTileJitter (bool bPrevious = false) {
-    return Hammersley16((bPrevious ? MI.PreviousFrameSeed : MI.FrameSeed) % 8, 8, 0) * SSRC_TILE_SIZE;
+    return Hammersley16((bPrevious ? MI.PreviousTileJitterFrameSeed : MI.TileJitterFrameSeed) % 8, 8, 0) * SSRC_TILE_SIZE;
 }
 
 int2 GetScreenProbeScreenCoords (int2 ProbeIndex, bool bPrevious = false) {
@@ -85,7 +85,7 @@ float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
     // TODO: Implement this function
     // FIXME
-    return 3;
+    return 2;
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {

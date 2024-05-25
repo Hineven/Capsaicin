@@ -19,6 +19,13 @@ float4 DebugSSRC_VisualizeIncidentRadiance (
     return Input.Color;
 }
 
+float4 DebugSSRC_VisualizeProbeSGDirection (
+    in DebugIncidentRadiance_Input Input
+) : SV_Target {
+    if(Input.Color.a == 0) discard;
+    return Input.Color;
+}
+
 // struct DebugUpdateRays_Input {
 //     float4 Position : SV_Position;
 //     float4 Color    : COLOR;

@@ -7,6 +7,8 @@
 // Library for MIGI
 #include "migi_lib.hlsl"
 
+#include "migi_probes.hlsl"
+
 struct DebugIncidentRadiance_Output {
     float4 Position : SV_Position;
     float4 Color    : COLOR;
@@ -24,6 +26,29 @@ DebugIncidentRadiance_Output DebugSSRC_VisualizeIncidentRadiance (
     DebugIncidentRadiance_Output Output;
     Output.Position  = mul(MI.CameraProjView, float4(World, 1.f));
     Output.Color     = float4(Radiance, 1.f);
+    return Output;
+}
+
+DebugIncidentRadiance_Output DebugSSRC_VisualizeProbeSGDirection (
+    in uint VertexIndex : SV_VertexID, // Vertex index
+    in uint InstanceID  : SV_InstanceID // Instance Index : probe index
+) {
+    int2 ProbeIndex = g_RWDebugProbeIndexBuffer[0];
+    ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
+    int BasisCount = GetProbeBasisCountFromClass(Header.Class);
+    DebugIncidentRadiance_Output Output;
+    if(InstanceID < BasisCount) {
+        float3 World     = g_RWProbeWorldPositionTexture[ProbeIndex].xyz;
+        SGData SG = FetchBasisData(Header.BasisOffset + InstanceID);
+        if(VertexIndex == 1) {
+            World += (EvaluateSG(SG, SG.Direction) + 0.05f) * SG.Direction;
+        }
+        Output.Position  = mul(MI.CameraProjView, float4(World, 1.f));
+        Output.Color     = float4(BasisIndexToColor(InstanceID), 1.f);
+    } else {
+        Output.Color = float4(0.f, 0.f, 0.f, 0.f);
+        Output.Position = float4(0.f, 0.f, 0.f, 1.f);
+    }
     return Output;
 }
 
