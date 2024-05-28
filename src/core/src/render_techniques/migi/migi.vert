@@ -41,7 +41,7 @@ DebugIncidentRadiance_Output DebugSSRC_VisualizeProbeSGDirection (
         float3 World     = g_RWProbeWorldPositionTexture[ProbeIndex].xyz;
         SGData SG = FetchBasisData(Header.BasisOffset + InstanceID);
         if(VertexIndex == 1) {
-            World += (EvaluateSG(SG, SG.Direction) + 0.05f) * SG.Direction;
+            World += (dot(EvaluateSG(SG, SG.Direction), 1.f.xxx) + 0.05f) * SG.Direction;
         }
         Output.Position  = mul(MI.CameraProjView, float4(World, 1.f));
         Output.Color     = float4(BasisIndexToColor(InstanceID), 1.f);

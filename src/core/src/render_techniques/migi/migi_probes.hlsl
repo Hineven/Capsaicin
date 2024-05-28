@@ -167,5 +167,9 @@ bool   IsScreenProbeValid (int2 Index) {
     return g_RWProbeLinearDepthTexture[Index].x > 0;
 }
 
+float GetBasisOrderWeight (int Order) {
+    return 1.f / (1U << Order);
+}
+
 
 #endif // MIGI_PROBES_HLSL

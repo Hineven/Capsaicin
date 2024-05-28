@@ -392,6 +392,24 @@ float3 FibonacciSphere (uint i, uint n) {
     return float3(cos(phi * i) * r, sin(phi * i) * r, z);
 }
 
+// TODO can be better?
+float3 InitHemiDirections (int i, int n) {
+    if(n == 1) return float3(0, 0, 1);
+    if(n == 2) {
+        return i == 0 ? float3(0.5, 0, 0.866025403784438f) : float3(-0.5, 0, 0.866025403784438f);
+    }
+    if(n == 4) {
+        float v = sqrt(2.f) / 2.f;
+        switch(i) {
+            case 0: return float3(v, 0, v);
+            case 1: return float3(-v, 0, v);
+            case 2: return float3(0, v, v);
+            case 3: return float3(0, -v, v);
+        }
+    }
+    return FibonacciSphere(i, n*2);
+}
+
 // Replaced with the better impl from GI10 (GetOrthoVectors)
 // void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
 //     float3 AbsNormal = abs(Normal);
@@ -662,6 +680,14 @@ float3 RecoverWorldPositionHiRes (int2 TexCoords) {
 
     float3 WorldPosition = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
     return WorldPosition; 
+}
+
+float3 InterpolateDirection (float3 X, float3 Y, float A) {
+    float CosTheta = dot(X, Y);
+    float Theta = acos(CosTheta);
+    float Phi1  = A * Theta;
+    float Phi2  = Theta - Phi1;
+    return normalize(Y * tan(Phi1) + X * tan(Phi2));
 }
 
 #endif // MIGI_SHARED_HLSL
