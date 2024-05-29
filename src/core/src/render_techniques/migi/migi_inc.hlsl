@@ -14,6 +14,8 @@
 #define HEURISTIC_DIRECTION_UPDATE
 // Use numerical approx for color update
 #define OPTIMAL_COLOR_UPDATE
+// Debug flag to fix probes on the screen and avoid SG merging
+// #define DEBUG_FIX_PROBES
 // Use RMSE to guide update ray allocation
 // #define ERROR_RMSE
 
@@ -30,6 +32,7 @@ Texture2D g_TextureMaps[] : register(space99);
 SamplerState g_NearestSampler;
 SamplerState g_TextureSampler; // Is a linear sampler and set to repeat wrapping.
 SamplerState g_LinearSampler;  // Clamp to edge
+SamplerState g_ClampedPointSampler; // Clamp to edge, point sampling
 
 // Common buffers of GPU scene
 
@@ -132,6 +135,12 @@ RWTexture2D<float>  g_RWUpdateErrorSplatTexture;
 Texture2D<float>    g_UpdateErrorSplatTexture;
 // Used for reprojection
 Texture2D<float>    g_PreviousUpdateErrorSplatTexture;
+
+// Denoiser sample counts
+Texture2D<unorm float>     g_PreviousHistoryAccumulationTexture;
+RWTexture2D<unorm float>   g_RWHistoryAccumulationTexture;
+// Global illumination history without skybox
+Texture2D<float4>          g_PreviousGlobalIlluminationTexture;
 
 // HiZ buffer generation input-outputs
 RWTexture2D<float4> g_RWHiZ_In;

@@ -85,7 +85,12 @@ public:
 
         // Update error used to guide update ray spawnning
         // fp16x2
-        GfxTexture   update_error_splat [2]{};
+        GfxTexture   update_error_splat [2] {};
+
+        // History sample count / MAX_COUNT R16ufloat
+        GfxTexture   history_accumulation[2] {};
+
+        GfxTexture   previous_global_illumination {};
 
         // Hierarchical z-buffer
         // R32_FLOAT, 1/2 - 1/8 resolution, 3 mip levels
@@ -158,12 +163,14 @@ public:
         GfxKernel  ResolveCells {};
         GfxKernel  SSRC_UpdateProbes {};
         GfxKernel  SSRC_IntegrateASG {};
+        GfxKernel  SSRC_Denoise {};
         GfxKernel  DebugSSRC_FetchCursorPos {};
         GfxKernel  DebugSSRC_VisualizeProbePlacement {};
         GfxKernel  DebugSSRC_PrepareProbeIncidentRadiance {};
         GfxKernel  DebugSSRC_VisualizeIncidentRadiance {};
         GfxKernel  DebugSSRC_VisualizeProbeSGDirection {};
         GfxKernel  DebugSSRC_PrepareUpdateRays {};
+        GfxKernel  DebugSSRC_VisualizeUpdateRays {};
         GfxKernel  DebugSSRC_VisualizeLight {};
 
         GfxKernel  GenerateDispatch {};
@@ -215,6 +222,8 @@ protected:
     uint32_t internal_frame_index_ {};
 
     MIGI_Constants previous_constants_ {};
+
+    GfxSamplerState clamped_point_sampler_ {};
 };
 
 }

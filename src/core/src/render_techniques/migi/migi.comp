@@ -173,6 +173,7 @@ void SSRC_AllocateUniformProbes (int DispatchID : SV_DispatchThreadID) {
     Header.LinearDepth   = (bValid ? 1 : -1) * GetLinearDepth(Depth);
     Header.Position      = RecoverWorldPositionHiRes(Header.ScreenCoords);
     Header.Normal        = normalize(g_GeometryNormalTexture.Load(int3(Header.ScreenCoords, 0)).xyz * 2.f - 1.f);
+    Header.Irradiance    = 0.f;
     WriteScreenProbeHeader(ProbeIndex, Header);
 
     // Also, clear the tile adaptive probe count for later adaptive allocation
@@ -204,8 +205,11 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
     int2 ScreenCoordsProbeGrid = clamp(ScreenPosition - 0.5f - GetTileJitter(bPrevious), 0, MI.ScreenDimensions - 1);
     TileCoordsX00         = min(ScreenCoordsProbeGrid / SSRC_TILE_SIZE, MI.TileDimensions - 2);
     // Pad the bilinear filtering weights
-    // FIXME
-    int BilinearExpand = 0;//1;
+#ifdef DEBUG_FIX_PROBES
+    int BilinearExpand = 0;
+#else
+    int BilinearExpand = 1;
+#endif
     float2 Bilinear    = 
         (ScreenCoordsProbeGrid - TileCoordsX00 * SSRC_TILE_SIZE + BilinearExpand) 
         / (float)(SSRC_TILE_SIZE + 2 * BilinearExpand);
@@ -280,7 +284,6 @@ void CalculateSSRCSampleWeights (
 				for (uint AdaptiveProbeListIndex = 0; AdaptiveProbeListIndex < NumAdaptiveProbes; AdaptiveProbeListIndex++)
 				{
                     // TODO reconstruct probe data from G-Buffer to reduce VRAM bandwidth when shading
-
 					int  AdaptiveProbeIndex1 = GetAdaptiveProbeIndex(TileCoords, AdaptiveProbeListIndex, bPrevious);
 					int  ScreenProbeIndex1   = AdaptiveProbeIndex1 + MI.UniformScreenProbeCount;
                     int2 ScreenProbeIndex    = int2(ScreenProbeIndex1 % MI.TileDimensions.x, ScreenProbeIndex1 / MI.TileDimensions.x);
@@ -416,6 +419,7 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
         Header.LinearDepth   = GetLinearDepth(Depth);
         Header.Position      = RecoverWorldPositionHiRes(Header.ScreenCoords);
         Header.Normal        = normalize(g_GeometryNormalTexture.Load(int3(Header.ScreenCoords, 0)).xyz * 2.f - 1.f);
+        Header.Irradiance    = 0.f;
         int2 ScreenProbeIndex = int2(ScreenProbeIndex1 % MI.TileDimensions.x, ScreenProbeIndex1 / MI.TileDimensions.x);
         WriteScreenProbeHeader(ScreenProbeIndex, Header);
     }
@@ -442,6 +446,16 @@ void SSRC_WriteProbeDispatchParameters () {
     // Pad 1 for the last element
     g_RWReduceCountBuffer[0] = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + 1;
 
+}
+
+SGData GetIrradianceSG (float3 Normal, float3 Color) {
+    SGData SG;
+    SG.Color = Color;
+    SG.Direction = Normal;
+    SG.Depth = 0.f;
+    // Similar to the cosine lobe
+    SG.Lambda = 0.85f;
+    return SG;
 }
 
 groupshared float  LocalSGSize4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
@@ -542,9 +556,10 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             // FIXME directional reprojection is missing
 
             // Scale the color by the weight
+            // Clamp to epsilon to always rank the closest SGs first if all SGs have zero weight
+            LocalSGSize4[BasisRank] = Weight * (1e-6f + SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx));
             SG.Color = SG.Color * Weight;
             LocalSGData4[BasisRank] = SG;
-            LocalSGSize4[BasisRank] = SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx);
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -578,10 +593,13 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     int CurrentProbeBasisCount = GetProbeBasisCountFromClass(Header.Class);
     // The number of merges required to reduce the number of SGs
     int MergeCount = max(NumBasis - CurrentProbeBasisCount, 0);
-
+#ifdef  DEBUG_FIX_PROBES
+#define MERGE_BASIS_FLAG 0
+#else 
+#define MERGE_BASIS_FLAG 1
+#endif
     // Progressively merges the candidate SGs.
-    // FIXME
-    if(false && CurrentProbeBasisCount > 0) {
+    if(MERGE_BASIS_FLAG && CurrentProbeBasisCount > 0) {
         const int REPEAT = (SSRC_MAX_NUM_BASIS_PER_PROBE * 4 + WAVE_SIZE-1) / WAVE_SIZE;   
         [unroll(4)]
         for(int Iteration = 0; MergeCount > 0 && Iteration < 4; Iteration ++) {
@@ -685,11 +703,18 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
 #endif
         // Reproject irradiance
         if(WaveIsFirstLane()) {
-            float3 Irradiance = 
-                GetScreenProbeIrradiance(Sample.Index[0], true) * Sample.Weights[0] +
-                GetScreenProbeIrradiance(Sample.Index[1], true) * Sample.Weights[1] +
-                GetScreenProbeIrradiance(Sample.Index[2], true) * Sample.Weights[2] +
-                GetScreenProbeIrradiance(Sample.Index[3], true) * Sample.Weights[3];
+            float3 SumIrradiance = 0;
+            for(int CornerIndex = 0; CornerIndex < 4; CornerIndex ++) {
+                if(Sample.Weights[CornerIndex] > 0.f) {
+                    SGData IrradianceSG = GetIrradianceSG(
+                        GetScreenProbeNormal(Sample.Index[CornerIndex], true),
+                        GetScreenProbeIrradiance(Sample.Index[CornerIndex], true)
+                    );
+                    SumIrradiance += Sample.Weights[CornerIndex] * EvaluateSG(IrradianceSG, Header.Normal);
+                }
+            }
+            float  NormalizationFactor = 1.f / EvaluateSGRaw(GetIrradianceSG(float3(0.f, 0.f, 1.f), 1.f), float3(0.f, 0.f, 1.f));
+            float3 Irradiance = SumIrradiance * NormalizationFactor;
             WriteScreenProbeIrradiance(ProbeIndex, Irradiance);
         }
         int BasisOffset = Header.BasisOffset;
@@ -750,7 +775,7 @@ groupshared float LocalSGSize[SSRC_MAX_NUM_BASIS_PER_PROBE];
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
 
-    const float Epsilon = 2e-5f;
+    const float Epsilon = 1e-6f;
 
     // We assume that ray count is always a multiple of WAVE_SIZE
     int  ProbeIndex1 = GroupID;
@@ -774,7 +799,8 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
         }
     }
     GroupMemoryBarrierWithGroupSync();
-    float IrradianceSize = TWO_PI * dot(GetScreenProbeIrradiance(ProbeIndex), 1.f.xxx) + Epsilon;
+    SGData IrradianceSG = GetIrradianceSG(Header.Normal, GetScreenProbeIrradiance(ProbeIndex));
+    float IrradianceSize = SGIntegrate(IrradianceSG.Lambda) * dot(IrradianceSG.Color, 1.f.xxx) + Epsilon;
     float ThreadSizeSums[SSRC_MAX_NUM_BASIS_PER_PROBE];
     ThreadSizeSums[0] = 0;
     if(BasisCount > 0) ThreadSizeSums[0] = LocalSGSize[0];
@@ -810,7 +836,7 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
         float2 u2 = rng.rand2();
         if(BasisRank == BasisCount) {
             // Sample from the irradiance (uniform hemisphere)
-            RayDirection  = UniformSampleHemisphere(u2);
+            RayDirection  = CosineWeightedSampleHemisphere(u2);//UniformSampleHemisphere(u2);
             SampleNormal  = Header.Normal;
         } else {
             SGData SG = LocalSGData[BasisRank];
@@ -830,7 +856,7 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
                 RayPdf += LocalSGSize[i] * SampleSGPDF(SG.Lambda, dot(RayDirection, SG.Direction));
             }
             if(dot(RayDirection, Header.Normal) > 0) {
-                RayPdf += UniformSampleHemispherePdf() * IrradianceSize;
+                RayPdf += CosineWeightedSampleHemispherePDF(RayDirection, Header.Normal) * IrradianceSize;
             }
             RayPdf = RayPdf / max(SumSize, Epsilon);
         }
@@ -839,7 +865,7 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
             RayDirection = UniformSampleHemisphere(u2);
             float3 Tangent, Bitangent;
             GetOrthoVectors(Header.Normal, Tangent, Bitangent);
-            RayDirection = normalize(Tangent * RayDirection.x + Bitangent * RayDirection.y + SampleNormal * RayDirection.z);
+            RayDirection = normalize(Tangent * RayDirection.x + Bitangent * RayDirection.y + Header.Normal * RayDirection.z);
         }
         // Pack the ray
         // TODO jitter the ray origin ? may be useless
@@ -1026,10 +1052,13 @@ void SSRC_TraceUpdateRays (uint DispatchID) {
     // Early out if the ray is invalid / clipped for too tiny pdf.
     if(InvPdf == 0) return ;
 
-    // FIXME
-    if(MI.DebugLight != 0 || dot(RayDirection, GeometryNormal) < 0.0f) {
+    if(dot(RayDirection, GeometryNormal) < 0.0f) {
         // Learn negative samples.
         g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(0.0f.xxx, InvPdf));
+        g_RWUpdateRayLinearDepthBuffer[DispatchID]    = 0.f;
+        return ;
+    }
+    if(MI.DebugLight != 0) {
         float3 LightPos = MI.DebugLightPosition;
         float  DistSqr  = lengthSqr(LightPos - RayOrigin);
         float  R2       = MI.DebugLightSize * MI.DebugLightSize;
@@ -1049,6 +1078,9 @@ void SSRC_TraceUpdateRays (uint DispatchID) {
     VisibilityRayDesc.TMin = 0.f;
     VisibilityRayDesc.TMax = MAX_HIT_DISTANCE;
 
+    // Fallback to far plane if no intersection
+    g_RWUpdateRayLinearDepthBuffer[DispatchID]    = MI.CameraFar;
+
     ScreenCacheUpdatePayload payload;
     payload.sky_sample = float3(0.0f, 0.0f, 0.0f);
     ScreenCacheUpdateTraceRay(
@@ -1057,9 +1089,7 @@ void SSRC_TraceUpdateRays (uint DispatchID) {
     );
     // Fallback to sky sample if no intersection
     g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(payload.sky_sample, InvPdf));
-    // g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(float3(RayOrigin + 1.f), InvPdf));
     
-    g_RWUpdateRayLinearDepthBuffer[DispatchID]    = MI.CameraFar;
 }
 
 [numthreads(SSRC_DISPATCH_RAYS_GROUP_SIZE, 1, 1)]
@@ -1262,6 +1292,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
 
                 if (dot(previous_normal, normal) > 5e-1f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
                 {
+
                     float3 previous_lighting = g_PrevCombinedIlluminationTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
 
                     uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[DispatchID];
@@ -1777,6 +1808,14 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
 }
 
 
+int GetBasisRankToUpdate (int ProbeBasisCount) {
+    return MI.FrameIndex % ProbeBasisCount;
+}
+
+float HeuristicSGDirectionBias (float3 SG_Direction, float3 Direction) {
+    return 0.6f + dot(SG_Direction, Direction) * 0.4f;
+}
+
 // Update the probe cache
 groupshared float3 LocalEvaluatedRadiance[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
 groupshared float3 LocalDColorPrefixSum[WAVE_SIZE];
@@ -1787,6 +1826,8 @@ groupshared float  LocalDLambdaPrefixSum[WAVE_SIZE];
 groupshared float  LocalRayCoverage[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
 
 groupshared float  LocalSampleWeightPrefixSum[WAVE_SIZE];
+
+// TODO classify the number of update rays to completely unroll many loops
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
 
@@ -1801,7 +1842,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     int  BasisCount = GetProbeBasisCountFromClass(Header.Class);
     int  ProbeRayCount   = g_RWProbeUpdateRayCountBuffer[GroupID];
     int  ProbeRayOffset  = g_RWProbeUpdateRayOffsetBuffer[GroupID];
-    float3 ProbeIrradiance = GetScreenProbeIrradiance(ProbeIndex);
+    float3 IrradianceColor = GetScreenProbeIrradiance(ProbeIndex);
+    SGData IrradianceSG    = GetIrradianceSG(Header.Normal, IrradianceColor);
     
     if(LocalID < BasisCount) {
         LocalSGData[LocalID] = FetchBasisData(Header.BasisOffset + LocalID);
@@ -1824,7 +1866,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float3 Normal    = Header.Normal;
             float3 Tangent, Bitangent;
             GetOrthoVectors(Normal, Tangent, Bitangent);
-            float  Phi       = BlueNoise_Sample1D(int2(GroupID, LocalID), MI.FrameIndex, 3);
+            float  Phi       = BlueNoise_Sample1D(int2(GroupID, LocalID), MI.FrameIndex, 2);
             SG.Direction = normalize(Direction.x * Tangent + Direction.y * Bitangent + Direction.z * Normal);
 
             SG.Depth     = 1.f;
@@ -1833,8 +1875,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         GroupMemoryBarrierWithGroupSync();
     }
 
-    float  SumSampleWeight = 0;
-    float3 SumWeightedRadiance = 0.f.xxx;
+    // Precomputation
+    float  SumSampleWeight = 0.f;
 #if SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE % WAVE_SIZE != 0
 #error "SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE must be a multiple of WAVE_SIZE"
 #endif
@@ -1848,41 +1890,66 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         float  InvPdf            = RayRadianceInvPdf.w;
         if(InvPdf > 0) {
             float3 EvaluatedRadiance = 0.f.xxx;
+            float  Coverage = 0;
             [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
             for(int i = 0; i < BasisCount; i++) {
                 float Raw = EvaluateSGRaw(LocalSGData[i], RayDirection);
                 EvaluatedRadiance += Raw * LocalSGData[i].Color;
+                Coverage = max(Coverage, HeuristicSGDirectionBias(LocalSGData[i].Direction, RayDirection));
             }
-            LocalEvaluatedRadiance[RayRank] = EvaluatedRadiance + ProbeIrradiance;
+            float3 EvaluatedIrradiance = EvaluateSG(IrradianceSG, RayDirection);
+            LocalEvaluatedRadiance[RayRank] = EvaluatedRadiance + EvaluatedIrradiance;
+            LocalRayCoverage[RayRank] = Coverage;
             SumSampleWeight += InvPdf;
-            SumWeightedRadiance += InvPdf * RayRadiance;
         }
     }
     SumSampleWeight         = WaveActiveSum(SumSampleWeight) + Epsilon;
-    SumWeightedRadiance     = WaveActiveSum(SumWeightedRadiance);
     GroupMemoryBarrierWithGroupSync();
-
-
-    // Update the basis
 
     // TODO this must be very unstable
     float3 ImpactFactors = 1.f - ReprojectionTrust;
 
-    // 1. Update the irradiance
-    // The chosen thread to update the irradiance
-    if(WaveIsFirstLane()) {
-        float3 NewProbeIrradiance = lerp(ProbeIrradiance, SumWeightedRadiance / SumSampleWeight, min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f));
-        WriteScreenProbeIrradiance(ProbeIndex, NewProbeIrradiance);
+    // 1. Update irradiance SG.
+    {
+        float SumIrradianceAFactor = 0.f;
+        float3 SumIrradianceColor   = 0.f.xxx;
+        [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+        for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
+            int RayRank  = RayRankBase + LocalID;
+            int RayIndex = ProbeRayOffset + RayRank;
+            float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+            float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+            float3 RayRadiance       = RayRadianceInvPdf.xyz;
+            float  InvPdf            = RayRadianceInvPdf.w;
+            if(InvPdf > 0) {
+                float  IrradianceRaw  = EvaluateSGRaw(IrradianceSG, RayDirection);
+                float3 IrradianceEvaluated = IrradianceRaw * IrradianceSG.Color;
+                float3 TargetRadiance = RayRadiance - LocalEvaluatedRadiance[RayRank] + IrradianceEvaluated;
+                float  SampleWeight   = InvPdf;
+                if(IrradianceRaw > 2e-2f) {
+                    SumIrradianceAFactor     += 2.f * IrradianceRaw  * IrradianceRaw * SampleWeight;
+                    SumIrradianceColor       += 2.f * TargetRadiance * IrradianceRaw * SampleWeight;
+                }
+                SumIrradianceColor += InvPdf * RayRadiance;
+            }
+        }
+        SumIrradianceAFactor = WaveActiveSum(SumIrradianceAFactor) + Epsilon;
+        SumIrradianceColor   = WaveActiveSum(SumIrradianceColor);
+        // The chosen thread to update the irradiance
+        if(WaveIsFirstLane() && MI.CacheUpdate_SGColor) {
+            float3 NewProbeIrradiance = lerp(IrradianceColor, SumIrradianceColor / SumIrradianceAFactor, min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f));
+            NewProbeIrradiance = max(NewProbeIrradiance, 0.00001f);
+            WriteScreenProbeIrradiance(ProbeIndex, NewProbeIrradiance);
+        }
     }
 
-    // 2.Update the SG direction first (if we're using heuristic update)
-    // FIXME
+    // 2.Update the SG direction first 
     [branch]
     if(MI.CacheUpdate_SGDirection) {
         float3 SumDirection = 0.f;
         // Pick one basis to update direction
-        int BasisToUpdate = MI.FrameIndex % BasisCount;
-        SGData SG_D = LocalSGData[BasisToUpdate];
+        int BasisRankToUpdate = GetBasisRankToUpdate(BasisCount);
+        SGData SG_D = LocalSGData[BasisRankToUpdate];
         SGData SG_O;
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
         for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
@@ -1899,80 +1966,50 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 // but its color is not converged to the correct result yet.
                 float3 DiffRadianceClamped = max(RayRadiance - LocalEvaluatedRadiance[RayRank], 0.f);
                 float3 TargetRadiance = DiffRadianceClamped + SGEvaluatedRadiance;
-                float  RadianceWeight    = dot(TargetRadiance, TargetRadiance);
+                float  RadianceWeight    = dot(TargetRadiance, 1.f.xxx);//TargetRadiance);
                 // The weight for balancing sample distribution
                 float  SampleWeight      = InvPdf;
-                SumDirection  += RayDirection * RadianceWeight * SampleWeight;
+                // 0529: Add a bias to reserve affection for closer light sources in the same direction
+                float DirectionBias = HeuristicSGDirectionBias(SG_D.Direction, RayDirection);
+                // Decay if it is closer to other SGs
+                float Coverage = max(LocalRayCoverage[RayRank], Epsilon);
+                float DirectionDecay =  pow(DirectionBias / Coverage, 6);
+                float TotalWeight = RadianceWeight * SampleWeight * DirectionDecay;
+                SumDirection  += RayDirection * TotalWeight;
             }
         }
         // Accumulate and normalize
         SumDirection = WaveActiveSum(SumDirection);
         if(dot(SumDirection, SumDirection) > 1e-6f) {
             float3 TargetDirection = normalize(SumDirection);
-            SGData SG_N = SG_D;
-            SG_N.Direction = TargetDirection;
-            float  SumAFactor = 0;
-            float3 SumColor   = 0;
+            // float  SrcWeight = SGIntegrate(SG_D.Lambda) * dot(SG_D.Color, 1.f.xxx) + Epsilon;
+            // float  DstWeight = SumTotalWeight + Epsilon;
+            // float  T = SrcWeight / (SrcWeight + DstWeight);
+            float T = 0.1f;
+            SG_O = SG_D;
+            SG_D.Direction = normalize(lerp(SG_D.Direction, TargetDirection, T));//InterpolateDirection(SG_D.Direction, TargetDirection, T);
+            if(WaveIsFirstLane()) {
+                LocalSGData[BasisRankToUpdate] = SG_D;
+            }
+            // Re-calculate the evaluated radiance for the changed basis
             [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
             for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
-                int RayRank = RayRankBase + LocalID;
+                int RayRank  = RayRankBase + LocalID;
                 int RayIndex = ProbeRayOffset + RayRank;
-                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
                 float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
                 float3 RayRadiance       = RayRadianceInvPdf.xyz;
                 float  InvPdf            = RayRadianceInvPdf.w;
                 if(InvPdf > 0) {
-                    float  SGEvaluatedRaw      = EvaluateSGRaw(SG_D, RayDirection);
-                    float  SGEvaluatedRawN     = EvaluateSGRaw(SG_N, RayDirection);
-                    float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG_D.Color;
-                    float3 DiffRadiance   = RayRadiance - LocalEvaluatedRadiance[RayRank];
-                    float3 TargetRadiance = DiffRadiance + SGEvaluatedRadiance;
-                    // The weight for balancing sample distribution
-                    float  SampleWeight      = InvPdf;
-                    // least squares method
-                    // Clip rays that only evaluates to a tiny value on SG to prevent outflares
-                    if(SGEvaluatedRawN > 2e-2f) {
-                        SumAFactor      += 2.f * SGEvaluatedRawN * SGEvaluatedRawN * SampleWeight;
-                        SumColor        += 2.f * TargetRadiance  * SGEvaluatedRawN * SampleWeight;
-                    }
+                    float  RawPrevious = EvaluateSGRaw(SG_O, RayDirection);
+                    float  Raw         = EvaluateSGRaw(SG_D, RayDirection);
+                    float3 Delta = Raw * SG_D.Color - RawPrevious * SG_O.Color;
+                    LocalEvaluatedRadiance[RayRank] += Delta;
                 }
             }
-            SumColor = WaveActiveSum(SumColor);
-
-            // Update 
-            // It's possible for SumAFactor to be very tiny (because of large SG Lambdas), so we clamp it to prevent outflares
-            float3 TargetColor = SumColor / max(SumAFactor, Epsilon);
-            float  TargetWeight = SGIntegrate(SG_N.Lambda) * dot(TargetColor, 1.f.xxx);
-            float  OriginalWeight = SGIntegrate(SG_D.Lambda) * dot(SG_D.Color, 1.f.xxx);
-            float  T = TargetWeight / max(TargetWeight + OriginalWeight, Epsilon);
-            SG_O = SG_D;
-            SG_D.Direction = InterpolateDirection(SG_D.Direction, TargetDirection, T);
-            if(WaveIsFirstLane()) {
-                LocalSGData[BasisToUpdate] = SG_D;
-            }
-            // Re-calculate the evaluated radiance for the changed basis
-            // [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
-            // for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
-            //     int RayRank  = RayRankBase + LocalID;
-            //     int RayIndex = ProbeRayOffset + RayRank;
-            //     float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
-            //     float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-            //     float3 RayRadiance       = RayRadianceInvPdf.xyz;
-            //     float  InvPdf            = RayRadianceInvPdf.w;
-            //     if(InvPdf > 0) {
-            //         float3 EvaluatedRadiance = 0.f.xxx;
-            //         float  Coverage = 0.f;
-            //         float  RawPrevious = EvaluateSGRaw(SG_O, RayDirection);
-            //         float  Raw         = EvaluateSGRaw(SG_D, RayDirection);
-            //         float3 Delta = Raw * SG_D.Color - RawPrevious * SG_O.Color;
-            //         LocalEvaluatedRadiance[RayRank] += Delta;
-            //     }
-            // }
         }
         GroupMemoryBarrierWithGroupSync();
     }
-
-    // TODO allow the color of the SG with updated direction to change violently
 
     // Update Color and Lambda
 
@@ -1986,9 +2023,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #ifdef OPTIMAL_COLOR_UPDATE
         float  SumAFactor = 0;
 #endif
-        // TODO classifying update ray count & basis count into different levels running different kernels,
-        // so we can completely unroll the loops
-
         [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
         for(int RayGroupOffset = 0; RayGroupOffset < ProbeRayCount; RayGroupOffset += ThreadPerBasis) {
             int RayRank = RayGroupOffset + BasisThread;
@@ -2025,7 +2059,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                         SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
                     }
 #endif
-                    SumStepSize.dLambda    -= Y * Gradients.dLambda    * SampleWeight;
+                    // 0529: Add a bias to reserve affection for closer light sources in the same direction
+                    float  HeuristicBias = HeuristicSGDirectionBias(SG.Direction, RayDirection);
+                    float  DirectionalDecay  = 1.f;//pow(HeuristicBias / LocalRayCoverage[RayRank], 6);
+                    SumStepSize.dLambda    -= Y * Gradients.dLambda    * SampleWeight * DirectionalDecay;
                 }
             }
         }
@@ -2053,10 +2090,14 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 
             if(MI.CacheUpdate_SGColor) {
 #ifdef OPTIMAL_COLOR_UPDATE
-// TODO Clamping is not the smartest choice for outflares
-// it relates to lambda and importance sampling
-// No clamping is not the cause of outflares when moving the viewport!!!
-                float3 NewColor = lerp(SG.Color, SumStepSize.dColor, min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f));
+                // TODO Clamping is not the smartest choice for outflares
+                // it relates to lambda and importance sampling
+                float Factor =  min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f);
+                // Allow the color of the SG with updated direction to change violently
+                // if(MI.CacheUpdate_SGDirection && BasisRank == GetBasisRankToUpdate(BasisCount)) {
+                //     Factor = max(Factor, 0.2f);
+                // }
+                float3 NewColor = lerp(SG.Color, SumStepSize.dColor, Factor);
                 float3 DeltaColor = NewColor - SG.Color;
                 SG.Color += DeltaColor;
 #else
@@ -2067,11 +2108,12 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             if(MI.CacheUpdate_SGLambda) {
                 float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
                 // Clamp the step
-                Step = sign(Step) * min(abs(Step), max(SG.Lambda * 0.2f, 0.1f));
+                // Step = sign(Step) * min(abs(Step), max(SG.Lambda * 0.2f, 0.1f));
                 SG.Lambda    += Step;
                 // Decay to make it more stable
                 // SG.Lambda     = SG.Lambda >= 1.5 ? SG.Lambda * 0.95f : SG.Lambda;
-                SG.Lambda    = clamp(SG.Lambda, 0.8f, 100.f); // Lambda is in [0.8f, 100.f]
+                // SG.Lambda = 5.f;
+                SG.Lambda    = clamp(SG.Lambda, 1.5f, 100.f); // Lambda is in [1.5f, 100.f]
             }
 
             // Write back
@@ -2154,56 +2196,212 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
             int BasisCount  = BasisCount0 + BasisCount1;
             // Normalize weights
             Sample.Weights /= max(dot(Sample.Weights, 1.f.xxxx), 0.01f);
+            if(dot(Sample.Weights, 1.f.xxxx) > 0.99f) {
+                float3 SumRadiance = 0.f.xxx;
 
-            // FIXME invalid probe?
-            float3 InterpolatedIrradiance = GetScreenProbeIrradiance(Sample.Index[0]) * Sample.Weights[0] +
-                                            GetScreenProbeIrradiance(Sample.Index[1]) * Sample.Weights[1] +
-                                            GetScreenProbeIrradiance(Sample.Index[2]) * Sample.Weights[2] +
-                                            GetScreenProbeIrradiance(Sample.Index[3]) * Sample.Weights[3];
-
-            float3 SumRadiance = 0.f.xxx;
-
-            [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * 4)]
-            for(int BasisRank = 0; BasisRank < BasisCount; BasisRank++) {
-                int ProbeRank, ProbeBasisIndex;
-                if(BasisRank < BasisCount0) {
-                    ProbeRank = BasisRank < BasisCounts[0] ? 0 : 1;
-                    ProbeBasisIndex = BasisRank - (BasisRank < BasisCounts[0] ? 0 : BasisCounts[0]);
-                } else {
-                    ProbeBasisIndex = BasisRank - BasisCount0;
-                    ProbeRank = ProbeBasisIndex < BasisCounts[2] ? 2 : 3;
-                    ProbeBasisIndex -= (ProbeBasisIndex < BasisCounts[2] ? 0 : BasisCounts[2]);
+                [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * 4)]
+                for(int BasisRank = 0; BasisRank < BasisCount; BasisRank++) {
+                    int ProbeRank, ProbeBasisIndex;
+                    if(BasisRank < BasisCount0) {
+                        ProbeRank = BasisRank < BasisCounts[0] ? 0 : 1;
+                        ProbeBasisIndex = BasisRank - (BasisRank < BasisCounts[0] ? 0 : BasisCounts[0]);
+                    } else {
+                        ProbeBasisIndex = BasisRank - BasisCount0;
+                        ProbeRank = ProbeBasisIndex < BasisCounts[2] ? 2 : 3;
+                        ProbeBasisIndex -= (ProbeBasisIndex < BasisCounts[2] ? 0 : BasisCounts[2]);
+                    }
+                    int BasisIndex = Headers[ProbeRank].BasisOffset + ProbeBasisIndex;
+                    SGData SG = FetchBasisData(BasisIndex);
+                    float3 LightDirection = SG.Direction;
+                    float3 ReflectionDirection = calculateGGXSpecularDirection(ShadingNormal, ViewDirection, sqrt(MaterialBRDFData.roughnessAlpha));
+                    float3 HalfVector = normalize(LightDirection + ViewDirection);
+                    float3 HalfVector_Spec = normalize(ReflectionDirection + ViewDirection);
+                    float dotNL = saturate(dot(LightDirection, ShadingNormal));
+                    float dotNV = saturate(dot(ShadingNormal, ViewDirection));
+                    float dotHV = saturate(dot(HalfVector, ViewDirection));
+                    float dotSpecHV = saturate(dot(HalfVector_Spec, ViewDirection));
+                    // Approximate \int D * Li with ASG
+                    // we use RoughnessAlpha here
+                    float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, ShadingNormal, MaterialBRDFData.roughnessAlphaSqr, ViewDirection);
+                    float3 FresnelTerm = fresnel(MaterialBRDFData.F0, dotHV);
+                    float  VisibilityTerm   = evaluateVisibilityGGX(MaterialBRDFData.roughnessAlphaSqr, dotNL, dotNV);
+                    float3 GGXIntegrationApprox = (FresnelTerm / VisibilityTerm) * GGX_D_Li_Approx;
+                    float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotSpecHV);
+                    float3 LambertIntegration = SGDiffuseInnerProduct(SG, ShadingNormal, MaterialBRDFData.albedo)* DiffuseCompensation;
+                    SumRadiance += (GGXIntegrationApprox + LambertIntegration) * Sample.Weights[ProbeRank];
                 }
-                int BasisIndex = Headers[ProbeRank].BasisOffset + ProbeBasisIndex;
-                SGData SG = FetchBasisData(BasisIndex);
-                float3 LightDirection = SG.Direction;
-                float3 ReflectionDirection = calculateGGXSpecularDirection(ShadingNormal, ViewDirection, sqrt(MaterialBRDFData.roughnessAlpha));
-                float3 HalfVector = normalize(LightDirection + ViewDirection);
-                float3 HalfVector_Spec = normalize(ReflectionDirection + ViewDirection);
-                float dotNL = saturate(dot(LightDirection, ShadingNormal));
-                float dotNV = saturate(dot(ShadingNormal, ViewDirection));
-                float dotHV = saturate(dot(HalfVector, ViewDirection));
-                float dotSpecHV = saturate(dot(HalfVector_Spec, ViewDirection));
-                // Approximate \int D * Li with ASG
-                // we use RoughnessAlpha here
-                float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, ShadingNormal, MaterialBRDFData.roughnessAlphaSqr, ViewDirection);
-                float3 FresnelTerm = fresnel(MaterialBRDFData.F0, dotHV);
-                float  VisibilityTerm   = evaluateVisibilityGGX(MaterialBRDFData.roughnessAlphaSqr, dotNL, dotNV);
-                float3 GGXIntegrationApprox = (FresnelTerm / VisibilityTerm) * GGX_D_Li_Approx;
-                float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotSpecHV);
-                float3 LambertIntegration = SGDiffuseInnerProduct(SG, ShadingNormal, MaterialBRDFData.albedo)* DiffuseCompensation;
-                SumRadiance += (GGXIntegrationApprox + LambertIntegration) * Sample.Weights[ProbeRank];
+                // Irradiance shading 
+                for(int CornerIndex = 0; CornerIndex < 4; CornerIndex ++) {
+                    // this is probably the cause for outflares
+                    // outflares!!
+                    // FIXME why i can not fill Headers[CornerIndex].bValid here? (rare outflares)
+                    if(Sample.Weights[CornerIndex] > 0.f) { 
+                        float3 IrradianceSGColor = Headers[CornerIndex].Irradiance;
+                        SGData SG = GetIrradianceSG(Headers[CornerIndex].Normal, IrradianceSGColor);
+                        float3 LightDirection = SG.Direction;
+                        float3 ReflectionDirection = calculateGGXSpecularDirection(ShadingNormal, ViewDirection, sqrt(MaterialBRDFData.roughnessAlpha));
+                        float3 HalfVector = normalize(LightDirection + ViewDirection);
+                        float3 HalfVector_Spec = normalize(ReflectionDirection + ViewDirection);
+                        float dotNL = saturate(dot(LightDirection, ShadingNormal));
+                        float dotNV = saturate(dot(ShadingNormal, ViewDirection));
+                        float dotHV = saturate(dot(HalfVector, ViewDirection));
+                        float dotSpecHV = saturate(dot(HalfVector_Spec, ViewDirection));
+                        // Approximate \int D * Li with ASG
+                        // we use RoughnessAlpha here
+                        float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, ShadingNormal, MaterialBRDFData.roughnessAlphaSqr, ViewDirection);
+                        float3 FresnelTerm = fresnel(MaterialBRDFData.F0, dotHV);
+                        float  VisibilityTerm   = evaluateVisibilityGGX(MaterialBRDFData.roughnessAlphaSqr, dotNL, dotNV);
+                        float3 GGXIntegrationApprox = (FresnelTerm / VisibilityTerm) * GGX_D_Li_Approx;
+                        float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotSpecHV);
+                        float3 LambertIntegration = SGDiffuseInnerProduct(SG, ShadingNormal, MaterialBRDFData.albedo)* DiffuseCompensation;
+                        SumRadiance += (GGXIntegrationApprox + LambertIntegration) * Sample.Weights[CornerIndex];
+                    }
+                }
+                // Store shading results
+                float3 Emission = EmissiveMaterialData.emissive;
+                g_RWGlobalIlluminationOutput[TexCoords] = 
+                    float4(GIDenoiser_RemoveNaNs(SumRadiance + Emission), 1.0f);
+            } else {
+                g_RWGlobalIlluminationOutput[TexCoords] = float4(0.f, 0.f, 0.f, 0.0f);
             }
-            // Store shading results
-            float3 Emission = EmissiveMaterialData.emissive;
-            // FIXME real irradiance shading
-            float3 IrradianceColor = InterpolatedIrradiance * MaterialBRDFData.albedo;
-            g_RWGlobalIlluminationOutput[TexCoords] = 
-                float4(GIDenoiser_RemoveNaNs(IrradianceColor + SumRadiance + Emission), 1.0f);
         } else {
-            g_RWGlobalIlluminationOutput[TexCoords] = float4(0.f, 0.f, 0.f, 1.0f);
+            g_RWGlobalIlluminationOutput[TexCoords] = float4(0.f, 0.f, 0.f, 0.0f);
         }
     }
+}
+
+#define MAX_TEMPORAL_ACCUMULATION 10
+
+[numthreads(WAVE_SIZE, 1, 1)]
+void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    int TileID = GroupID.x + GroupID.y * MI.TileDimensions.x;
+    int2 TileTextureBaseOffset = int2(GroupID) * SSRC_TILE_SIZE;
+    const int PIXEL_PER_THREAD = SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE;
+    for(int i = 0; i< PIXEL_PER_THREAD; i++) {
+        int PixelIndex = i * WAVE_SIZE + LocalID;
+        // Operate in subtiles (8x8) to get better coherency in loop branching
+        // with the more likely the same number of basis to access for each thread
+        int SubtileIndex  = PixelIndex / (SSRC_TILE_SIZE * SSRC_TILE_SIZE / 4);
+        int SubPixelIndex = PixelIndex % (SSRC_TILE_SIZE * SSRC_TILE_SIZE / 4);
+        int PixelX = (SSRC_TILE_SIZE/2) * (SubtileIndex % 2) + SubPixelIndex % (SSRC_TILE_SIZE/2);
+        int PixelY = (SSRC_TILE_SIZE/2) * (SubtileIndex / 2) + SubPixelIndex / (SSRC_TILE_SIZE/2);
+        int2 TexCoords = TileTextureBaseOffset + int2(PixelX, PixelY);
+        float2 UV = (TexCoords + 0.5f) / MI.ScreenDimensions;
+        float Depth = g_DepthTexture.Load(int3(TexCoords, 0)).x;
+        if(Depth < 1.f) {
+            float LinearDepth   = GetLinearDepth(Depth);
+            // Texture coordinates
+            float4 Visibility   = g_VisibilityTexture[TexCoords];
+            float2 Barycentrics = Visibility.xy;
+            uint   InstanceID   = asuint(Visibility.z);
+            uint   PrimitiveID  = asuint(Visibility.w);
+
+            Instance InstanceData = g_InstanceBuffer[InstanceID];
+            Mesh     mesh     = g_MeshBuffer[InstanceData.mesh_index];
+
+            Triangle vertices = fetchVertices(mesh, PrimitiveID);
+
+            // Reconstruct world space position from barycentrics
+            float3x4 transform = g_TransformBuffer[InstanceData.transform_index];
+            vertices.v0 = transformPoint(vertices.v0, transform);
+            vertices.v1 = transformPoint(vertices.v1, transform);
+            vertices.v2 = transformPoint(vertices.v2, transform);
+
+            // Frame
+            float3 WorldPosition = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
+            float3 GeometryNormal = normalize(2.f * g_GeometryNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
+            float3 ShadingNormal  = normalize(2.f * g_ShadingNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
+
+            UVs PrimitiveUVs = fetchUVs(g_MeshBuffer[InstanceData.mesh_index], PrimitiveID);
+            float2 MeshUV = interpolate(PrimitiveUVs.uv0, PrimitiveUVs.uv1, PrimitiveUVs.uv2, Barycentrics);
+            Material MaterialData = g_MaterialBuffer[InstanceData.material_index];
+            MaterialEmissive EmissiveMaterialData = MakeMaterialEmissive(MaterialData, MeshUV);
+            MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialData, MeshUV);
+            
+            float3 ViewDirection = normalize(MI.CameraPosition - WorldPosition);
+
+            
+            float4 NewLightingW = g_RWGlobalIlluminationOutput[TexCoords];
+            float3 NewLighting  = NewLightingW.xyz;
+            float  NewLightingValid = NewLightingW.w;
+            float3 HistoryLighting = 0.f;
+            float  Alpha           = NewLightingValid > 0 ? 1.f : 0.f;
+            float  TotalSamples    = NewLightingValid > 0 ? 1.f : 0.f;
+
+            // Reproject to previous frame
+            float2 PreviousUV = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0.0f).xy;
+
+            if (all(PreviousUV > 0.0f) && all(PreviousUV < 1.0f))
+            {
+                float3 Homogeneous     = float3(UV2NDC2(UV), Depth);
+                float3 HomogeneousPrev = transformPointProjection(Homogeneous, MI.Reprojection);
+                float  PreviousLinearDepth = GetLinearDepth(HomogeneousPrev.z);
+
+                float2 PixelScale2 = 0.5f / MI.ScreenDimensions;
+
+                float4 HistoryGBufferDepths  = g_PreviousDepthTexture.GatherRed(g_ClampedPointSampler, PreviousUV + PixelScale2 * 0.99f).wzxy;
+                float4 HistoryLinearDepths   = float4(
+                    GetLinearDepth(HistoryGBufferDepths.x),
+                    GetLinearDepth(HistoryGBufferDepths.y),
+                    GetLinearDepth(HistoryGBufferDepths.z),
+                    GetLinearDepth(HistoryGBufferDepths.w)
+                );
+                // Lumen alike method, jitter disocclusion threshold
+                float Noise = BlueNoise_Sample1D(uint2(PixelX, PixelY), MI.FrameIndex, 3);
+                float HistoryDistanceThreshold = 0.005f;
+                float DisocclusionDistanceThreshold = HistoryDistanceThreshold * lerp(0.5f, 1.5f, Noise);
+                DisocclusionDistanceThreshold /= clamp(saturate(dot(ViewDirection, GeometryNormal)), .1f, 1.0f); 
+                float4 DepthDistances    = abs(HistoryLinearDepths - PreviousLinearDepth);
+                float4 OcclusionWeights  = select(DepthDistances >= PreviousLinearDepth * DisocclusionDistanceThreshold, 1.f, 0.f);
+                float4 VisibilityWeights = saturate(1.f - OcclusionWeights);
+                float2 SubPixelPos       = frac(clamp(PreviousUV * MI.ScreenDimensions + 0.495f, 0, MI.ScreenDimensions));
+                float4 BilinearWeights   = float4(
+                    (1.f - SubPixelPos.x) * (1.f - SubPixelPos.y),
+                    SubPixelPos.x * (1.f - SubPixelPos.y),
+                    (1.f - SubPixelPos.x) * SubPixelPos.y,
+                    SubPixelPos.x * SubPixelPos.y
+                );
+                float4 FinalWeights = BilinearWeights * VisibilityWeights;
+                FinalWeights = FinalWeights / max(dot(FinalWeights, 1.f.xxxx), 1e-5f);
+
+                float4 HistorySamples    = 
+                    g_PreviousHistoryAccumulationTexture.GatherRed(g_ClampedPointSampler, PreviousUV + PixelScale2 * 0.99f).wzxy
+                    * MAX_TEMPORAL_ACCUMULATION;
+                TotalSamples = dot(min(HistorySamples + NewLightingValid, MAX_TEMPORAL_ACCUMULATION) * FinalWeights, 1.f.xxxx);
+                TotalSamples = min(TotalSamples, MAX_TEMPORAL_ACCUMULATION);
+                
+                Alpha = NewLightingValid / max(TotalSamples, 1.f);
+                
+                {
+                    // Note: PrevCombinedGlobalIllumination includes the skybox, so we manually keep a copy of ours
+                    float3 HistoryLightingX00 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                        g_ClampedPointSampler, PreviousUV + float2(-PixelScale2.x, -PixelScale2.y), 0.f
+                    ).xyz;
+                    float3 HistoryLightingX10 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                        g_ClampedPointSampler, PreviousUV + float2( PixelScale2.x, -PixelScale2.y), 0.f
+                    ).xyz;
+                    float3 HistoryLightingX01 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                        g_ClampedPointSampler, PreviousUV + float2(-PixelScale2.x,  PixelScale2.y), 0.f
+                    ).xyz;
+                    float3 HistoryLightingX11 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                        g_ClampedPointSampler, PreviousUV + float2( PixelScale2.x,  PixelScale2.y), 0.f
+                    ).xyz;
+                    HistoryLighting = 
+                        HistoryLightingX00 * BilinearWeights.x + 
+                        HistoryLightingX10 * BilinearWeights.y + 
+                        HistoryLightingX01 * BilinearWeights.z + 
+                        HistoryLightingX11 * BilinearWeights.w;
+                }
+            }
+
+            g_RWGlobalIlluminationOutput[TexCoords] = float4(lerp(HistoryLighting, NewLighting, Alpha), 1.0f);
+            g_RWHistoryAccumulationTexture[TexCoords] = TotalSamples / MAX_TEMPORAL_ACCUMULATION;
+        } else{
+            g_RWHistoryAccumulationTexture[TexCoords] = 0.f;
+        }
+
+    }
+
 }
 
 // [numthreads(WAVE_SIZE, 1, 1)]
@@ -2391,14 +2589,13 @@ void DebugSSRC_PrepareProbeIncidentRadiance (uint DispatchID : SV_DispatchThread
         float3 EvaluatedSG   = EvaluateSG(SG, Direction);
         SumRadiance += EvaluatedSG;
     }
-    g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = SumRadiance + GetScreenProbeIrradiance(ProbeIndex);
+    SGData IrradianceSG = GetIrradianceSG(Header.Normal, Header.Irradiance);
+    g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = SumRadiance + EvaluateSG(IrradianceSG, Direction);
 }
 
 [numthreads(1, 1, 1)]
 void DebugSSRC_PrepareUpdateRays () {
     int2   TexCoords      = MI.DebugCursorPixelCoords;
-    int2   TileCoords     = int2(TexCoords.x / SSRC_TILE_SIZE, TexCoords.y / SSRC_TILE_SIZE);
-    int    TileID         = TileCoords.x + TileCoords.y * MI.TileDimensions.x;
     float  Depth          = g_DepthTexture.Load(int3(TexCoords, 0)).x;
     if(Depth < 1.f) {
         float3 GeometryNormal = normalize(2.f * g_GeometryNormalTexture.Load(int3(TexCoords, 0)).xyz - 1.f);
@@ -2410,27 +2607,37 @@ void DebugSSRC_PrepareUpdateRays () {
             GeometryNormal,
             Sample
         );
-        int MinIndex;
-        if(Sample.Weights[0] < Sample.Weights[1]) {
-            MinIndex = 0;
+        int MaxIndex;
+        if(Sample.Weights[0] > Sample.Weights[1]) {
+            MaxIndex = 0;
         } else {
-            MinIndex = 1;
+            MaxIndex = 1;
         }
-        if(Sample.Weights[2] < Sample.Weights[MinIndex]) {
-            MinIndex = 2;
+        if(Sample.Weights[2] > Sample.Weights[MaxIndex]) {
+            MaxIndex = 2;
         }
-        if(Sample.Weights[3] < Sample.Weights[MinIndex]) {
-            MinIndex = 3;
+        if(Sample.Weights[3] > Sample.Weights[MaxIndex]) {
+            MaxIndex = 3;
         }
-        int2 ProbeIndex  = Sample.Index[MinIndex];
-        int  ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
-        int  ProbeRayCount = g_RWProbeUpdateRayCountBuffer[ProbeIndex1];
-        DrawCommand draw_command = (DrawCommand)0;
-        draw_command.vertex_count_per_instance = 2;
-        draw_command.instance_count  = ProbeRayCount;
-        draw_command.vertex_offset   = 0;
-        draw_command.instance_offset = 0;
-        g_RWDrawCommandBuffer[0] = draw_command;
+        if(Sample.Weights[MaxIndex] != 0) {
+            int2 ProbeIndex  = Sample.Index[MaxIndex];
+            g_RWDebugProbeIndexBuffer[0] = ProbeIndex;
+            int  ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
+            int  ProbeRayCount = g_RWProbeUpdateRayCountBuffer[ProbeIndex1];
+            DrawCommand draw_command = (DrawCommand)0;
+            draw_command.vertex_count_per_instance = 2;
+            draw_command.instance_count  = ProbeRayCount;
+            draw_command.vertex_offset   = 0;
+            draw_command.instance_offset = 0;
+            g_RWDrawCommandBuffer[0] = draw_command;
+        } else {
+            DrawCommand draw_command = (DrawCommand)0;
+            draw_command.vertex_count_per_instance = 0;
+            draw_command.instance_count  = 0;
+            draw_command.vertex_offset   = 0;
+            draw_command.instance_offset = 0;
+            g_RWDrawCommandBuffer[0] = draw_command;
+        }
     } else {
         DrawCommand draw_command = (DrawCommand)0;
         draw_command.vertex_count_per_instance = 0;

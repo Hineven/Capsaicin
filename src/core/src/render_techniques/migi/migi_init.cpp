@@ -138,6 +138,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_IntegrateASG = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_Denoise = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_Denoise", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.DebugSSRC_FetchCursorPos = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_FetchCursorPos", defines_c.data(), (uint32_t)defines_c.size());
@@ -227,6 +229,17 @@ bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
     __override_primitive_topology = false;
     __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
+    GfxDrawState visualize_update_rays_draw_state {};
+    gfxDrawStateSetColorTarget(visualize_update_rays_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+    gfxDrawStateSetDepthStencilTarget(visualize_update_rays_draw_state, tex_.depth);
+    __override_primitive_topology = true;
+    __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+    kernels_.DebugSSRC_VisualizeUpdateRays = gfxCreateGraphicsKernel(
+        gfx_, kernels_.program, visualize_update_rays_draw_state, "DebugSSRC_VisualizeUpdateRays",
+        defines_c.data(), (uint32_t)defines_c.size());
+    __override_primitive_topology = false;
+    __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
     GfxDrawState visualize_light_draw_state {};
     gfxDrawStateSetColorTarget(visualize_light_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
     gfxDrawStateSetDepthStencilTarget(visualize_light_draw_state, tex_.depth);
@@ -238,6 +251,9 @@ bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
 }
 
 bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
+
+    // Samplers
+    clamped_point_sampler_ = gfxCreateSamplerState(gfx_, D3D12_FILTER_MIN_MAG_MIP_POINT);
 
     // Textures
     int probe_texture_width = divideAndRoundUp(capsaicin.getWidth(), SSRC_TILE_SIZE);
@@ -304,6 +320,14 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.update_error_splat[0].setName("UpdateErrorSplat0");
     tex_.update_error_splat[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, SSRC_TILE_SIZE_L2 + 1);
     tex_.update_error_splat[1].setName("UpdateErrorSplat1");
+
+    tex_.history_accumulation[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16_UNORM);
+    tex_.history_accumulation[0].setName("HistoryAccumulation0");
+    tex_.history_accumulation[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16_UNORM);
+    tex_.history_accumulation[1].setName("HistoryAccumulation1");
+
+    tex_.previous_global_illumination = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.previous_global_illumination.setName("PreviousGlobalIllumination");
 
     tex_.HiZ_min = gfxCreateTexture2D(gfx_, capsaicin.getWidth() / 2, capsaicin.getHeight() / 2, DXGI_FORMAT_R32_FLOAT, SSRC_TILE_SIZE_L2);
     tex_.HiZ_min.setName("HiZMin");
@@ -446,12 +470,14 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.ResolveCells);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_Denoise);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbePlacement);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeIncidentRadiance);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeSGDirection);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeLight);
 
     gfxDestroyProgram(gfx_, kernels_.program);
@@ -468,6 +494,9 @@ void MIGI::releaseKernels()
 
 void MIGI::releaseResources()
 {
+    // Sampler
+    gfxDestroySamplerState(gfx_, clamped_point_sampler_);
+
     // Free textures
     gfxDestroyTexture(gfx_, tex_.probe_header_packed[0]);
     gfxDestroyTexture(gfx_, tex_.probe_header_packed[1]);
@@ -489,6 +518,9 @@ void MIGI::releaseResources()
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_index[1]);
     gfxDestroyTexture(gfx_, tex_.update_error_splat[0]);
     gfxDestroyTexture(gfx_, tex_.update_error_splat[1]);
+    gfxDestroyTexture(gfx_, tex_.history_accumulation[0]);
+    gfxDestroyTexture(gfx_, tex_.history_accumulation[1]);
+    gfxDestroyTexture(gfx_, tex_.previous_global_illumination);
     gfxDestroyTexture(gfx_, tex_.HiZ_min);
     gfxDestroyTexture(gfx_, tex_.HiZ_max);
     gfxDestroyTexture(gfx_, tex_.depth);

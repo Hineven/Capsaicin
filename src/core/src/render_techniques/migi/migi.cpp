@@ -97,6 +97,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearSampler());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_NearestSampler", capsaicin.getNearestSampler());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_LinearSampler", capsaicin.getLinearSampler());
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_ClampedPointSampler", clamped_point_sampler_);
 
     // Geometry
     gfxProgramSetParameter(gfx_, kernels_.program, "g_IndexBuffer", capsaicin.getIndexBuffer());
@@ -187,6 +188,11 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateErrorSplatTexture", tex_.update_error_splat[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_UpdateErrorSplatTexture", tex_.update_error_splat[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousUpdateErrorSplatTexture", tex_.update_error_splat[1 - flip]);
+
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWHistoryAccumulationTexture", tex_.history_accumulation[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousHistoryAccumulationTexture", tex_.history_accumulation[1 - flip]);
+
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousGlobalIlluminationTexture", tex_.previous_global_illumination);
     }
 
     // HiZ RWTextures are set upon kernel invocation
@@ -239,7 +245,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.FrameIndex = capsaicin.getFrameIndex();
 
         C.PreviousCameraRight     = previous_constants_.CameraRight;
-        C.TileJitterFrameSeed     = options_.debug_freeze_tile_jitter ? 123 : C.FrameIndex;
+        C.TileJitterFrameSeed     = options_.debug_freeze_tile_jitter ? options_.fixed_tile_jitter : C.FrameIndex;
         C.PreviousCameraUp        = previous_constants_.CameraUp;
         C.PreviousTileJitterFrameSeed = previous_constants_.TileJitterFrameSeed;
 
@@ -247,7 +253,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.TAAJitterUV             = jitter * 0.5f;
         C.PreviousTAAJitterUV     = previous_constants_.TAAJitterUV;
 
-        C.FrameSeed  = options_.debug_freeze_frame_seed ? 123 : C.FrameIndex;
+        C.FrameSeed  = options_.debug_freeze_frame_seed ? options_.fixed_frame_seed : C.FrameIndex;
         C.PreviousFrameSeed = previous_constants_.FrameSeed;
 
         C.ScreenDimensions = glm::uvec2(options_.width, options_.height);
@@ -439,6 +445,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         // Clear error texture
         gfxCommandClearTexture(gfx_, tex_.update_error_splat[0]);
         gfxCommandClearTexture(gfx_, tex_.update_error_splat[1]);
+        // Clear history accumulation texture
+        gfxCommandClearTexture(gfx_, tex_.history_accumulation[0]);
+        gfxCommandClearTexture(gfx_, tex_.history_accumulation[1]);
     }
 
     // Decay and remove out-dated hash grid cache cells
@@ -759,6 +768,14 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 //        gfxCommandDispatch(gfx_, divideAndRoundUp(num_tiles, threads[0]), 1, 1);
 //    }
 
+    // Denoiser
+    {
+        const TimedSection timed_section(*this, "SSRC_Denoise");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_Denoise);
+        uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    }
+
     bool camera_moved = true;
     {
         if (camera.aspect == previous_camera_.aspect && camera.center == previous_camera_.center
@@ -822,19 +839,26 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         // Additionally accumulate the radiance buffer to compute the numerical integral of incoming radiance
         gfxCommandReduceSum(gfx_, GfxDataType::kGfxDataType_Float, buf_.debug_visualize_incident_radiance_sum, buf_.debug_visualize_incident_radiance, &buf_.reduce_count);
     } else if(options_.active_debug_view == "SSRC_UpdateRays") {
-//        const TimedSection timed_section(*this, "SSRC_UpdateRays");
-//        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_prepare_update_rays);
-//        gfxCommandDispatch(gfx_, 1, 1, 1);
-//        // Copy the depth buffer to the depth buffer for debug visualization
-//        gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
-//        gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
-//        debug_buffer_copied = true;
-//        __override_primitive_topology = true;
-//        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
-//        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_update_rays);
-//        gfxCommandMultiDrawIndirect(gfx_, buf_.draw_command, 1);
-//        __override_primitive_topology = false;
-//        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        const TimedSection timed_section(*this, "SSRC_UpdateRays");
+
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_PrepareUpdateRays);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        // Copy the depth buffer to the depth buffer for debug visualization
+        if(!debug_buffer_copied)
+        {
+            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            debug_buffer_copied = true;
+        }
+        __override_primitive_topology = true;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeUpdateRays);
+        gfxCommandMultiDrawIndirect(gfx_, buf_.draw_command, 1);
+        __override_primitive_topology = false;
+        __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     }
 
     if(options_.debug_light) {
@@ -880,6 +904,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             readback_pending_[readback_idx] = false;
         }
     }
+
+    // Update previous global illumination
+    gfxCommandCopyTexture(gfx_, tex_.previous_global_illumination, gi_output_aov);
 
     // Update camera history
     previous_camera_ = capsaicin.getCamera();

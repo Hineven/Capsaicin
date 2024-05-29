@@ -50,12 +50,12 @@ float4 UnpackFp16x4 (uint2 v) {
 }
 
 uint2 PackFp16x3Safe (float3 v) {
-    // v = ClipFp16(v);
+    v = ClipFp16(v);
     return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z));
 }
 
 uint2 PackFp16x4Safe (float4 v) {
-    // v = ClipFp16(v);
+    v = ClipFp16(v);
     return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z) | (f32tof16(v.w) << 16));
 }
 
@@ -355,6 +355,10 @@ float3 CosineWeightedSampleHemisphere (float2 u) {
     return float3(R * SinCos.y, R * SinCos.x, Z);
 }
 
+float CosineWeightedSampleHemispherePDF (float CosTheta) {
+    return CosTheta * (1.f / PI);
+}
+
 float CosineWeightedSampleHemispherePDF (float3 Direction, float3 Normal) {
     return max(0.f, dot(Direction, Normal)) * (1.f / PI);
 }
@@ -596,6 +600,9 @@ SGData CombineSG (SGData SG1, SGData SG2) {
     Result.Lambda = (SG1.Lambda*W1 + SG2.Lambda*W2) / (W1 + W2);
     Result.Color  = (SG1.Color*W1 + SG2.Color*W2) / (W1 + W2);
     Result.Depth  = (SG1.Depth*W1 + SG2.Depth*W2) / (W1 + W2);
+    // FIXME
+    if(W1 > W2) Result = SG1;
+    else Result = SG2;
     float W3 = max(SGIntegrate(Result.Lambda) * dot(Result.Color, 1.f.xxx), 0) + 1e-6f;
     Result.Color *=  (W1 + W2) / W3;
     return Result;

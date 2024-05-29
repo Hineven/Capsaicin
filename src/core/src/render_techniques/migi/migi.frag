@@ -26,16 +26,16 @@ float4 DebugSSRC_VisualizeProbeSGDirection (
     return Input.Color;
 }
 
-// struct DebugUpdateRays_Input {
-//     float4 Position : SV_Position;
-//     float4 Color    : COLOR;
-// };
+struct DebugUpdateRays_Input {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
 
-// float4 DebugSSRC_UpdateRays (
-//     in DebugUpdateRays_Input Input
-// ) : SV_Target {
-//     return Input.Color;
-// }
+float4 DebugSSRC_VisualizeUpdateRays (
+    in DebugUpdateRays_Input Input
+) : SV_Target {
+    return Input.Color;
+}
 
 struct DebugLight_Input {
     float4 Position : SV_Position;

@@ -13,6 +13,7 @@ struct ProbeHeader {
     float  LinearDepth;
     float3 Position;
     float3 Normal;
+    float3 Irradiance;
 };  
 
 struct SSRC_SampleData {
@@ -21,6 +22,32 @@ struct SSRC_SampleData {
     // Interpolation weights
     float4 Weights;
 };
+
+float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
+    return bPrevious ? g_RWPreviousProbeWorldPositionTexture[ProbeIndex].xyz
+        : g_RWProbeWorldPositionTexture[ProbeIndex].xyz;
+}
+
+float GetScreenProbeLinearDepth (int2 ProbeIndex, bool bPrevious = false) {
+    return bPrevious ? g_RWPreviousProbeLinearDepthTexture[ProbeIndex].x
+        : g_RWProbeLinearDepthTexture[ProbeIndex].x;
+}
+
+float3 GetScreenProbeNormal (int2 ProbeIndex, bool bPrevious = false) {
+    return bPrevious
+        ? OctahedronToUnitVector(g_RWPreviousProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f)
+        : OctahedronToUnitVector(g_RWProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f);
+}
+
+float3 GetScreenProbeIrradiance (int2 Index, bool bPrevious = false) {
+    // return 0.f;
+    return bPrevious ? g_RWPreviousProbeIrradianceTexture[Index].xyz
+         : g_RWProbeIrradianceTexture[Index].xyz;
+}
+
+void   WriteScreenProbeIrradiance (int2 Index, float3 Irradiance) {
+    g_RWProbeIrradianceTexture[Index] = float4(Irradiance, 0);
+}
 
 ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
     uint Packed = bPrevious ? g_RWPreviousProbeHeaderPackedTexture[ProbeIndex] : g_RWProbeHeaderPackedTexture[ProbeIndex];
@@ -33,22 +60,19 @@ ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
         ? g_RWPreviousProbeScreenCoordsTexture[ProbeIndex].x
         : g_RWProbeScreenCoordsTexture[ProbeIndex].x
     );
-    Header.LinearDepth  = 
-        bPrevious ? g_RWPreviousProbeLinearDepthTexture[ProbeIndex].x
-        : g_RWProbeLinearDepthTexture[ProbeIndex].x;
-    Header.Position     = 
-        bPrevious ? g_RWPreviousProbeWorldPositionTexture[ProbeIndex].xyz
-        : g_RWProbeWorldPositionTexture[ProbeIndex].xyz;
-    Header.Normal       = 
-        OctahedronToUnitVector(
-            (bPrevious ? g_RWPreviousProbeNormalTexture[ProbeIndex].xy 
-            : g_RWProbeNormalTexture[ProbeIndex].xy)
-             * 2.f - 1.f);
-            
-    Header.bValid       =  Header.LinearDepth > 0;
+    Header.LinearDepth  = GetScreenProbeLinearDepth(ProbeIndex, bPrevious);
+    Header.Position     = GetScreenProbePosition(ProbeIndex, bPrevious);
+    Header.Normal       = GetScreenProbeNormal(ProbeIndex, bPrevious);
+    Header.Irradiance   = GetScreenProbeIrradiance(ProbeIndex, bPrevious);
+    Header.bValid       = Header.LinearDepth > 0;
     // If this is not a valid probe, hint the caller that it has no valid SGs
     if(!Header.bValid)  Header.Class = 0;
     return Header;
+}
+
+int   GetScreenProbeBasisOffset (int2 ProbeIndex, bool bPrevious = false) {
+    ProbeHeader Header = GetScreenProbeHeader(ProbeIndex, bPrevious);
+    return Header.BasisOffset;
 }
 
 void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
@@ -61,6 +85,7 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     g_RWProbeLinearDepthTexture[ProbeIndex] = Header.LinearDepth;
     g_RWProbeWorldPositionTexture[ProbeIndex] = float4(Header.Position, 0.f);
     g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal) * 0.5f + 0.5f;
+    WriteScreenProbeIrradiance(ProbeIndex, Header.Irradiance);
 }
 
 int2 GetTileJitter (bool bPrevious = false) {
@@ -77,15 +102,11 @@ int2 GetScreenProbeScreenCoords (int2 ProbeIndex, bool bPrevious = false) {
     return UniformScreenProbeScreenCoords;
 }
 
-float3 GetScreenProbePosition (int2 ProbeIndex, bool bPrevious = false) {
-    return bPrevious ? g_RWPreviousProbeWorldPositionTexture[ProbeIndex].xyz
-        : g_RWProbeWorldPositionTexture[ProbeIndex].xyz;
-}
-
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
     // TODO: Implement this function
     // FIXME
-    return 2;
+    // 2 causes MORE outflares
+    return 1;
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {
@@ -115,22 +136,6 @@ float2 GetUniformScreenProbeScreenUV (int2 TileCoords, bool bPrevious = false) {
     return (GetUniformScreenProbeScreenCoords(TileCoords, bPrevious) + 0.5) * MI.ScreenDimensionsInv;
 }
 
-float GetScreenProbeLinearDepth (int2 ProbeIndex, bool bPrevious = false) {
-    ProbeHeader Header = GetScreenProbeHeader(ProbeIndex, bPrevious);
-    return Header.LinearDepth;
-}
-
-int   GetScreenProbeBasisOffset (int2 ProbeIndex, bool bPrevious = false) {
-    ProbeHeader Header = GetScreenProbeHeader(ProbeIndex, bPrevious);
-    return Header.BasisOffset;
-}
-
-float3 GetScreenProbeNormal (int2 ProbeIndex, bool bPrevious = false) {
-    return bPrevious
-        ? OctahedronToUnitVector(g_RWPreviousProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f)
-        : OctahedronToUnitVector(g_RWProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f);
-}
-
 struct ScreenProbeMaterial {
     float3 Position;
     float  Depth;
@@ -150,17 +155,6 @@ ScreenProbeMaterial FetchScreenProbeMaterial (int2 ScreenCoords, bool HiRes) {
         ? RecoverWorldPositionHiRes(ScreenCoords)
         : InverseProject(MI.CameraProjViewInv, UV, Material.Depth);
     return Material;
-}
-
-float3 GetScreenProbeIrradiance (int2 Index, bool bPrevious = false) {
-    // FIXME
-    return 0.f;
-    return bPrevious ? g_RWPreviousProbeIrradianceTexture[Index].xyz
-         : g_RWProbeIrradianceTexture[Index].xyz;
-}
-
-void   WriteScreenProbeIrradiance (int2 Index, float3 Irradiance) {
-    g_RWProbeIrradianceTexture[Index] = float4(Irradiance, 0);
 }
 
 bool   IsScreenProbeValid (int2 Index) {
