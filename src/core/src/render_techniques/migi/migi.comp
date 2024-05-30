@@ -508,8 +508,11 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
         PrevProbeHistoryDimensionsMin - PrevScreenPosition
     );
     OutOfRangeDecay2 = max(OutOfRangeDecay2, 0.f);
-    float  OutOfRangeDecay  = max(1.f - 2.f * length(OutOfRangeDecay2) / SSRC_TILE_SIZE, 0.f);
-    float HistoryTrust = min(dot(Sample.Weights, 1), 1.f) * OutOfRangeDecay;
+    float OutOfRangeDecay  = max(1.f - 2.f * length(OutOfRangeDecay2) / SSRC_TILE_SIZE, 0.f);
+    // Stochastic noise for the history trust
+    float Noise = BlueNoise_Sample1D(ProbeIndex, MI.FrameSeed, 3);
+    // 1.5 ~ 3 probes
+    float HistoryTrust = min(dot(Sample.Weights, 1) * lerp(1.5f, 3.f, Noise), 1.f) * OutOfRangeDecay;
     if(WaveIsFirstLane()) {
         g_RWProbeHistoryTrustTexture[ProbeIndex] = HistoryTrust;
     }
@@ -525,10 +528,10 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     BasisOffsets[3] = GetScreenProbeBasisOffset(Sample.Index[3], true);
     
     int BasisCount[4];
-    BasisCount[0] = GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[0], true).Class);
-    BasisCount[1] = GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[1], true).Class);
-    BasisCount[2] = GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[2], true).Class);
-    BasisCount[3] = GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[3], true).Class);
+    BasisCount[0] = Sample.Weights[0] > 0 ? GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[0], true).Class) : 0;
+    BasisCount[1] = Sample.Weights[1] > 0 ? GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[1], true).Class) : 0;
+    BasisCount[2] = Sample.Weights[2] > 0 ? GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[2], true).Class) : 0;
+    BasisCount[3] = Sample.Weights[3] > 0 ? GetProbeBasisCountFromClass(GetScreenProbeHeader(Sample.Index[3], true).Class) : 0;
     int NumBasis0 = BasisCount[0] + BasisCount[1];
     int NumBasis1 = BasisCount[2] + BasisCount[3];
     int NumBasis  = NumBasis0 + NumBasis1;
@@ -557,7 +560,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
 
             // Scale the color by the weight
             // Clamp to epsilon to always rank the closest SGs first if all SGs have zero weight
-            LocalSGSize4[BasisRank] = Weight * (1e-6f + SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx));
+            LocalSGSize4[BasisRank] = Weight * (1e-8f + SGIntegrate(SG.Lambda) * dot(SG.Color, 1.f.xxx));
             SG.Color = SG.Color * Weight;
             LocalSGData4[BasisRank] = SG;
         }
@@ -613,7 +616,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                     [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * 4)]
                     for (int i = 0; i<NumBasis; i++) {
                         // TODO better similarity computation
-                        float X = EvaluateSGRaw(LocalSGData4[BasisRank], CurrentSG.Direction);
+                        float X = EvaluateSGRaw(LocalSGData4[i], CurrentSG.Direction);
                         float Y = EvaluateSGRaw(CurrentSG, LocalSGData4[i].Direction);
                         float Similarity = X * Y;
                         if(i != BasisRank && Similarity > MaxSimilarity) {
@@ -633,16 +636,28 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                 for(int i = 0; i<NumBasis; i++) {
                     int MaxIndex = LocalSGMaxMatchIndex[i];
                     if(MaxIndex >= 0) {
+                        // Meet a not matched basis
                         bool AllocateNewSlot = false;
                         // A not matched basis
                         if(MergeCount > 0) {
                             if(MaxIndex > i) {
-                                // Matched, so cancel the matching for MaxIndex
-                                LocalSGMaxMatchIndex[MaxIndex] = -1;
-                                MergeCount --;
-                                AllocateNewSlot = true;
+                                // Try to match the opponent
+                                int OpponentMatchIndex = LocalSGMaxMatchIndex[MaxIndex];
+                                // Try to match MaxIndex
+                                if(OpponentMatchIndex != -1) {
+                                    // Matched, so cancel the matching for MaxIndex
+                                    LocalSGMaxMatchIndex[MaxIndex] = -1;
+                                    MergeCount --;
+                                    AllocateNewSlot = true;
+                                } else {
+                                    // The opponent is already matched by someone else
+                                    // Failed, match with myself.
+                                    LocalSGMaxMatchIndex[i] = i;
+                                    AllocateNewSlot = true;
+                                }
                             } else {
                                 int OpponentMatchIndex = LocalSGMaxMatchIndex[MaxIndex];
+                                // MaxIndex have no match for now, so we match it
                                 if(MaxIndex == OpponentMatchIndex) {
                                     // Matched.
                                     LocalSGMaxMatchIndex[MaxIndex] = i;
@@ -650,7 +665,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                                     MergeCount --;
                                 } else {
                                     // Failed, the opponent has already matched.
-                                    // Match with itself.
+                                    // Match with myself.
                                     LocalSGMaxMatchIndex[i] = i;
                                     AllocateNewSlot = true;
                                 }
@@ -754,7 +769,8 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     }
     // Naive strategy: allocate more rays for probes that failed in reprojection
     float Trust = g_RWProbeHistoryTrustTexture[ProbeIndex];
-    int   Bonus = (1.f - Trust) * 3;
+    // FIXME
+    int   Bonus = 2 + (1.f - Trust) * 6;
     g_RWProbeUpdateRayCountBuffer[DispatchID] = min(WAVE_SIZE * max(1, Bonus), SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE);
 }
 
@@ -767,15 +783,15 @@ void SSRC_SetUpdateRayCount () {
 }
 
 
-// TODO: Should we study from Lumen to use a large number?
-#define MIN_PDF_TO_TRACE 2e-3f //1e-1f
+// TODO: Should we study from Lumen to use a large number? (Lumen: 0.1)
+#define MIN_PDF_TO_TRACE 2e-2f
 
 groupshared SGData LocalSGData[SSRC_MAX_NUM_BASIS_PER_PROBE];
 groupshared float LocalSGSize[SSRC_MAX_NUM_BASIS_PER_PROBE];
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
 
-    const float Epsilon = 1e-6f;
+    const float Epsilon = 1e-8f;
 
     // We assume that ray count is always a multiple of WAVE_SIZE
     int  ProbeIndex1 = GroupID;
@@ -1831,7 +1847,7 @@ groupshared float  LocalSampleWeightPrefixSum[WAVE_SIZE];
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
 
-    const float Epsilon = 1e-6f;
+    const float Epsilon = 1e-7f;
 
     int2 ProbeIndex = int2(GroupID % MI.TileDimensions.x, GroupID / MI.TileDimensions.x);
     ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
@@ -1926,7 +1942,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float3 IrradianceEvaluated = IrradianceRaw * IrradianceSG.Color;
                 float3 TargetRadiance = RayRadiance - LocalEvaluatedRadiance[RayRank] + IrradianceEvaluated;
                 float  SampleWeight   = InvPdf;
-                if(IrradianceRaw > 2e-2f) {
+                if(IrradianceRaw > 2e-2f || dot(TargetRadiance, 1.f.xxx) < dot(IrradianceEvaluated, 1.f.xxx)) {
                     SumIrradianceAFactor     += 2.f * IrradianceRaw  * IrradianceRaw * SampleWeight;
                     SumIrradianceColor       += 2.f * TargetRadiance * IrradianceRaw * SampleWeight;
                 }
@@ -2054,7 +2070,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #else
                     // least squares method
                     // Clip rays that only evaluates to a tiny value on SG to prevent outflares
-                    if(SGEvaluatedRaw > 2e-2f) {
+                    if(SGEvaluatedRaw > 2e-2f || dot(TargetRadiance, 1.f.xxx) < dot(SGEvaluatedRadiance, 1.f.xxx)) {
                         SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight;
                         SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
                     }
@@ -2258,9 +2274,18 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     }
                 }
                 // Store shading results
+                float  AO = MI.UseAmbientOcclusion 
+                    ? g_BentNormalAndOcclusionTexture.Load(int3(TexCoords, 0)).w
+                    : 1.f;
+                float3 FarFieldGI  = SumRadiance * AO;
+                float3 NearFieldIrradiance = MI.UseNearFieldGI 
+                    ? g_NearFieldGlobalIlluminationTexture.Load(int3(TexCoords, 0)).xyz
+                    : 0.f;
+                float3 NearFieldGI = NearFieldIrradiance * MaterialBRDFData.albedo;
                 float3 Emission = EmissiveMaterialData.emissive;
+                float3 FinalLighting = FarFieldGI + NearFieldGI + Emission;
                 g_RWGlobalIlluminationOutput[TexCoords] = 
-                    float4(GIDenoiser_RemoveNaNs(SumRadiance + Emission), 1.0f);
+                    float4(GIDenoiser_RemoveNaNs(FinalLighting), 1.0f);
             } else {
                 g_RWGlobalIlluminationOutput[TexCoords] = float4(0.f, 0.f, 0.f, 0.0f);
             }
@@ -2279,8 +2304,7 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
     const int PIXEL_PER_THREAD = SSRC_TILE_SIZE * SSRC_TILE_SIZE / WAVE_SIZE;
     for(int i = 0; i< PIXEL_PER_THREAD; i++) {
         int PixelIndex = i * WAVE_SIZE + LocalID;
-        // Operate in subtiles (8x8) to get better coherency in loop branching
-        // with the more likely the same number of basis to access for each thread
+        // Operate in subtiles (8x8)
         int SubtileIndex  = PixelIndex / (SSRC_TILE_SIZE * SSRC_TILE_SIZE / 4);
         int SubPixelIndex = PixelIndex % (SSRC_TILE_SIZE * SSRC_TILE_SIZE / 4);
         int PixelX = (SSRC_TILE_SIZE/2) * (SubtileIndex % 2) + SubPixelIndex % (SSRC_TILE_SIZE/2);
@@ -2338,8 +2362,14 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                 float  PreviousLinearDepth = GetLinearDepth(HomogeneousPrev.z);
 
                 float2 PixelScale2 = 0.5f / MI.ScreenDimensions;
+                float2 PixelScale  = 1.0f / MI.ScreenDimensions;
 
-                float4 HistoryGBufferDepths  = g_PreviousDepthTexture.GatherRed(g_ClampedPointSampler, PreviousUV + PixelScale2 * 0.99f).wzxy;
+                // top-left corner pixel index for bilinear interpolation
+                float2 PreviousBilinearPixelPos = floor(PreviousUV * MI.ScreenDimensions - 0.5);
+                float2 PreviousBilinearSubpixel = frac(PreviousUV * MI.ScreenDimensions - 0.5);
+                float2 HistoryGatherUV          = (PreviousBilinearPixelPos + 1) * MI.ScreenDimensionsInv;
+
+                float4 HistoryGBufferDepths  = g_PreviousDepthTexture.GatherRed(g_ClampedPointSampler, HistoryGatherUV).wzxy;
                 float4 HistoryLinearDepths   = float4(
                     GetLinearDepth(HistoryGBufferDepths.x),
                     GetLinearDepth(HistoryGBufferDepths.y),
@@ -2354,18 +2384,41 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                 float4 DepthDistances    = abs(HistoryLinearDepths - PreviousLinearDepth);
                 float4 OcclusionWeights  = select(DepthDistances >= PreviousLinearDepth * DisocclusionDistanceThreshold, 1.f, 0.f);
                 float4 VisibilityWeights = saturate(1.f - OcclusionWeights);
-                float2 SubPixelPos       = frac(clamp(PreviousUV * MI.ScreenDimensions + 0.495f, 0, MI.ScreenDimensions));
                 float4 BilinearWeights   = float4(
-                    (1.f - SubPixelPos.x) * (1.f - SubPixelPos.y),
-                    SubPixelPos.x * (1.f - SubPixelPos.y),
-                    (1.f - SubPixelPos.x) * SubPixelPos.y,
-                    SubPixelPos.x * SubPixelPos.y
+                    (1.f - PreviousBilinearSubpixel.x) * (1.f - PreviousBilinearSubpixel.y),
+                    PreviousBilinearSubpixel.x * (1.f - PreviousBilinearSubpixel.y),
+                    (1.f - PreviousBilinearSubpixel.x) * PreviousBilinearSubpixel.y,
+                    PreviousBilinearSubpixel.x * PreviousBilinearSubpixel.y
                 );
-                float4 FinalWeights = BilinearWeights * VisibilityWeights;
+                float4 NormalWeights;
+                // Normal rejection
+                {
+                    float2 BaseUV = (PreviousBilinearPixelPos + 0.5f) * MI.ScreenDimensionsInv;
+                    float3 HistoryNormalX00 = normalize(g_PreviousGeometryNormalTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV, 0.f
+                    ).xyz * 2.f - 1.f);
+                    float3 HistoryNormalX10 = normalize(g_PreviousGeometryNormalTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV + float2(PixelScale.x, 0), 0.f
+                    ).xyz * 2.f - 1.f);
+                    float3 HistoryNormalX01 = normalize(g_PreviousGeometryNormalTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV + float2(0,  PixelScale.y), 0.f
+                    ).xyz * 2.f - 1.f);
+                    float3 HistoryNormalX11 = normalize(g_PreviousGeometryNormalTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV + float2(PixelScale.x,  PixelScale.y), 0.f
+                    ).xyz * 2.f - 1.f);
+                    NormalWeights = float4(
+                        saturate(dot(HistoryNormalX00, GeometryNormal)),
+                        saturate(dot(HistoryNormalX10, GeometryNormal)),
+                        saturate(dot(HistoryNormalX01, GeometryNormal)),
+                        saturate(dot(HistoryNormalX11, GeometryNormal))
+                    );
+                    NormalWeights = select(NormalWeights < 0.5 + 0.5f * Noise, 0.f, 1.f);
+                }
+                float4 FinalWeights = BilinearWeights * VisibilityWeights * NormalWeights;
                 FinalWeights = FinalWeights / max(dot(FinalWeights, 1.f.xxxx), 1e-5f);
 
                 float4 HistorySamples    = 
-                    g_PreviousHistoryAccumulationTexture.GatherRed(g_ClampedPointSampler, PreviousUV + PixelScale2 * 0.99f).wzxy
+                    g_PreviousHistoryAccumulationTexture.GatherRed(g_ClampedPointSampler, HistoryGatherUV).wzxy
                     * MAX_TEMPORAL_ACCUMULATION;
                 TotalSamples = dot(min(HistorySamples + NewLightingValid, MAX_TEMPORAL_ACCUMULATION) * FinalWeights, 1.f.xxxx);
                 TotalSamples = min(TotalSamples, MAX_TEMPORAL_ACCUMULATION);
@@ -2374,17 +2427,18 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                 
                 {
                     // Note: PrevCombinedGlobalIllumination includes the skybox, so we manually keep a copy of ours
+                    float2 BaseUV = (PreviousBilinearPixelPos + 0.5f) * MI.ScreenDimensionsInv;
                     float3 HistoryLightingX00 = g_PreviousGlobalIlluminationTexture.SampleLevel(
-                        g_ClampedPointSampler, PreviousUV + float2(-PixelScale2.x, -PixelScale2.y), 0.f
+                        g_ClampedPointSampler, BaseUV, 0.f
                     ).xyz;
                     float3 HistoryLightingX10 = g_PreviousGlobalIlluminationTexture.SampleLevel(
-                        g_ClampedPointSampler, PreviousUV + float2( PixelScale2.x, -PixelScale2.y), 0.f
+                        g_ClampedPointSampler, BaseUV + float2(PixelScale.x, 0), 0.f
                     ).xyz;
                     float3 HistoryLightingX01 = g_PreviousGlobalIlluminationTexture.SampleLevel(
-                        g_ClampedPointSampler, PreviousUV + float2(-PixelScale2.x,  PixelScale2.y), 0.f
+                        g_ClampedPointSampler, BaseUV + float2(0,  PixelScale.y), 0.f
                     ).xyz;
                     float3 HistoryLightingX11 = g_PreviousGlobalIlluminationTexture.SampleLevel(
-                        g_ClampedPointSampler, PreviousUV + float2( PixelScale2.x,  PixelScale2.y), 0.f
+                        g_ClampedPointSampler, BaseUV + float2(PixelScale.x,  PixelScale.y), 0.f
                     ).xyz;
                     HistoryLighting = 
                         HistoryLightingX00 * BilinearWeights.x + 
@@ -2393,7 +2447,9 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                         HistoryLightingX11 * BilinearWeights.w;
                 }
             }
-
+            if(MI.NoDenoiser) {
+                Alpha = NewLightingValid > 0 ? 1.f : 0.f;
+            }
             g_RWGlobalIlluminationOutput[TexCoords] = float4(lerp(HistoryLighting, NewLighting, Alpha), 1.0f);
             g_RWHistoryAccumulationTexture[TexCoords] = TotalSamples / MAX_TEMPORAL_ACCUMULATION;
         } else{

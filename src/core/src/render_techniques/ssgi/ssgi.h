@@ -41,7 +41,7 @@ public:
     {
         uint32_t ssgi_slice_count_   = 1;
         uint32_t ssgi_step_count_    = 2;
-        float    ssgi_view_radius_   = 0.2f;
+        float    ssgi_view_radius_   = 0.05f;
         float    ssgi_falloff_range_ = 0.05f;
         bool     ssgi_unroll_kernel_ = false; // BE CAREFUL: if true, check shader for slice and step counts
     };

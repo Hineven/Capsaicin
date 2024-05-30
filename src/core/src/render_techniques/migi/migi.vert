@@ -81,7 +81,7 @@ DebugUpdateRays_Output DebugSSRC_VisualizeUpdateRays (
     DebugUpdateRays_Output Output;
     Output.Position  = mul(MI.CameraProjView, float4(World, 1.f));
     float3 Color     = RayRadiance;
-    Output.Color     = float4(Color, 1.f);
+    Output.Color     = float4(Color, MI.DebugVisualizeChannel == 0 ? 1.f : (InvPdf > 0 ? 1.f : 0.f));
     return Output;
 }
 

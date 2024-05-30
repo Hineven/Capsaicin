@@ -58,6 +58,9 @@ Texture2D g_PreviousGeometryNormalTexture;
 Texture2D g_PreviousShadingNormalTexture;
 Texture2D g_PrevCombinedIlluminationTexture;
 
+Texture2D g_BentNormalAndOcclusionTexture;
+Texture2D g_NearFieldGlobalIlluminationTexture;
+
 
 // Buffers for indirect draw / dispatch command generation (See kernel GenerateDispatch() / GenerateDraw())
 uint g_GroupSize;

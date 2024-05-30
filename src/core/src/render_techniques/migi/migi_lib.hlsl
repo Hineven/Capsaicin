@@ -588,8 +588,8 @@ SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11
 
 // TODO improve this
 SGData CombineSG (SGData SG1, SGData SG2) {
-    float W1 = max(SGIntegrate(SG1.Lambda) * dot(SG1.Color, 1.f.xxx), 0) + 1e-6f;
-    float W2 = max(SGIntegrate(SG2.Lambda) * dot(SG2.Color, 1.f.xxx), 0) + 1e-6f;
+    float W1 = max(SGIntegrate(SG1.Lambda) * dot(SG1.Color, 1.f.xxx), 0) + 1e-8f;
+    float W2 = max(SGIntegrate(SG2.Lambda) * dot(SG2.Color, 1.f.xxx), 0) + 1e-8f;
     SGData Result;
     Result.Direction = normalize(SG1.Direction*W1 + SG2.Direction*W2);
     float DirectionNorm = dot(Result.Direction, Result.Direction);
@@ -600,10 +600,7 @@ SGData CombineSG (SGData SG1, SGData SG2) {
     Result.Lambda = (SG1.Lambda*W1 + SG2.Lambda*W2) / (W1 + W2);
     Result.Color  = (SG1.Color*W1 + SG2.Color*W2) / (W1 + W2);
     Result.Depth  = (SG1.Depth*W1 + SG2.Depth*W2) / (W1 + W2);
-    // FIXME
-    if(W1 > W2) Result = SG1;
-    else Result = SG2;
-    float W3 = max(SGIntegrate(Result.Lambda) * dot(Result.Color, 1.f.xxx), 0) + 1e-6f;
+    float W3 = max(SGIntegrate(Result.Lambda) * dot(Result.Color, 1.f.xxx), 0) + 1e-8f;
     Result.Color *=  (W1 + W2) / W3;
     return Result;
 }

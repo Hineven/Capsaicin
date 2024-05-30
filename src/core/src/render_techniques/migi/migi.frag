@@ -34,6 +34,7 @@ struct DebugUpdateRays_Input {
 float4 DebugSSRC_VisualizeUpdateRays (
     in DebugUpdateRays_Input Input
 ) : SV_Target {
+    if(Input.Color.w == 0) discard;
     return Input.Color;
 }
 

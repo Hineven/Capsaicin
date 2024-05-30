@@ -47,7 +47,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
             debug_visualize_mode_names = {"Probe", "Pixel"};
         } else if(options_.active_debug_view == "SSRC_UpdateRays") {
-            debug_visualize_mode_names = {"Rays"};
+            debug_visualize_mode_names = {"Rays", "TracedRays"};
         }
         if (debug_visualize_mode_names.empty())
         {
@@ -79,8 +79,12 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Optimize SGLambda", &options_.cache_update_SG_lambda);
         ImGui::Checkbox("No Importance Sampling", &options_.no_importance_sampling);
         ImGui::Checkbox("No Adaptive Probes", &options_.no_adaptive_probes);
+        ImGui::Checkbox("No Denoiser", &options_.no_denoiser);
         ImGui::Checkbox("Freeze Seed", &options_.debug_freeze_frame_seed);
         ImGui::Checkbox("Freeze Tile Jitter", &options_.debug_freeze_tile_jitter);
+        ImGui::Checkbox("Ambient Occlusion", &options_.ambient_occlusion);
+        ImGui::Checkbox("SSGI", &options_.near_field_global_illumination);
+        ImGui::Checkbox("Disable SG", &options_.disable_SG);
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);
@@ -88,6 +92,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::SliderFloat3("Light Position", &options_.debug_light_position.x, -3.0f, 3.0f);
             ImGui::SliderFloat("Light Size", &options_.debug_light_size, 0.0f, 0.5f);
             ImGui::SliderFloat3("Light Color", &options_.debug_light_color.x, 0.0f, 5.0f);
+            ImGui::SliderInt("Fixed Tile Jitter", &options_.fixed_tile_jitter, 0, 7);
+            ImGui::SliderInt("Fixed Frame Seed", &options_.fixed_frame_seed, 0, 64);
         }
     }
 }

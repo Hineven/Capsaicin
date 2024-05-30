@@ -129,6 +129,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, kernels_.program, "g_PrevCombinedIlluminationTexture",
         capsaicin.getAOVBuffer("PrevCombinedIllumination"));
 
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_BentNormalAndOcclusionTexture", capsaicin.getAOVBuffer("OcclusionAndBentNormal"));
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_NearFieldGlobalIlluminationTexture", capsaicin.getAOVBuffer("NearFieldGlobalIllumination"));
+
     // Indirect commands
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDispatchCommandBuffer", buf_.dispatch_command);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPerLaneDispatchCommandBuffer", buf_.per_lane_dispatch_command);
@@ -284,9 +287,17 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.DebugCursorPixelCoords  = options_.cursor_pixel_coords;
 
         C.DebugLight              = options_.debug_light;
+
+        C.UseAmbientOcclusion     = options_.ambient_occlusion;
+
         C.DebugLightPosition      = options_.debug_light_position;
         C.DebugLightSize          = options_.debug_light_size;
         C.DebugLightColor         = options_.debug_light_color;
+
+        C.UseNearFieldGI          = options_.near_field_global_illumination;
+
+        C.NoDenoiser              = options_.no_denoiser;
+        C.DisableSG               = options_.disable_SG;
 
         previous_constants_ = C;
 

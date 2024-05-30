@@ -57,16 +57,23 @@ struct MIGIRenderOptions {
 
     // If we disable importance sampling when generate update rays.
     // When enabled, rays are uniformly sampled in the hemisphere.
-    bool no_importance_sampling = true;
+    bool no_importance_sampling = false;
     // Whether to place adaptive probes
     bool no_adaptive_probes = false;
+    // Disable the denoiser
+    bool no_denoiser = false;
     // Whether to render indirect lighting (using the hash grid cache)
     bool enable_indirect = true;
+    // Whether to disable SGs for caching (use irradiance only)
+    bool disable_SG = false;
+
+    bool ambient_occlusion = true;
+    bool near_field_global_illumination = true;
 
     float cache_update_learing_rate = 0.02f;
     bool  cache_update_SG_color {true};
-    bool  cache_update_SG_direction {false};
-    bool  cache_update_SG_lambda {false};
+    bool  cache_update_SG_direction {true};
+    bool  cache_update_SG_lambda {true};
 
     std::string active_debug_view {};
     bool debug_view_switched {false};

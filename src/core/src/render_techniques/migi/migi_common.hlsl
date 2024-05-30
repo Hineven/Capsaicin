@@ -204,11 +204,13 @@ struct MIGI_Constants {
 
     // Used for single virtual emitter debugging
     uint   DebugLight;
-    uint Padding0;//
+    uint   UseAmbientOcclusion;//
     float3 DebugLightPosition;
     float  DebugLightSize;//
     float3 DebugLightColor;
-    uint Padding1;
+    uint   UseNearFieldGI;
+    uint   NoDenoiser;
+    uint   DisableSG; //
 };
 
 
