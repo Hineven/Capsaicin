@@ -81,7 +81,7 @@ static vector<SceneData> const scenes = {
     {"Tropical Bedroom",                                    {"assets/CapsaicinTestMedia/tropical_bedroom/TropicalBedroom.gltf"},  true, 2.0f},
     {"Sponza",                                                                 {"assets/CapsaicinTestMedia/sponza/Sponza.gltf"},  true, 5.0f},
     {"Breakfast Room",                                          {"assets/CapsaicinTestMedia/breakfast_room/BreakfastRoom.gltf"},  true, 3.0f},
-    {"Remi's Room",                                          {"assets/MIGITestMedia/demo/demo.gltf"},  true, 6.0f},
+    {"Remi's Room",                                          {"assets/MIGITestMedia/demo/demo.gltf"},  true, 3.5f},
     {"Simple",                                          {"assets/MIGITestMedia/simple/scene.gltf"},  true, 1.0f},
     {"XYZ",                                          {"assets/MIGITestMedia/xyz/z-up-x-axis-block.gltf"},  true, 1.0f},
     {"Box",                                          {"assets/MIGITestMedia/cornell-box/scene.gltf"},  false, 1.0f},

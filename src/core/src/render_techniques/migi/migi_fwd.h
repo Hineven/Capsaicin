@@ -67,8 +67,8 @@ struct MIGIRenderOptions {
     // Whether to disable SGs for caching (use irradiance only)
     bool disable_SG = false;
 
-    bool ambient_occlusion = true;
-    bool near_field_global_illumination = true;
+    bool ambient_occlusion = false;
+    bool near_field_global_illumination = false;
 
     float cache_update_learing_rate = 0.02f;
     bool  cache_update_SG_color {true};

@@ -208,7 +208,8 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
 #ifdef DEBUG_FIX_PROBES
     int BilinearExpand = 0;
 #else
-    int BilinearExpand = 1;
+// TODO 0 for lower leaks?
+    int BilinearExpand = 0;//1;
 #endif
     float2 Bilinear    = 
         (ScreenCoordsProbeGrid - TileCoordsX00 * SSRC_TILE_SIZE + BilinearExpand) 
@@ -458,6 +459,8 @@ SGData GetIrradianceSG (float3 Normal, float3 Color) {
     return SG;
 }
 
+#define DIRECTION_EXPAND (1.5f)
+
 groupshared float  LocalSGSize4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared SGData LocalSGData4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared SGData LocalSGData4New[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
@@ -557,6 +560,21 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             }
             SGData SG = FetchBasisData(BasisOffset, true);
             // FIXME directional reprojection is missing
+
+            // Manually reduce the SG weight if it is mostly zero on the new probe's hemisphere
+            // TODO correct the SG's direction with heuristic
+            float3 HemiDirection = SG.Direction - min(dot(SG.Direction, Header.Normal), 0.f) * Header.Normal;
+            float HemiDirectionLength = length(HemiDirection);
+            if(HemiDirectionLength < 1e-3f) {
+                float3 Tangent, Bitangent;
+                GetOrthoVectors(Header.Normal, Tangent, Bitangent);
+                HemiDirection = Tangent;
+                HemiDirectionLength = 1.f;
+            } else {
+                HemiDirection /= HemiDirectionLength;
+            }
+            float WeightDecay = saturate(lerp(0, DIRECTION_EXPAND, EvaluateSGRaw(SG, HemiDirection)));
+            Weight *= WeightDecay;
 
             // Scale the color by the weight
             // Clamp to epsilon to always rank the closest SGs first if all SGs have zero weight
@@ -770,7 +788,7 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     // Naive strategy: allocate more rays for probes that failed in reprojection
     float Trust = g_RWProbeHistoryTrustTexture[ProbeIndex];
     // FIXME
-    int   Bonus = 2 + (1.f - Trust) * 6;
+    int   Bonus = 5 + (1.f - Trust) * 8;
     g_RWProbeUpdateRayCountBuffer[DispatchID] = min(WAVE_SIZE * max(1, Bonus), SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE);
 }
 
