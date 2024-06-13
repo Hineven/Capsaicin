@@ -225,9 +225,13 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 #endif
 
 #define SSRC_MAX_NUM_BASIS_PER_PROBE 8
-#define SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE 256
+#define SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE (32 * 6)
 
 #define SSRC_MAX_ADAPTIVE_PROBE_LAYERS 2
+
+// The size of probe textures (hemispherical)
+#define SSRC_PROBE_TEXTURE_SIZE 8
+#define SSRC_PROBE_TEXTURE_TEXEL_COUNT (SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE)
 
 #ifdef __cplusplus
 }// namespace Capsaicin

@@ -694,4 +694,27 @@ float3 InterpolateDirection (float3 X, float3 Y, float A) {
     return normalize(Y * tan(Phi1) + X * tan(Phi2));
 }
 
+// Quantilization
+// May overflow if the radiance is too large (e.g. 500000)
+int QuantilizeRadiance (float V, float Noise) {
+    return floor(V * 4096.f + Noise);
+}
+float RecoverRadiance (int V) {
+    return float(V) / 4096.f;
+}
+float3 RecoverRadiance (int3 V) {
+    return float3(V) / 4096.f;
+}
+float4 RecoverRadiance (int4 V) {
+    return float4(V) / 4096.f;
+}
+int QuantilizeWeight (float V, float Noise) {
+    // 2^22 = 4194304, spare 1 bit for insurance of overflow (fp32: 2^23 precision)
+    return floor(V * 4194304.f + Noise);
+}
+float RecoverWeight (int V) {
+    return float(V) / 4194304.f;
+}
+
+
 #endif // MIGI_SHARED_HLSL

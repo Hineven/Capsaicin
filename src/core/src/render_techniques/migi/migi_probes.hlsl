@@ -13,7 +13,6 @@ struct ProbeHeader {
     float  LinearDepth;
     float3 Position;
     float3 Normal;
-    float3 Irradiance;
 };  
 
 struct SSRC_SampleData {
@@ -39,16 +38,6 @@ float3 GetScreenProbeNormal (int2 ProbeIndex, bool bPrevious = false) {
         : OctahedronToUnitVector(g_RWProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f);
 }
 
-float3 GetScreenProbeIrradiance (int2 Index, bool bPrevious = false) {
-    // return 0.f;
-    return bPrevious ? g_RWPreviousProbeIrradianceTexture[Index].xyz
-         : g_RWProbeIrradianceTexture[Index].xyz;
-}
-
-void   WriteScreenProbeIrradiance (int2 Index, float3 Irradiance) {
-    g_RWProbeIrradianceTexture[Index] = float4(Irradiance, 0);
-}
-
 ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
     uint Packed = bPrevious ? g_RWPreviousProbeHeaderPackedTexture[ProbeIndex] : g_RWProbeHeaderPackedTexture[ProbeIndex];
     ProbeHeader Header;
@@ -63,7 +52,6 @@ ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
     Header.LinearDepth  = GetScreenProbeLinearDepth(ProbeIndex, bPrevious);
     Header.Position     = GetScreenProbePosition(ProbeIndex, bPrevious);
     Header.Normal       = GetScreenProbeNormal(ProbeIndex, bPrevious);
-    Header.Irradiance   = GetScreenProbeIrradiance(ProbeIndex, bPrevious);
     Header.bValid       = Header.LinearDepth > 0;
     // If this is not a valid probe, hint the caller that it has no valid SGs
     if(!Header.bValid)  Header.Class = 0;
@@ -85,7 +73,6 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     g_RWProbeLinearDepthTexture[ProbeIndex] = Header.LinearDepth;
     g_RWProbeWorldPositionTexture[ProbeIndex] = float4(Header.Position, 0.f);
     g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal) * 0.5f + 0.5f;
-    WriteScreenProbeIrradiance(ProbeIndex, Header.Irradiance);
 }
 
 int2 GetTileJitter (bool bPrevious = false) {
@@ -165,5 +152,14 @@ float GetBasisOrderWeight (int Order) {
     return 1.f / (1U << Order);
 }
 
+float4 GetScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords) {
+    int2 Coords = ProbeIndex * SSRC_PROBE_TEXTURE_SIZE + TexelCoords;
+    return g_RWProbeColorTexture[Coords];
+}
+
+void WriteScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords, float4 RadianceDepth) {
+    int2 Coords = ProbeIndex * SSRC_PROBE_TEXTURE_SIZE + TexelCoords;
+    g_RWProbeColorTexture[Coords] = RadianceDepth;
+}
 
 #endif // MIGI_PROBES_HLSL

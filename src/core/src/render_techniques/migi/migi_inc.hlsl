@@ -92,17 +92,17 @@ RWTexture2D<uint>   g_RWPreviousProbeHeaderPackedTexture;
 RWTexture2D<uint>   g_RWPreviousProbeScreenCoordsTexture;
 RWTexture2D<float>  g_RWPreviousProbeLinearDepthTexture;
 RWTexture2D<float4> g_RWPreviousProbeWorldPositionTexture;
-RWTexture2D<unorm float2> g_RWPreviousProbeNormalTexture; 
+RWTexture2D<unorm float2> g_RWPreviousProbeNormalTexture;
+// Probe color maps
+// R16G16B16A16, 8x8 per probe, 3 color + 1 linear depth
+RWTexture2D<float4>  g_RWProbeColorTexture; 
 // The SG storage for SSRC probes
 // Color : 16*3, Lambda: 16, Normal: 32packed, Linear Depth: 32
 RWStructuredBuffer<uint>   g_RWProbeSGBuffer;
 RWStructuredBuffer<uint>   g_RWPreviousProbeSGBuffer;
 // Used when allocating SGs to probes
 RWStructuredBuffer<uint>   g_RWAllocatedProbeSGCountBuffer;
-// Irradiance (actually mean radiance in all incident directions on the hemisphere) for SSRC probes
-// Color : 16*3, Unused: 16
-RWTexture2D<float4>  g_RWProbeIrradianceTexture;
-RWTexture2D<float4>  g_RWPreviousProbeIrradianceTexture;
+
 // The estimated accuracy of the current probe from temporal reprojection
 // [0, 1], used to guide update ratio
 RWTexture2D<float>  g_RWProbeHistoryTrustTexture;
