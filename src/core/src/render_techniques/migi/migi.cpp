@@ -163,12 +163,19 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeWorldPositionTexture", tex_.probe_world_position[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeNormalTexture", tex_.probe_normal[1 - flip]);
 
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeColorTexture", tex_.probe_color[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeColorTexture", tex_.probe_color[1 - flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsRTexture", tex_.probe_SH_coefficients_R);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsGTexture", tex_.probe_SH_coefficients_G);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsBTexture", tex_.probe_SH_coefficients_B);
+
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeIrradianceTexture", tex_.probe_irradiance);
+
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSGBuffer", buf_.probe_SG[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeSGBuffer", buf_.probe_SG[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWAllocatedProbeSGCountBuffer", buf_.allocated_probe_SG_count);
 
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeIrradianceTexture", tex_.probe_irradiance[flip]);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeIrradianceTexture", tex_.probe_irradiance[1 - flip]);
+
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeHistoryTrustTexture", tex_.probe_history_trust);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayCountBuffer", buf_.probe_update_ray_count);

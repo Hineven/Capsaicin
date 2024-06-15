@@ -289,10 +289,21 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.probe_normal[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16_UNORM);
     tex_.probe_normal[1].setName("ProbeNormal1");
 
-    tex_.probe_irradiance[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    tex_.probe_irradiance[0].setName("ProbeIrradiance0");
-    tex_.probe_irradiance[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    tex_.probe_irradiance[1].setName("ProbeIrradiance1");
+    tex_.probe_color[0] = gfxCreateTexture2D(gfx_, probe_texture_width * SSRC_PROBE_TEXTURE_SIZE, probe_texture_height * SSRC_PROBE_TEXTURE_SIZE, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_color[0].setName("ProbeColor0");
+    tex_.probe_color[1] = gfxCreateTexture2D(gfx_, probe_texture_width * SSRC_PROBE_TEXTURE_SIZE, probe_texture_height * SSRC_PROBE_TEXTURE_SIZE, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_color[1].setName("ProbeColor1");
+
+    // Double the width to store all 8 coefficients
+    tex_.probe_SH_coefficients_R = gfxCreateTexture2D(gfx_, probe_texture_width * 2, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_SH_coefficients_R.setName("ProbeSHCoefficientsR");
+    tex_.probe_SH_coefficients_G = gfxCreateTexture2D(gfx_, probe_texture_width * 2, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_SH_coefficients_G.setName("ProbeSHCoefficientsG");
+    tex_.probe_SH_coefficients_B = gfxCreateTexture2D(gfx_, probe_texture_width * 2, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_SH_coefficients_B.setName("ProbeSHCoefficientsB");
+
+    tex_.probe_irradiance = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_irradiance.setName("ProbeIrradiance");
 
     tex_.probe_history_trust = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_FLOAT);
     tex_.probe_history_trust.setName("ProbeHistoryTrust");
@@ -508,8 +519,12 @@ void MIGI::releaseResources()
     gfxDestroyTexture(gfx_, tex_.probe_world_position[1]);
     gfxDestroyTexture(gfx_, tex_.probe_normal[0]);
     gfxDestroyTexture(gfx_, tex_.probe_normal[1]);
-    gfxDestroyTexture(gfx_, tex_.probe_irradiance[0]);
-    gfxDestroyTexture(gfx_, tex_.probe_irradiance[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_color[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_color[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_R);
+    gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_G);
+    gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_B);
+    gfxDestroyTexture(gfx_, tex_.probe_irradiance);
     gfxDestroyTexture(gfx_, tex_.probe_history_trust);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[0]);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[1]);

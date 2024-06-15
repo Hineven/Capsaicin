@@ -14,6 +14,8 @@
 #include "../../math/hash.hlsl"
 #include "../../math/pack.hlsl"
 
+#include "../../math/spherical_harmonics.hlsl"
+
 #include "../../geometry/mesh.hlsl"
 #include "../../geometry/intersection.hlsl"
 

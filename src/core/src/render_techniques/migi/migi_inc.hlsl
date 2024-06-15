@@ -96,6 +96,12 @@ RWTexture2D<unorm float2> g_RWPreviousProbeNormalTexture;
 // Probe color maps
 // R16G16B16A16, 8x8 per probe, 3 color + 1 linear depth
 RWTexture2D<float4>  g_RWProbeColorTexture; 
+RWTexture2D<float4>  g_RWPreviousProbeColorTexture;
+// SH coefficients 8+1 per channel
+RWTexture2D<float4>  g_RWProbeSHCoefficientsRTexture;
+RWTexture2D<float4>  g_RWProbeSHCoefficientsGTexture;
+RWTexture2D<float4>  g_RWProbeSHCoefficientsBTexture;
+RWTexture2D<float4>  g_RWProbeIrradianceTexture;
 // The SG storage for SSRC probes
 // Color : 16*3, Lambda: 16, Normal: 32packed, Linear Depth: 32
 RWStructuredBuffer<uint>   g_RWProbeSGBuffer;

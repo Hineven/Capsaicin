@@ -1459,7 +1459,7 @@ void ProjectScreenProbes(in uint did : SV_DispatchThreadID, in uint local_id : S
     if (probe_index < probe_count)
     {
         float3 normal    = normalize(2.0f * g_GeometryNormalBuffer.Load(int3(seed, 0)).xyz - 1.0f);
-        float3 radiance  = g_ScreenProbes_ProbeBuffer[probe_pos].xyz / g_ScreenProbesConstants.probe_size;
+        float3 radiance  = g_ScreenProbes_ProbeBuffer[probe_pos].xyz / (g_ScreenProbesConstants.probe_size * g_ScreenProbesConstants.probe_size);
         float3 direction = mapToHemiOctahedronInverse((cell + 0.5f) / g_ScreenProbesConstants.probe_size);
 
         float3 b1, b2;

@@ -152,9 +152,9 @@ float GetBasisOrderWeight (int Order) {
     return 1.f / (1U << Order);
 }
 
-float4 GetScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords) {
+float4 GetScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords, bool bPrevious = false) {
     int2 Coords = ProbeIndex * SSRC_PROBE_TEXTURE_SIZE + TexelCoords;
-    return g_RWProbeColorTexture[Coords];
+    return bPrevious ? g_RWPreviousProbeColorTexture[Coords] : g_RWProbeColorTexture[Coords];
 }
 
 void WriteScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords, float4 RadianceDepth) {

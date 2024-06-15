@@ -71,9 +71,15 @@ public:
         // Probe world normal   2xunorm16
         GfxTexture   probe_normal [2];
 
-        // Probe irradiance     4xfloat16
-        GfxTexture   probe_irradiance [2];
+        // Octahedral encoded color + depth fp16x4
+        GfxTexture   probe_color[2];
+        // Probe SH coefficients 4xfloat16, 8 coefficients packed in one texture
+        GfxTexture   probe_SH_coefficients_R;
+        GfxTexture   probe_SH_coefficients_G;
+        GfxTexture   probe_SH_coefficients_B;
+        // fp16x4, 1 unused
 
+        GfxTexture   probe_irradiance;
         // Used to measure the trust of reprojected result from last frame [0, 1]
         GfxTexture   probe_history_trust;
 
