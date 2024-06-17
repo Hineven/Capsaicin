@@ -619,12 +619,12 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             int ProbeTexelIndex = BaseProbeTexelIndex + LocalID;
             float Weight = RecoverWeight(LocalProbeTexelSampleWeightQuantilized[ProbeTexelIndex]);
             float V = Weight > 0 ? 1.0f : 0.0f;
-            BackupRadianceSum += float4(RecoverRadiance(LocalProbeTexelsQuantilized[ProbeTexelIndex].xyz), V);
+            float3 Radiance = RecoverRadiance(LocalProbeTexelsQuantilized[ProbeTexelIndex].xyz) / max(Weight, 1e-4f);
+            BackupRadianceSum += float4(Radiance, V);
         }
         BackupRadianceSum = WaveActiveSum(BackupRadianceSum);
 
         float4 BackupRadianceDepth = 0;
-        if (WaveIsFirstLane())
         {
             float3 Radiance      = BackupRadianceSum.xyz / max(BackupRadianceSum.w, 1.0f);
             float  NumEmptyCells = (SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE - BackupRadianceSum.w);
@@ -632,7 +632,6 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             // Otherwise decay the radiance they received
             BackupRadianceDepth = float4(Radiance / max(NumEmptyCells, 1.0f), MI.CameraFar);
         }
-        BackupRadianceDepth = WaveReadLaneFirst(BackupRadianceDepth);
         
         // Write the reprojected probe texel
         for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
@@ -641,7 +640,8 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             float Weight = RecoverWeight(LocalProbeTexelSampleWeightQuantilized[ProbeTexelIndex]);
             float4 RadianceDepth = RecoverRadiance(LocalProbeTexelsQuantilized[ProbeTexelIndex]);
             if(Weight < 0.01f) RadianceDepth = BackupRadianceDepth;
-            WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, RadianceDepth / Weight);
+            else RadianceDepth = RadianceDepth / Weight;
+            WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, RadianceDepth);
         }
     }
 
@@ -893,7 +893,7 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     // Naive strategy: allocate more rays for probes that failed in reprojection
     float Trust = g_RWProbeHistoryTrustTexture[ProbeIndex];
     // FIXME
-    int   Bonus = 1 + (1.f - Trust) * 8;
+    int   Bonus = 4 + (1.f - Trust) * 5;
     g_RWProbeUpdateRayCountBuffer[DispatchID] = min(WAVE_SIZE * max(1, Bonus), SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE);
 }
 
@@ -918,9 +918,7 @@ float RadianceToSampleWeight (float3 Radiance) {
 }
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
-
     const float Epsilon = 1e-8f;
-
     // We assume that ray count is always a multiple of WAVE_SIZE
     int  ProbeIndex1 = GroupID;
     int2 ProbeIndex  = int2(ProbeIndex1 % MI.TileDimensions.x, ProbeIndex1 / MI.TileDimensions.x);
@@ -963,7 +961,6 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
         SumSizeOctahedronOriginal = SavedPrefixSum;
     }
     GroupMemoryBarrierWithGroupSync();
-
     // Compute the sum of SG sizes
     float ThreadSizeSums[SSRC_MAX_NUM_BASIS_PER_PROBE];
     ThreadSizeSums[0] = 0;
@@ -983,17 +980,20 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
 #if SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE % WAVE_SIZE != 0
 #error "SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE must be a multiple of WAVE_SIZE"
 #endif
-    // Allocate the number of rays to sample the probe octahedron
+    // Allocate a number of rays to sample the probe octahedron
     // Round to a multiple of WAVE_SIZE with russian roulette for maximum wave coherence & occupancy
     int NumProbeOctahedronSamples = RayCount * SumSizeOctahedron / SumSize;
-    {
+    if(WaveIsFirstLane()) {
         int Remainder = NumProbeOctahedronSamples % WAVE_SIZE;
         float P = float(Remainder) / WAVE_SIZE;
+        // Lane 0 decides the remainder
         float x = rng.rand();
         bool  b = x < P;
         if(b) NumProbeOctahedronSamples += WAVE_SIZE - Remainder;
         else NumProbeOctahedronSamples -= Remainder;
     }
+    // Broadcast to all lanes
+    NumProbeOctahedronSamples = WaveReadLaneFirst(NumProbeOctahedronSamples);
     // If there's no basis, we sample the octahedron directly
     if(BasisCount == 0) NumProbeOctahedronSamples = RayCount;
     // Calculate the probability for using octahedron sampling (use RR result)
@@ -2169,11 +2169,12 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float  RayDepth          = g_RWUpdateRayLinearDepthBuffer[RayIndex];
             // Check for valid update rays
             if(InvPdf > 0 && dot(RayDirection, Header.Normal) > 0) {
-                float3 TargetRadiance = RayRadiance - LocalEvaluatedRadiance[RayRank];
+                // Clamp to zero for negative radiance
+                float3 TargetRadiance = max(RayRadiance - LocalEvaluatedRadiance[RayRank], 0);
                 float  SampleWeight   = InvPdf;
                 // Re-weight the importance of each ray within each pixel with the inverse of their pdf
                 // to avoid biased estimation of average radiance within the probe octahedron texel.
-                float3 WeightedRayRadiance = TargetRadiance * SampleWeight;
+                float3 WeightedTargetRadiance = TargetRadiance * SampleWeight;
                 float  WeightedRayDepth    = RayDepth * SampleWeight;
                 // Accumulate the weighted radiance
                 float3 ProbeRayDirection = float3(
@@ -2182,21 +2183,21 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     dot(Header.Normal,  RayDirection)
                 );
                 float2 OctahedronUV = mapToHemiOctahedron(ProbeRayDirection);
-                int2 OctahedronTexelCoords = int2(
+                int2 OctahedronTexelCoords = clamp(int2(
                     int(OctahedronUV.x * SSRC_PROBE_TEXTURE_SIZE),
                     int(OctahedronUV.y * SSRC_PROBE_TEXTURE_SIZE)
-                );
+                    ), 0, SSRC_PROBE_TEXTURE_SIZE - 1);
                 int  OctahedronTexelIndex = OctahedronTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE + OctahedronTexelCoords.x;
-                InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].x, QuantilizeRadiance(WeightedRayRadiance.x, Q_Noise));
-                InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].y, QuantilizeRadiance(WeightedRayRadiance.y, Q_Noise));
-                InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].z, QuantilizeRadiance(WeightedRayRadiance.z, Q_Noise));
+                InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].x, QuantilizeRadiance(WeightedTargetRadiance.x, Q_Noise));
+                InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].y, QuantilizeRadiance(WeightedTargetRadiance.y, Q_Noise));
+                InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].z, QuantilizeRadiance(WeightedTargetRadiance.z, Q_Noise));
                 InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].w, QuantilizeRadiance(WeightedRayDepth, Q_Noise));
                 InterlockedAdd(LocalProbeTexelSampleWeightQuantilized[OctahedronTexelIndex], QuantilizeWeight(SampleWeight, Q_Noise));
                 // Accumulate probe octahedron radiance to evaluated radiance
                 float3 OldOctahedronRadiance = GetScreenProbeOctahedronRadianceDepth(ProbeIndex, OctahedronTexelCoords).xyz;
                 LocalEvaluatedRadiance[RayRank] += OldOctahedronRadiance;
                 // Accumulate backup radiance
-                BackupRadianceSum += WeightedRayRadiance;
+                BackupRadianceSum += WeightedTargetRadiance;
                 BackupRadianceWeightSum += SampleWeight;
             }
         }
@@ -2220,6 +2221,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
 
         float3 SH_Coefficients[9];
+        for(int i = 0; i < 9; i++) {
+            SH_Coefficients[i] = 0.f;
+        }
         for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
             int  ProbeTexelIndex = BaseProbeTexelIndex + LocalID;
             int2 ProbeTexelCoords = int2(ProbeTexelIndex % SSRC_PROBE_TEXTURE_SIZE, ProbeTexelIndex / SSRC_PROBE_TEXTURE_SIZE);
@@ -2236,10 +2240,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             // Shadow-preserving biased temporal hysteresis (inspired by: https://www.youtube.com/watch?v=WzpLWzGvFK4&t=630s)
             // FIXME it darkens the scene, need to be fixed
             float TemporalBlend = squared(clamp(max(LumaA - LumaB - min(LumaA, LumaB), 0.0f) / max(max(LumaA, LumaB), 1e-4f), 0.0f, 0.95f));
-            // Clamp the lerping factor with impact factors from our pipeline
-            TemporalBlend = min(max(ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
             // FIXME
-            TemporalBlend = 0.95f;
+            TemporalBlend = 0.9f;
+            // Clamp the lerping factor with impact factors from our pipeline
+            TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
             float4 NewValue = lerp(RadianceDepthSum / Weight, OldRadianceDepth, TemporalBlend);
             WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, NewValue);
             // Accumulate SH coefficients
@@ -2252,7 +2256,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             }
         }
         for(int i = 0; i<9; i++) {
-            SH_Coefficients[i] = WaveActiveSum(SH_Coefficients[i]) * (1.f / SSRC_PROBE_TEXTURE_TEXEL_COUNT);
+            // Multiply by FOUR_PI to monte-carlo integrate to retrieve the coefficients
+            SH_Coefficients[i] = WaveActiveSum(SH_Coefficients[i]) * (1.f / SSRC_PROBE_TEXTURE_TEXEL_COUNT) * FOUR_PI;
         }
         // Write SH coefficients
         WriteScreenProbeSHCoefficients(ProbeIndex, SH_Coefficients);
@@ -2417,19 +2422,17 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float3 DeltaColor = NewColor - SG.Color;
                 SG.Color += DeltaColor;
 #else
-                SG.Color += SumStepSize.dColor     * MI.CacheUpdateLearningRate * (1 + ImpactFactors.x);
+                SG.Color += SumStepSize.dColor      * MI.CacheUpdateLearningRate * (1 + ImpactFactors.x);
 #endif
                 SG.Color = max(SG.Color, 0.0001f.xxx); // Color is in [0.001, inf)
             }
             if(MI.CacheUpdate_SGLambda) {
+                // FIXME lambda is not updated correctly with tiny emitters!
                 float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
-                // Clamp the step
-                // Step = sign(Step) * min(abs(Step), max(SG.Lambda * 0.2f, 0.1f));
-                SG.Lambda    += Step;
-                // Decay to make it more stable
-                // SG.Lambda     = SG.Lambda >= 1.5 ? SG.Lambda * 0.95f : SG.Lambda;
-                // SG.Lambda = 5.f;
-                SG.Lambda    = clamp(SG.Lambda, 1.5f, 100.f); // Lambda is in [1.5f, 100.f]
+                if(Step > 0.f) SG.Lambda *= 1.05f;
+                else if(Step < 0.f) SG.Lambda *= 0.95f;
+                // SG.Lambda    += Step;
+                SG.Lambda    = clamp(SG.Lambda, 5.f, 200.f); // Lambda is in [5.f, 200.f]
             }
             // FIXME SG depth is never updated
 
@@ -2606,7 +2609,7 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     }
                 }
                 // Decay the diffuse term with fresnel effect
-                LowFreq_Diffuse *= DiffuseCompensation * MaterialBRDFData.albedo;
+                LowFreq_Diffuse *= DiffuseCompensation * evaluateLambert(MaterialBRDFData.albedo);
                 
                 // not implemented yet
                 float3 LowFreq_Specular = 0.f.xxx;
@@ -2616,7 +2619,7 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                 float3 NearFieldIrradiance = MI.UseNearFieldGI 
                     ? g_NearFieldGlobalIlluminationTexture.Load(int3(TexCoords, 0)).xyz
                     : 0.f;
-                float3 NearFieldGI = NearFieldIrradiance * MaterialBRDFData.albedo;
+                float3 NearFieldGI = NearFieldIrradiance * evaluateLambert(MaterialBRDFData.albedo);
                 float3 Emission = EmissiveMaterialData.emissive;
                 float3 FinalLighting = FarFieldGI + NearFieldGI + Emission;
 
