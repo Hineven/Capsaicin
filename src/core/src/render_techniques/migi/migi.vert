@@ -54,7 +54,7 @@ DebugIncidentRadiance_Output DebugSSRC_VisualizeProbeSGDirection (
 
 struct DebugUpdateRays_Output {
     float4 Position : SV_Position;
-    float4 Color    : COLOR;
+    linear float4 Color    : COLOR;
 };
 
 DebugUpdateRays_Output DebugSSRC_VisualizeUpdateRays (
@@ -82,6 +82,9 @@ DebugUpdateRays_Output DebugSSRC_VisualizeUpdateRays (
     Output.Position  = mul(MI.CameraProjView, float4(World, 1.f));
     float3 Color     = RayRadiance;
     Output.Color     = float4(Color, MI.DebugVisualizeChannel == 0 ? 1.f : (InvPdf > 0 ? 1.f : 0.f));
+    if(MI.DebugVisualizeChannel == 2) {
+        Output.Color.xyz = float3(VertexIndex == 1 ? 0 : 1, 0, VertexIndex == 1 ? 1 : 0);
+    }
     return Output;
 }
 

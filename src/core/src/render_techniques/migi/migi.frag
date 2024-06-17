@@ -28,13 +28,14 @@ float4 DebugSSRC_VisualizeProbeSGDirection (
 
 struct DebugUpdateRays_Input {
     float4 Position : SV_Position;
-    float4 Color    : COLOR;
+    linear float4 Color    : COLOR;
 };
 
 float4 DebugSSRC_VisualizeUpdateRays (
     in DebugUpdateRays_Input Input
 ) : SV_Target {
     if(Input.Color.w == 0) discard;
+    if(MI.DebugVisualizeChannel == 2 && Input.Color.z > 0.95f) Input.Color.xyz = float3(0.f, 1.f, 0.f);
     return Input.Color;
 }
 

@@ -26,12 +26,13 @@ THE SOFTWARE.
 #define HASH_GRID_CACHE_HLSL
 
 #include "migi_common.hlsl"
+#include "../../math/pack.hlsl"
 
 // The number of frames before an unused tile is evicted and returned to the pool:
 #define kHashGridCache_TileDecay     50
 
 // The amount of float quantization for atomic updates of the hash cells as integer:
-#define kHashGridCache_FloatQuantize 1e3f
+#define kHashGridCache_FloatQuantize (MIGI_QUANTILIZE_RADIANCE_MULTIPLIER)
 
 //!
 //! Hash-grid radiance cache structures.
@@ -292,11 +293,11 @@ uint HashGridCache_FindCell(in HashGridCache_Data data, out uint tile_index)
 }
 
 // Quantizes the radiance value so it can be blended atomically.
-uint4 HashGridCache_QuantizeRadiance(in float3 radiance)
+uint4 HashGridCache_QuantizeRadiance(in float3 radiance, float Q_Noise)
 {
-    return uint4(uint(round(kHashGridCache_FloatQuantize * radiance.x)),
-                 uint(round(kHashGridCache_FloatQuantize * radiance.y)),
-                 uint(round(kHashGridCache_FloatQuantize * radiance.z)), 1);
+    return uint4(uint(floor(kHashGridCache_FloatQuantize * radiance.x + Q_Noise)),
+                 uint(floor(kHashGridCache_FloatQuantize * radiance.y + Q_Noise)),
+                 uint(floor(kHashGridCache_FloatQuantize * radiance.z + Q_Noise)), 1);
 }
 
 // Recovers the previously quantized radiance value.
@@ -374,9 +375,11 @@ float3 HashGridCache_UnpackDirection(in uint packed_direction)
 
 float4 HashGridCache_PackVisibility(HashGridCache_Visibility visibility)
 {
-    return float4(asfloat(visibility.instance_index | (visibility.is_front_face ? 0 : 0x80000000u)),
-        asfloat(visibility.geometry_index), asfloat(visibility.primitive_index),
-        asfloat((f32tof16(visibility.barycentrics.x) << 16) | (f32tof16(visibility.barycentrics.y) << 0)));
+    // 1 + 15 + 16 + 32
+    return float4(
+        asfloat(visibility.geometry_index | (visibility.instance_index<<16) | (visibility.is_front_face ? 0 : 0x80000000u)),
+        asfloat(visibility.primitive_index),
+        visibility.barycentrics);
 }
 
 // Unpacks the visibility information.
@@ -384,11 +387,10 @@ HashGridCache_Visibility HashGridCache_UnpackVisibility(in float4 packed_visibil
 {
     HashGridCache_Visibility visibility;
     visibility.is_front_face   = !((asuint(packed_visibility.x) & 0x80000000u) != 0);
-    visibility.instance_index  = (asuint(packed_visibility.x) & 0x7FFFFFFFu);
-    visibility.geometry_index  = asuint(packed_visibility.y);
-    visibility.primitive_index = asuint(packed_visibility.z);
-    visibility.barycentrics.x  = f16tof32(asuint(packed_visibility.w) >> 16);
-    visibility.barycentrics.y  = f16tof32(asuint(packed_visibility.w) & 0xFFFFu);
+    visibility.instance_index  = ((asuint(packed_visibility.x)>>16) & 0x7FFFu);
+    visibility.geometry_index  = asuint(packed_visibility.x) & 0xFFFFu;
+    visibility.primitive_index = asuint(packed_visibility.y);
+    visibility.barycentrics  = packed_visibility.zw;
     return visibility;
 }
 

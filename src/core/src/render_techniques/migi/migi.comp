@@ -208,7 +208,7 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
     int BilinearExpand = 0;
 #else
 // TODO 0 for lower leaks?
-    int BilinearExpand = 0;//1;
+    int BilinearExpand = 1;
 #endif
     float2 Bilinear    = 
         (ScreenCoordsProbeGrid - TileCoordsX00 * SSRC_TILE_SIZE + BilinearExpand) 
@@ -548,7 +548,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     // Stochastic noise for the history trust
     float Noise = BlueNoise_Sample1D(ProbeIndex, MI.FrameSeed, 3);
     // 1.5 ~ 3 probes
-    float HistoryTrust = min(dot(Sample.Weights, 1) * lerp(1.5f, 3.f, Noise), 1.f) * OutOfRangeDecay;
+    float HistoryTrust = min(dot(Sample.Weights, 1) * lerp(0.8f, 1.2f, Noise), 1.f) * OutOfRangeDecay;
     if(WaveIsFirstLane()) {
         g_RWProbeHistoryTrustTexture[ProbeIndex] = HistoryTrust;
     }
@@ -893,7 +893,7 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     // Naive strategy: allocate more rays for probes that failed in reprojection
     float Trust = g_RWProbeHistoryTrustTexture[ProbeIndex];
     // FIXME
-    int   Bonus = 4 + (1.f - Trust) * 5;
+    int   Bonus = MI.BaseUpdateRayWaves + (1.f - Trust) * (256 / WAVE_SIZE - MI.BaseUpdateRayWaves);
     g_RWProbeUpdateRayCountBuffer[DispatchID] = min(WAVE_SIZE * max(1, Bonus), SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE);
 }
 
@@ -1239,15 +1239,13 @@ void ScreenCacheUpdateTraceRayInline(uint did, inout ScreenCacheUpdatePayload pa
     ClosestRayQuery ray_query = TraceRay<ClosestRayQuery>(ray);
 
     // If we hit some geometry, we append a new world-space hash-grid cache query
-    if (ray_query.CommittedStatus() == COMMITTED_NOTHING)
-    {
-        payload.hit_dist = ray_query.CommittedRayT();
-        ScreenCacheUpdateHandleMiss(payload, ray);
-    }
-    else
+    if(ray_query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
     {
         payload.hit_dist = ray_query.CommittedRayT();
         ScreenCacheUpdateHandleHit(did, payload, ray, GetHitInfoRtInlineCommitted(ray_query));
+    } else {
+        payload.hit_dist = ray_query.CommittedRayT();
+        ScreenCacheUpdateHandleMiss(payload, ray);
     }
 }
 
@@ -1454,6 +1452,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     {
         return; // out of bounds
     }
+    float Q_Noise = BlueNoise_Sample1D(int2(DispatchID % 1024, DispatchID / 1024), MI.FrameIndex, 5);
 
     // Load our visibility sample
     float4                   packed_visibility = g_HashGridCache_VisibilityBuffer[DispatchID];
@@ -1461,7 +1460,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
 
     // Reconstruct world-space position and normal
     Instance instance  = g_InstanceBuffer[visibility.instance_index];
-    Mesh     mesh      = g_MeshBuffer[instance.mesh_index + visibility.geometry_index];
+    Mesh     mesh      = g_MeshBuffer[instance.mesh_index];
     float3x4 transform = g_TransformBuffer[instance.transform_index];
 
     TriangleNormUV vertices = fetchVerticesNormUV(mesh, visibility.primitive_index);
@@ -1505,44 +1504,50 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     // If successful, we inject the reprojected radiance into the cache so it can be re-used
     // by neighbor vertices but bypass the filtered readback as the sample is already denoised.
     {
-        float3 homogeneous = transformPointProjection(world, MI.CameraProjView);
+        float4 homogeneous_w = mul(MI.CameraProjView, float4(world, 1.0f));
+        if(homogeneous_w.w > 0) {
+            float3 homogeneous = homogeneous_w.xyz / homogeneous_w.w;
 
-        float2 uv    = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
-        float  depth = homogeneous.z;
+            float2 uv    = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
+            float  depth = homogeneous.z;
 
-        if (all(uv > 0.0f) && all(uv < 1.0f) && depth > 0.0f && depth < 1.0f)
-        {
-            float2 previous_uv = uv - g_VelocityTexture.SampleLevel(g_NearestSampler, uv, 0.0f).xy;
-
-            if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
+            if (all(uv > 0.0f) && all(uv < 1.0f) && depth > 0.0f && depth < 1.0f)
             {
-                float3 homogeneous2 = transformPointProjection(float3(2.0f * float2(uv.x, 1.0f - uv.y) - 1.0f, depth), MI.Reprojection);
-                homogeneous2.z      = GetLinearDepth(homogeneous2.z);
+                float2 previous_uv = uv - g_VelocityTexture.SampleLevel(g_NearestSampler, uv, 0.0f).xy;
 
-                float  previous_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
-                float3 previous_normal = normalize(2.0f * g_PreviousGeometryNormalTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
-
-                if (dot(previous_normal, normal) > 5e-1f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
+                if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
                 {
+                    float3 reprojected_homogeneous  = transformPointProjection(homogeneous, MI.Reprojection);
+                    float  reprojected_linear_depth = GetLinearDepth(reprojected_homogeneous.z);
 
-                    float3 previous_lighting = g_PrevCombinedIlluminationTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
-
-                    uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[DispatchID];
-                    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(previous_lighting);
-#ifdef ENABLE_INDIRECT
-                    float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[query_index]);
-                    RayRadianceInvPdf.xyz      += previous_lighting;
-                    g_RWUpdateRayRadianceInvPdfBuffer[query_index] = PackFp16x4Safe(RayRadianceInvPdf);
-#endif // ENABLE_INDIRECT
-                    if (dot(previous_lighting, previous_lighting) > 0.0f)
+                    float  previous_linear_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
+                    float3 previous_normal = normalize(2.0f * g_PreviousGeometryNormalTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
+                    // Prevent backface light leaksw
+                    bool normal_selection = dot(previous_normal, normal) > 5e-1f;
+                    bool depth_selection  = 
+                        abs(previous_linear_depth - reprojected_linear_depth) 
+                        / max(previous_linear_depth, reprojected_linear_depth) < 5e-2f;
+                    if (normal_selection && depth_selection)
                     {
-                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
-                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
-                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
-                    }
-                    InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
 
-                    return; // we can skip the shadow ray for this sample :)
+                        float3 previous_lighting = g_PrevCombinedIlluminationTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
+                        uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[DispatchID];
+                        uint4 quantized_radiance = HashGridCache_QuantizeRadiance(previous_lighting, Q_Noise);
+    #ifdef ENABLE_INDIRECT
+                        float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[query_index]);
+                        RayRadianceInvPdf.xyz      += previous_lighting;
+                        g_RWUpdateRayRadianceInvPdfBuffer[query_index] = PackFp16x4Safe(RayRadianceInvPdf);
+    #endif // ENABLE_INDIRECT
+                        if (dot(previous_lighting, previous_lighting) > 0.0f)
+                        {
+                            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
+                            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
+                            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
+                        }
+                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
+
+                        return; // we can skip the shadow ray for this sample :)
+                    }
                 }
             }
         }
@@ -1734,7 +1739,7 @@ void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayload payload, RayDe
 {
     float3       light_radiance = payload.lighting;
     float        light_weight   = payload.reservoir.W;
-    int2         ProbeIndex     = UnpackUint16x2(g_RWUpdateRayProbeBuffer[payload.query_index]);
+    int2         ProbeIndex     = UnpackUint16x2(g_RWUpdateRayProbeBuffer[payload.query_index / WAVE_SIZE]);
     MaterialBRDF material       = unpackMaterial(g_Reservoir_IndirectSampleMaterialBuffer[did]);
 
     // Recover the ray origin
@@ -1781,6 +1786,7 @@ void PopulateCells(uint did)
     {
         return; // out of bounds
     }
+    float Q_Noise = BlueNoise_Sample1D(int2(did % 1024, did / 1024), MI.FrameIndex, 6);
 
     uint                     visibility_index = (g_HashGridCache_VisibilityRayBuffer[did] & ~0x80000000u);
     HashGridCache_Visibility visibility       = HashGridCache_UnpackVisibility(g_HashGridCache_VisibilityBuffer[visibility_index]);
@@ -1789,7 +1795,7 @@ void PopulateCells(uint did)
 
     // Reconstruct world-space position and normal
     Instance instance  = g_InstanceBuffer[visibility.instance_index];
-    Mesh     mesh      = g_MeshBuffer[instance.mesh_index + visibility.geometry_index];
+    Mesh     mesh      = g_MeshBuffer[instance.mesh_index];
     float3x4 transform = g_TransformBuffer[instance.transform_index];
 
     Triangle vertices = fetchVertices(mesh, visibility.primitive_index);
@@ -1829,7 +1835,7 @@ void PopulateCells(uint did)
 
     // And update the hash-grid cell payload
     uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[visibility_index];
-    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(payload.lighting);
+    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(payload.lighting, Q_Noise);
 
     if (dot(payload.lighting, payload.lighting) > 0.0f)
     {
@@ -2153,7 +2159,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         GroupMemoryBarrierWithGroupSync();
         // Noise for quantilization, constant for now
         // TODO make it random
-        float Q_Noise = 0.5f;
+        float Q_Noise = BlueNoise_Sample1D(uint2(GroupID, LocalID), MI.FrameIndex, 7);
         // Backup radiance value for untraced probe texels in current update
         float3 BackupRadianceSum = 0.f;
         float  BackupRadianceWeightSum = 0.f;
@@ -2241,7 +2247,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             // FIXME it darkens the scene, need to be fixed
             float TemporalBlend = squared(clamp(max(LumaA - LumaB - min(LumaA, LumaB), 0.0f) / max(max(LumaA, LumaB), 1e-4f), 0.0f, 0.95f));
             // FIXME
-            TemporalBlend = 0.9f;
+            TemporalBlend = 0.95f;
             // Clamp the lerping factor with impact factors from our pipeline
             TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
             float4 NewValue = lerp(RadianceDepthSum / Weight, OldRadianceDepth, TemporalBlend);
@@ -2427,10 +2433,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 SG.Color = max(SG.Color, 0.0001f.xxx); // Color is in [0.001, inf)
             }
             if(MI.CacheUpdate_SGLambda) {
-                // FIXME lambda is not updated correctly with tiny emitters!
                 float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
-                if(Step > 0.f) SG.Lambda *= 1.05f;
-                else if(Step < 0.f) SG.Lambda *= 0.95f;
+                // FIXME better lambda update
+                if(Step > 0.f) SG.Lambda *= 1.03f;
+                else if(Step < 0.f) SG.Lambda *= 0.97f;
                 // SG.Lambda    += Step;
                 SG.Lambda    = clamp(SG.Lambda, 5.f, 200.f); // Lambda is in [5.f, 200.f]
             }
@@ -2717,7 +2723,7 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                     GetLinearDepth(HistoryGBufferDepths.w)
                 );
                 // Lumen alike method, jitter disocclusion threshold
-                float Noise = BlueNoise_Sample1D(uint2(PixelX, PixelY), MI.FrameIndex, 3);
+                float Noise = BlueNoise_Sample1D(uint2(PixelX, PixelY), MI.FrameIndex, 8);
                 float HistoryDistanceThreshold = 0.005f;
                 float DisocclusionDistanceThreshold = HistoryDistanceThreshold * lerp(0.5f, 1.5f, Noise);
                 DisocclusionDistanceThreshold /= clamp(saturate(dot(ViewDirection, GeometryNormal)), .1f, 1.0f); 
@@ -3051,6 +3057,11 @@ void DebugSSRC_PrepareUpdateRays () {
     }
 }
 
+
+[numthreads(SSRC_TILE_SIZE, SSRC_TILE_SIZE, 1)]
+void DebugSSRC_VisualizeReprojectionTrust (int2 DispatchID) {
+
+}
 
 
 // New line required for termination.

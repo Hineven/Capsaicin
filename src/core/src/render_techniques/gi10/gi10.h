@@ -167,7 +167,7 @@ protected:
         void ensureMemoryIsAllocated(CapsaicinInternal const &capsaicin);
 
         static constexpr uint32_t     probe_size_    = 8;
-        static constexpr SamplingMode sampling_mode_ = kSamplingMode_QuarterSpp;
+        static constexpr SamplingMode sampling_mode_ = kSamplingMode_OneSpp;
         uint2                         probe_count_;
 
         static constexpr uint32_t probe_spawn_tile_size_ =

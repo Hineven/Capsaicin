@@ -101,6 +101,16 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
     // Geometry
     gfxProgramSetParameter(gfx_, kernels_.program, "g_IndexBuffer", capsaicin.getIndexBuffer());
+
+    // Fuck U NVIDIA
+
+    if (gfx_.getVendorId() == 0x10DEu) // NVIDIA
+    {
+        capsaicin.getVertexBuffer().setStride(4);
+    }
+
+
+
     gfxProgramSetParameter(gfx_, kernels_.program, "g_VertexBuffer", capsaicin.getVertexBuffer());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_MeshBuffer", capsaicin.getMeshBuffer());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_InstanceBuffer", capsaicin.getInstanceBuffer());
@@ -305,6 +315,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         C.NoDenoiser              = options_.no_denoiser;
         C.DisableSG               = options_.disable_SG;
+
+        C.BaseUpdateRayWaves      = options_.SSRC_base_update_ray_waves;
 
         previous_constants_ = C;
 
@@ -631,7 +643,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
     {
         const TimedSection timed_section(*this, "SSRC_TraceUpdateRaysMain");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_TraceUpdateRaysMain);
         if(options_.use_dxr10) {
             gfxSbtSetShaderGroup(
                 gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, MIGIRT::kScreenCacheUpdateRaygenShaderName);
@@ -644,8 +655,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
                     i * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
                     MIGIRT::kScreenCacheUpdateHitGroupName);
             }
+            gfxCommandBindKernel(gfx_, kernels_.SSRC_TraceUpdateRaysMain);
             gfxCommandDispatchRaysIndirect(gfx_, sbt_, buf_.dispatch_rays_command);
         } else {
+            gfxCommandBindKernel(gfx_, kernels_.SSRC_TraceUpdateRaysMain);
             gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
         }
     }

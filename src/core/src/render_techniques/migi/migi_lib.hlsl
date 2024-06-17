@@ -697,18 +697,18 @@ float3 InterpolateDirection (float3 X, float3 Y, float A) {
 }
 
 // Quantilization
-// May overflow if the radiance is too large (e.g. 500000)
+// May overflow if the radiance is too large (e.g. 25000)
 int QuantilizeRadiance (float V, float Noise) {
-    return floor(V * 4096.f + Noise);
+    return floor(V * MIGI_QUANTILIZE_RADIANCE_MULTIPLIER + Noise);
 }
 float RecoverRadiance (int V) {
-    return float(V) / 4096.f;
+    return float(V) / MIGI_QUANTILIZE_RADIANCE_MULTIPLIER;
 }
 float3 RecoverRadiance (int3 V) {
-    return float3(V) / 4096.f;
+    return float3(V) / MIGI_QUANTILIZE_RADIANCE_MULTIPLIER;
 }
 float4 RecoverRadiance (int4 V) {
-    return float4(V) / 4096.f;
+    return float4(V) / MIGI_QUANTILIZE_RADIANCE_MULTIPLIER;
 }
 int QuantilizeWeight (float V, float Noise) {
     // 2^22 = 4194304, spare 1 bit for insurance of overflow (fp32: 2^23 precision)

@@ -32,6 +32,7 @@ struct MIGIRenderOptions {
     uint32_t SSRC_max_adaptive_probe_count {32 * 1024};
     uint32_t SSRC_max_basis_count {4 * 1024 * 1024};
     uint32_t SSRC_max_probe_count {};
+    uint32_t SSRC_base_update_ray_waves {2};
 
     struct {
         uint32_t num_buckets_l2 {12}; // 1<<12 = 4096

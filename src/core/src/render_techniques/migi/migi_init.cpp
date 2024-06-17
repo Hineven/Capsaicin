@@ -187,7 +187,7 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
                 gfxSceneGetInstanceCount(capsaicin.getScene())
                     * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
                 capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Callable)};
-            GfxKernel sbt_kernels[] {kernels_.SSRC_TraceUpdateRaysMain, kernels_.PopulateCellsMain};
+            GfxKernel sbt_kernels[] {kernels_.PopulateCellsMain, kernels_.SSRC_TraceUpdateRaysMain};
             sbt_ = gfxCreateSbt(gfx_, sbt_kernels, ARRAYSIZE(sbt_kernels), entry_count);
         }
         else

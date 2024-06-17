@@ -211,6 +211,8 @@ struct MIGI_Constants {
     uint   UseNearFieldGI;
     uint   NoDenoiser;
     uint   DisableSG; //
+
+    uint    BaseUpdateRayWaves;
 };
 
 
@@ -236,6 +238,8 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 #if SSRC_PROBE_TEXTURE_TEXEL_COUNT != (1 << SSRC_PROBE_TEXTURE_TEXEL_COUNT_L2)
 #error "SSRC_PROBE_TEXTURE_TEXEL_COUNT != 1<<SSRC_PROBE_TEXTURE_TEXEL_COUNT_L2."
 #endif
+
+#define MIGI_QUANTILIZE_RADIANCE_MULTIPLIER (65536.f)
 
 #ifdef __cplusplus
 }// namespace Capsaicin

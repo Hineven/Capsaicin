@@ -40,30 +40,30 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             }
             ImGui::EndCombo();
         }
-        std::vector<std::string> debug_visualize_mode_names;
+        std::vector<std::string> debug_visualize_channel_names;
         if (options_.active_debug_view == "SSRC_ProbeAllocation")
         {
-            debug_visualize_mode_names = {"Allocation"};
+            debug_visualize_channel_names = {"Allocation"};
         } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
-            debug_visualize_mode_names = {"Probe", "Pixel"};
+            debug_visualize_channel_names = {"Probe", "Pixel"};
         } else if(options_.active_debug_view == "SSRC_UpdateRays") {
-            debug_visualize_mode_names = {"Rays", "TracedRays"};
+            debug_visualize_channel_names = {"Rays", "TracedRays", "TracedRayDepths"};
         }
-        if (debug_visualize_mode_names.empty())
+        if (debug_visualize_channel_names.empty())
         {
-            debug_visualize_mode_names = {"None"};
+            debug_visualize_channel_names = {"None"};
         }
-        options_.debug_visualize_mode = std::min(options_.debug_visualize_mode, static_cast<uint32_t>(debug_visualize_mode_names.size() - 1));
+        options_.debug_visualize_channel = std::min(options_.debug_visualize_channel, static_cast<uint32_t>(debug_visualize_channel_names.size() - 1));
         if (ImGui::BeginCombo(
-                "Debug Visualize Mode", debug_visualize_mode_names[options_.debug_visualize_mode].c_str()))
+                "Debug Visualize Mode", debug_visualize_channel_names[options_.debug_visualize_channel].c_str()))
         {
-            for (auto e : debug_visualize_mode_names)
+            for (auto e : debug_visualize_channel_names)
             {
                 if (ImGui::Selectable(e.c_str()))
                 {
-                    auto pos                      = std::distance(debug_visualize_mode_names.begin(),
-                                             std::find(debug_visualize_mode_names.begin(), debug_visualize_mode_names.end(), e));
-                    options_.debug_visualize_mode = static_cast<uint32_t>(pos);
+                    auto pos                      = std::distance(debug_visualize_channel_names.begin(),
+                                             std::find(debug_visualize_channel_names.begin(), debug_visualize_channel_names.end(), e));
+                    options_.debug_visualize_channel = static_cast<uint32_t>(pos);
                 }
             }
             ImGui::EndCombo();
@@ -73,6 +73,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             need_reset_screen_space_cache_ = true;
         }
         ImGui::Checkbox("Always Reset", &options_.reset_screen_space_cache);
+        ImGui::SliderInt("Update Ray Bonus", (int*)&options_.SSRC_base_update_ray_waves, 1, 256 / cfg_.wave_lane_count);
         ImGui::SliderFloat("Learning Rate", &options_.cache_update_learing_rate, 0.0f, 0.05f);
         ImGui::Checkbox("Optimize SGColor", &options_.cache_update_SG_color);
         ImGui::Checkbox("Optimize SGDirection", &options_.cache_update_SG_direction);

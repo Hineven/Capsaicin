@@ -50,7 +50,7 @@ RaytracingPipelineConfig MyPipelineConfig =
 [shader("raygeneration")]
 void ScreenCacheUpdateRaygen()
 {
-    TraceUpdateRays(DispatchRaysIndex().xy);
+    SSRC_TraceUpdateRays(DispatchRaysIndex().x);
 }
 
 [shader("anyhit")]
@@ -66,13 +66,13 @@ void ScreenCacheUpdateAnyHit(inout ScreenCacheUpdatePayload payload, in BuiltInT
 void ScreenCacheUpdateClosestHit(inout ScreenCacheUpdatePayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
     payload.hit_dist = RayTCurrent();
-    ScreenCacheUpdateHandleHit(DispatchRaysIndex().xy, payload, GetRayDescRt(), GetHitInfoRt(attr));
+    ScreenCacheUpdateHandleHit(DispatchRaysIndex().x, payload, GetRayDescRt(), GetHitInfoRt(attr));
 }
 
 [shader("miss")]
 void ScreenCacheUpdateMiss(inout ScreenCacheUpdatePayload payload)
 {
-    payload.hit_dist = 1e9f;
+    payload.hit_dist = MI.CameraFar;
     ScreenCacheUpdateHandleMiss(payload, GetRayDescRt());
 }
 
