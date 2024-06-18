@@ -1152,12 +1152,8 @@ void ScreenCacheUpdateHandleHit(uint DispatchID, inout ScreenCacheUpdatePayload 
     bool is_new_tile;
     uint cell_index = HashGridCache_InsertCell(data, tile_index, is_new_tile);
 
-    if (cell_index != kGI10_InvalidId)
     {
-        // Bump the cell's decay to the max. now that it's been 'touched'
-        uint previous_tile_decay;
-        InterlockedExchange(g_HashGridCache_DecayTileBuffer[tile_index], MI.FrameIndex, previous_tile_decay);
-
+        // Write a visibility query no matter if we hit a cell or not
         HashGridCache_Visibility visibility;
         visibility.is_front_face   = hit_info.frontFace;
         visibility.instance_index  = hit_info.instanceIndex;
@@ -1171,6 +1167,13 @@ void ScreenCacheUpdateHandleHit(uint DispatchID, inout ScreenCacheUpdatePayload 
         g_HashGridCache_VisibilityBuffer[visibility_index]      = HashGridCache_PackVisibility(visibility);
         g_HashGridCache_VisibilityCellBuffer[visibility_index]  = cell_index;
         g_HashGridCache_VisibilityQueryBuffer[visibility_index] = DispatchID;
+    }
+
+    if (cell_index != kGI10_InvalidId)
+    {
+        // Bump the cell's decay to the max. now that it's been 'touched'
+        uint previous_tile_decay;
+        InterlockedExchange(g_HashGridCache_DecayTileBuffer[tile_index], MI.FrameIndex, previous_tile_decay);
 
         // Write out bounds of visibility
         requestLightSampleLocation(data.hit_position);
@@ -1538,14 +1541,15 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
                         RayRadianceInvPdf.xyz      += previous_lighting;
                         g_RWUpdateRayRadianceInvPdfBuffer[query_index] = PackFp16x4Safe(RayRadianceInvPdf);
     #endif // ENABLE_INDIRECT
-                        if (dot(previous_lighting, previous_lighting) > 0.0f)
-                        {
-                            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
-                            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
-                            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
+                        if (cell_index != kGI10_InvalidId) {
+                            if(dot(previous_lighting, previous_lighting) > 0.0f)
+                            {
+                                InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
+                                InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
+                                InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
+                            }
+                            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
                         }
-                        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
-
                         return; // we can skip the shadow ray for this sample :)
                     }
                 }
@@ -1835,15 +1839,17 @@ void PopulateCells(uint did)
 
     // And update the hash-grid cell payload
     uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[visibility_index];
-    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(payload.lighting, Q_Noise);
+    if(cell_index != kGI10_InvalidId) {
+        uint4 quantized_radiance = HashGridCache_QuantizeRadiance(payload.lighting, Q_Noise);
 
-    if (dot(payload.lighting, payload.lighting) > 0.0f)
-    {
-        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
-        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
-        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
+        if (dot(payload.lighting, payload.lighting) > 0.0f)
+        {
+            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0], quantized_radiance.x);
+            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1], quantized_radiance.y);
+            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2], quantized_radiance.z);
+        }
+        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
     }
-    InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3], quantized_radiance.w);
 
     // In some cases, we want to bypass the cache to avoid light leaks;
     // so we simply patch the screen probes directly and invalidate the
@@ -2034,6 +2040,9 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
     }
 
     uint cell_index  = g_HashGridCache_VisibilityCellBuffer[visibility_index];
+
+    if(cell_index == kGI10_InvalidId) return ;
+    
     uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
 
     float4 radiance = HashGridCache_FilteredRadiance(cell_index, false);
@@ -2576,7 +2585,8 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                 float3 FresnelTerm = fresnel(MaterialBRDFData.F0, dotSpecHV);
                 float3 DiffuseCompensation = diffuseCompensationTerm(FresnelTerm, dotSpecHV);
 
-                float3 HighFreq_All = 0.f.xxx;
+                float3 HighFreq_Diffuse = 0.f.xxx;
+                float3 HighFreq_Glossy  = 0.f.xxx;
                 // HighFreq-AllFreq shading
                 [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * 4)]
                 for(int BasisRank = 0; BasisRank < BasisCount; BasisRank++) {
@@ -2601,8 +2611,10 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     float3 GGX_D_Li_Approx = SpecularTermASGWarp(SG, ShadingNormal, MaterialBRDFData.roughnessAlphaSqr, ViewDirection);
                     float  VisibilityTerm   = evaluateVisibilityGGX(MaterialBRDFData.roughnessAlphaSqr, dotNL, dotNV);
                     float3 GGXIntegrationApprox = (FresnelTerm / VisibilityTerm) * GGX_D_Li_Approx;
-                    float3 LambertIntegration = SGDiffuseInnerProduct(SG, ShadingNormal, MaterialBRDFData.albedo)* DiffuseCompensation;
-                    HighFreq_All += (GGXIntegrationApprox + LambertIntegration) * Sample.Weights[ProbeRank] * AO;
+                    // Albedo is later applied for diffuse lighting
+                    float3 Irradiance = SGDiffuseInnerProduct(SG, ShadingNormal, PI) * DiffuseCompensation;
+                    HighFreq_Diffuse += Irradiance           * Sample.Weights[ProbeRank] * AO;
+                    HighFreq_Glossy  += GGXIntegrationApprox * Sample.Weights[ProbeRank] * AO;
                 }
                 // LowFreq-Diffuse shading
                 float3 LowFreq_Diffuse = 0.f.xxx;
@@ -2615,28 +2627,28 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     }
                 }
                 // Decay the diffuse term with fresnel effect
-                LowFreq_Diffuse *= DiffuseCompensation * evaluateLambert(MaterialBRDFData.albedo);
+                LowFreq_Diffuse *= DiffuseCompensation;
                 
                 // not implemented yet
                 float3 LowFreq_Specular = 0.f.xxx;
 
                 // Composite final lighting
-                float3 FarFieldGI  = HighFreq_All + LowFreq_Diffuse + LowFreq_Specular;
+                float3 FarFieldIrradiance  = HighFreq_Diffuse + LowFreq_Diffuse;
                 float3 NearFieldIrradiance = MI.UseNearFieldGI 
                     ? g_NearFieldGlobalIlluminationTexture.Load(int3(TexCoords, 0)).xyz
                     : 0.f;
-                float3 NearFieldGI = NearFieldIrradiance * evaluateLambert(MaterialBRDFData.albedo);
-                float3 Emission = EmissiveMaterialData.emissive;
-                float3 FinalLighting = FarFieldGI + NearFieldGI + Emission;
+                float3 FarFieldGlossySpecular = HighFreq_Glossy + LowFreq_Specular;
 
                 // Write to output                
-                g_RWGlobalIlluminationOutput[TexCoords] = 
-                    float4(GIDenoiser_RemoveNaNs(FinalLighting), 1.0f);
+                g_RWIrradianceTexture[TexCoords] = float4(FarFieldIrradiance + NearFieldIrradiance,  1.f);
+                g_RWGlossySpecularTexture[TexCoords] = float4(FarFieldGlossySpecular, 1.f);
             } else {
-                g_RWGlobalIlluminationOutput[TexCoords] = float4(0.f, 0.f, 0.f, 0.0f);
+                g_RWIrradianceTexture[TexCoords] = float4(0.f, 0.f, 0.f, 0.f);
+                g_RWGlossySpecularTexture[TexCoords] = float4(0.f, 0.f, 0.f, 0.f);
             }
         } else {
-            g_RWGlobalIlluminationOutput[TexCoords] = float4(0.f, 0.f, 0.f, 0.0f);
+            g_RWIrradianceTexture[TexCoords] = float4(0.f, 0.f, 0.f, 0.f);
+            g_RWGlossySpecularTexture[TexCoords] = float4(0.f, 0.f, 0.f, 0.f);
         }
     }
 }
@@ -2691,10 +2703,14 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
             float3 ViewDirection = normalize(MI.CameraPosition - WorldPosition);
 
             
-            float4 NewLightingW = g_RWGlobalIlluminationOutput[TexCoords];
-            float3 NewLighting  = NewLightingW.xyz;
-            float  NewLightingValid = NewLightingW.w;
-            float3 HistoryLighting = 0.f;
+            float4 NewIrradianceW    = g_RWIrradianceTexture[TexCoords];
+            float3 NewGlossySpecular = g_RWGlossySpecularTexture[TexCoords].xyz;
+            float3 NewIrradiance     = NewIrradianceW.xyz;
+            float  NewLightingValid  = NewIrradianceW.w;
+            float3 HistoryIrradiance = 0.f;
+            float3 HistoryGlossySpecular     = 0.f;
+            float3 DenoisedIrradiance = 0.f;
+            float3 DenoisedGlossySpecular = 0.f;
             float  Alpha           = NewLightingValid > 0 ? 1.f : 0.f;
             float  TotalSamples    = NewLightingValid > 0 ? 1.f : 0.f;
 
@@ -2774,36 +2790,65 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                 {
                     // Note: PrevCombinedGlobalIllumination includes the skybox, so we manually keep a copy of ours
                     float2 BaseUV = (PreviousBilinearPixelPos + 0.5f) * MI.ScreenDimensionsInv;
-                    float3 HistoryLightingX00 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                    float3 HistoryIrradianceX00 = g_PreviousIrradianceTexture.SampleLevel(
                         g_ClampedPointSampler, BaseUV, 0.f
                     ).xyz;
-                    float3 HistoryLightingX10 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                    float3 HistoryIrradianceX10 = g_PreviousIrradianceTexture.SampleLevel(
                         g_ClampedPointSampler, BaseUV + float2(PixelScale.x, 0), 0.f
                     ).xyz;
-                    float3 HistoryLightingX01 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                    float3 HistoryIrradianceX01 = g_PreviousIrradianceTexture.SampleLevel(
                         g_ClampedPointSampler, BaseUV + float2(0,  PixelScale.y), 0.f
                     ).xyz;
-                    float3 HistoryLightingX11 = g_PreviousGlobalIlluminationTexture.SampleLevel(
+                    float3 HistoryIrradianceX11 = g_PreviousIrradianceTexture.SampleLevel(
                         g_ClampedPointSampler, BaseUV + float2(PixelScale.x,  PixelScale.y), 0.f
                     ).xyz;
-                    HistoryLighting = 
-                        HistoryLightingX00 * BilinearWeights.x + 
-                        HistoryLightingX10 * BilinearWeights.y + 
-                        HistoryLightingX01 * BilinearWeights.z + 
-                        HistoryLightingX11 * BilinearWeights.w;
+                    HistoryIrradiance = 
+                        HistoryIrradianceX00 * BilinearWeights.x + 
+                        HistoryIrradianceX10 * BilinearWeights.y + 
+                        HistoryIrradianceX01 * BilinearWeights.z + 
+                        HistoryIrradianceX11 * BilinearWeights.w;
+                    
+                    float3 HistoryGlossySpecularX00 = g_PreviousGlossySpecularTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV, 0.f
+                    ).xyz;
+                    float3 HistoryGlossySpecularX10 = g_PreviousGlossySpecularTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV + float2(PixelScale.x, 0), 0.f
+                    ).xyz;
+                    float3 HistoryGlossySpecularX01 = g_PreviousGlossySpecularTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV + float2(0,  PixelScale.y), 0.f
+                    ).xyz;
+                    float3 HistoryGlossySpecularX11 = g_PreviousGlossySpecularTexture.SampleLevel(
+                        g_ClampedPointSampler, BaseUV + float2(PixelScale.x,  PixelScale.y), 0.f
+                    ).xyz;
+                    HistoryGlossySpecular = 
+                        HistoryGlossySpecularX00 * BilinearWeights.x + 
+                        HistoryGlossySpecularX10 * BilinearWeights.y + 
+                        HistoryGlossySpecularX01 * BilinearWeights.z + 
+                        HistoryGlossySpecularX11 * BilinearWeights.w;
+
                 }
             }
             if(MI.NoDenoiser) {
                 Alpha = NewLightingValid > 0 ? 1.f : 0.f;
             }
-            g_RWGlobalIlluminationOutput[TexCoords] = float4(lerp(HistoryLighting, NewLighting, Alpha), 1.0f);
+            DenoisedIrradiance = lerp(HistoryIrradiance, NewIrradiance, Alpha);
+            DenoisedGlossySpecular     = lerp(HistoryGlossySpecular, NewGlossySpecular, Alpha);
+            g_RWIrradianceTexture[TexCoords] = float4(DenoisedIrradiance, 1.0f);
+            g_RWGlossySpecularTexture[TexCoords] = float4(DenoisedGlossySpecular, 1.0f);
             g_RWHistoryAccumulationTexture[TexCoords] = TotalSamples / MAX_TEMPORAL_ACCUMULATION;
+
+            // Shade
+            float3 Albedo = MaterialBRDFData.albedo;
+            g_RWGlobalIlluminationOutput[TexCoords] = float4(
+                DenoisedIrradiance * evaluateLambert(Albedo) + DenoisedGlossySpecular + EmissiveMaterialData.emissive,
+                1.0f
+            );
         } else{
+            // Sky
             g_RWHistoryAccumulationTexture[TexCoords] = 0.f;
-        }
-
+            g_RWGlobalIlluminationOutput[TexCoords] = 0.f.xxxx;
+        }        
     }
-
 }
 
 // [numthreads(WAVE_SIZE, 1, 1)]

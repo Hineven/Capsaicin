@@ -9,6 +9,8 @@
 
 #include "migi_probes.hlsl"
 
+#include "hash_grid_cache.hlsl"
+
 struct DebugIncidentRadiance_Output {
     float4 Position : SV_Position;
     float4 Color    : COLOR;

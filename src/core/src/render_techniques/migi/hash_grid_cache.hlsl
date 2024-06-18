@@ -32,7 +32,7 @@ THE SOFTWARE.
 #define kHashGridCache_TileDecay     50
 
 // The amount of float quantization for atomic updates of the hash cells as integer:
-#define kHashGridCache_FloatQuantize (MIGI_QUANTILIZE_RADIANCE_MULTIPLIER)
+#define kHashGridCache_FloatQuantize (1e3f)
 
 //!
 //! Hash-grid radiance cache structures.
@@ -375,7 +375,7 @@ float3 HashGridCache_UnpackDirection(in uint packed_direction)
 
 float4 HashGridCache_PackVisibility(HashGridCache_Visibility visibility)
 {
-    // 1 + 15 + 16 + 32
+    // 1 + 15 + 16 + 32 + 32 x 2
     return float4(
         asfloat(visibility.geometry_index | (visibility.instance_index<<16) | (visibility.is_front_face ? 0 : 0x80000000u)),
         asfloat(visibility.primitive_index),

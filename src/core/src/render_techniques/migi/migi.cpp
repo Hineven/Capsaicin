@@ -209,6 +209,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_UpdateErrorSplatTexture", tex_.update_error_splat[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousUpdateErrorSplatTexture", tex_.update_error_splat[1 - flip]);
 
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWIrradianceTexture", tex_.irradiance[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousIrradianceTexture", tex_.irradiance[1 - flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWGlossySpecularTexture", tex_.glossy_specular[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousGlossySpecularTexture", tex_.glossy_specular[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWHistoryAccumulationTexture", tex_.history_accumulation[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousHistoryAccumulationTexture", tex_.history_accumulation[1 - flip]);
 
@@ -336,6 +340,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
                                                                          * GFX_MAX(1.0f / capsaicin.getHeight(),
                                                                              (float)capsaicin.getHeight() / (capsaicin.getWidth() * capsaicin.getWidth())));
         HashGridCacheConstants hash_grid_cache_constant_data = {};
+        // TODO use near-far plane to determine cell size
         hash_grid_cache_constant_data.cell_size              = cell_size;
         hash_grid_cache_constant_data.min_cell_size          = options_.hash_grid_cache.min_cell_size;
         hash_grid_cache_constant_data.tile_size       = cell_size * float(options_.hash_grid_cache.tile_cell_ratio);

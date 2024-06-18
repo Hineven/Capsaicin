@@ -1623,7 +1623,7 @@ void InterpolateScreenProbes(in uint2 did : SV_DispatchThreadID)
     {
         uint2 probe = ScreenProbes_UnpackSeed(probes[j]) / g_ScreenProbesConstants.probe_size;
 
-        irradiance += w[j] * ScreenProbes_CalculateSHIrradiance_BentCone(normal, ao, probe);
+        irradiance += FOUR_PI * w[j] * ScreenProbes_CalculateSHIrradiance_BentCone(normal, ao, probe);
     }
 
     float denoiser_hint = (use_backup ? 0.0f : 1.0f);   // hint to the denoiser that we should ideally not keep this sample...
