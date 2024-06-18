@@ -145,7 +145,11 @@ Texture2D<float>    g_UpdateErrorSplatTexture;
 // Used for reprojection
 Texture2D<float>    g_PreviousUpdateErrorSplatTexture;
 
-// Denoiser sample counts
+// GI Denoising
+RWTexture2D<float4>  g_RWIrradianceTexture;
+Texture2D<float4>  g_PreviousIrradianceTexture;
+RWTexture2D<float4>  g_RWGlossySpecularTexture;
+Texture2D<float4>  g_PreviousGlossySpecularTexture;
 Texture2D<unorm float>     g_PreviousHistoryAccumulationTexture;
 RWTexture2D<unorm float>   g_RWHistoryAccumulationTexture;
 // Global illumination history without skybox

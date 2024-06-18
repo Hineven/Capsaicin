@@ -332,6 +332,14 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.update_error_splat[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, SSRC_TILE_SIZE_L2 + 1);
     tex_.update_error_splat[1].setName("UpdateErrorSplat1");
 
+    tex_.irradiance[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.irradiance[0].setName("Irradiance0");
+    tex_.irradiance[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.irradiance[1].setName("Irradiance1");
+    tex_.glossy_specular[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.glossy_specular[0].setName("GlossySpecular0");
+    tex_.glossy_specular[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.glossy_specular[1].setName("GlossySpecular1");
     tex_.history_accumulation[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16_UNORM);
     tex_.history_accumulation[0].setName("HistoryAccumulation0");
     tex_.history_accumulation[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16_UNORM);

@@ -93,9 +93,11 @@ public:
         // fp16x2
         GfxTexture   update_error_splat [2] {};
 
+        // Global illumination denoising
+        GfxTexture   irradiance[2];
+        GfxTexture   glossy_specular[2];
         // History sample count / MAX_COUNT R16ufloat
         GfxTexture   history_accumulation[2] {};
-
         GfxTexture   previous_global_illumination {};
 
         // Hierarchical z-buffer

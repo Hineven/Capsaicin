@@ -212,7 +212,7 @@ struct MIGI_Constants {
     uint   NoDenoiser;
     uint   DisableSG; //
 
-    uint    BaseUpdateRayWaves;
+    uint   BaseUpdateRayWaves;
 };
 
 
