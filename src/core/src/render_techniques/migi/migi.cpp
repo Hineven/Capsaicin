@@ -102,15 +102,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     // Geometry
     gfxProgramSetParameter(gfx_, kernels_.program, "g_IndexBuffer", capsaicin.getIndexBuffer());
 
-    // Fuck U NVIDIA
-
-    if (gfx_.getVendorId() == 0x10DEu) // NVIDIA
-    {
-        capsaicin.getVertexBuffer().setStride(4);
-    }
-
-
-
     gfxProgramSetParameter(gfx_, kernels_.program, "g_VertexBuffer", capsaicin.getVertexBuffer());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_MeshBuffer", capsaicin.getMeshBuffer());
     gfxProgramSetParameter(gfx_, kernels_.program, "g_InstanceBuffer", capsaicin.getInstanceBuffer());
@@ -173,8 +164,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeWorldPositionTexture", tex_.probe_world_position[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeNormalTexture", tex_.probe_normal[1 - flip]);
 
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeColorTexture", tex_.probe_color[flip]);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeColorTexture", tex_.probe_color[1 - flip]);
+        // Color texture is rolled twice per frame, so no need for flipping.
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeColorTexture", tex_.probe_color[0]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeColorTexture", tex_.probe_color[1]);
+
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsRTexture", tex_.probe_SH_coefficients_R);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsGTexture", tex_.probe_SH_coefficients_G);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsBTexture", tex_.probe_SH_coefficients_B);
@@ -321,6 +314,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.DisableSG               = options_.disable_SG;
 
         C.BaseUpdateRayWaves      = options_.SSRC_base_update_ray_waves;
+        C.ProbeFiltering          = !options_.no_probe_filtering;
 
         previous_constants_ = C;
 
@@ -605,7 +599,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandBindKernel(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
         uint32_t dispatch_size[] = {
-            static_cast<uint32_t>(divideAndRoundUp(options_.width, threads[0])),
+            static_cast<uint32_t>(divideAndRoundUp(options_.width,  threads[0])),
             static_cast<uint32_t>(divideAndRoundUp(options_.height, threads[1]))};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
@@ -780,6 +774,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandBindKernel(gfx_, kernels_.SSRC_WriteProbeDispatchParameters);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_UpdateProbes);
+        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
+    }
+
+    // Spatial filter SSRC
+    {
+        TimedSection const timed_section(*this, "SSRC_FilterProbes");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_FilterProbes);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 

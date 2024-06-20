@@ -63,6 +63,8 @@ struct MIGIRenderOptions {
     bool no_adaptive_probes = false;
     // Disable the denoiser
     bool no_denoiser = false;
+    // Disable spatial probe filtering
+    bool no_probe_filtering = false;
     // Whether to render indirect lighting (using the hash grid cache)
     bool enable_indirect = true;
     // Whether to disable SGs for caching (use irradiance only)

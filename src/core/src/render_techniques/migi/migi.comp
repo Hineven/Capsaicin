@@ -197,6 +197,7 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
     float3 Position,
     float  LinearDepth,
     float3 Normal,
+    bool bScreenSpaceWeight,
     out int2 TileCoordsX00,
     out float4 Weights,
     bool bPrevious = false
@@ -207,8 +208,8 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
 #ifdef DEBUG_FIX_PROBES
     int BilinearExpand = 0;
 #else
-// TODO 0 for lower leaks?
-    int BilinearExpand = 1;
+    // Values larger than 1 causes SG to leak into neighboring probes
+    int BilinearExpand = 0;
 #endif
     float2 Bilinear    = 
         (ScreenCoordsProbeGrid - TileCoordsX00 * SSRC_TILE_SIZE + BilinearExpand) 
@@ -218,12 +219,13 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
     CornerLinearDepths.y = GetScreenProbeLinearDepth(TileCoordsX00 + int2(1, 0), bPrevious);
     CornerLinearDepths.z = GetScreenProbeLinearDepth(TileCoordsX00 + int2(0, 1), bPrevious);
     CornerLinearDepths.w = GetScreenProbeLinearDepth(TileCoordsX00 + int2(1, 1), bPrevious);
-    Weights = float4(
+    if(bScreenSpaceWeight) Weights = float4(
         (1.f - Bilinear.x) * (1.f - Bilinear.y),
         Bilinear.x * (1.f - Bilinear.y),
         (1.f - Bilinear.x) * Bilinear.y,
         Bilinear.x * Bilinear.y
     );
+    else Weights = 1.f.xxxx;
     float4 DepthWeights;
     float4 PixelPlane  = float4(Normal, dot(Position, Normal));
     float3 PositionX00 = RecoverScreenProbePosition(TileCoordsX00 + int2(0, 0), CornerLinearDepths.x, bPrevious);
@@ -250,6 +252,7 @@ void CalculateSSRCSampleWeights (
     float3 Position,
     float  LinearDepth,
     float3 Normal,
+    bool   bScreenSpaceWeight,
     out SSRC_SampleData Sample,
     bool bPrevious = false
 ) {
@@ -259,6 +262,7 @@ void CalculateSSRCSampleWeights (
         Position,
         LinearDepth,
         Normal,
+        bScreenSpaceWeight,
         TileCoordsX00,
         Sample.Weights,
         bPrevious
@@ -296,12 +300,12 @@ void CalculateSSRCSampleWeights (
 
                     float3 ProbePosition = Header.Position;
                     float  PlaneDistance = abs(dot(float4(ProbePosition, -1), PixelPlane));
-                    float RelativeDepthDifference = PlaneDistance / LinearDepth;
+                    float RelativeDepthDifference = PlaneDistance / ProbeLinearDepth;
                     NewDepthWeight = exp2(-10000.0f * (RelativeDepthDifference * RelativeDepthDifference));
 
 					float2 DistanceToScreenProbe = abs(ProbeScreenPosition - ScreenPosition);
 					float NewCornerWeight = 1.0f - saturate(min(DistanceToScreenProbe.x, DistanceToScreenProbe.y) / (float)(SSRC_TILE_SIZE));
-					float NewInterpolationWeight = NewDepthWeight * NewCornerWeight;
+					float NewInterpolationWeight = NewDepthWeight * (bScreenSpaceWeight ? NewCornerWeight : 1.f);
 
 					if (NewInterpolationWeight > Sample.Weights[CornerIndex])
 					{
@@ -355,6 +359,7 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
                         WorldPosition,
                         LinearDepth,
                         GeometryNormal,
+                        true,
                         Sample
                     );
 
@@ -365,7 +370,6 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
 
                     if (!LightingIsValid)
                     {
-                        // g_RWDebugOutput[AdaptiveTileCoords] = 1.f.xxxx;
                         int ListIndex;
                         InterlockedAdd(LocalNumProbesToAllocate, 1, ListIndex);
                         LocalProbeScreenCoordsToAllocate[ListIndex] = AdaptiveProbeScreenCoords;
@@ -400,7 +404,6 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
         int ScreenProbeIndex1   = AdaptiveProbeIndex + MI.UniformScreenProbeCount;
         ProbeHeader Header;
         Header.ScreenCoords     = LocalProbeScreenCoordsToAllocate[LocalID];
-        float Depth             = g_DepthTexture.Load(int3(Header.ScreenCoords, 0)).x;
         Header.Class        = ComputeProbeRankFromSplattedError(Header.ScreenCoords);
         int BasisCount      = GetProbeBasisCountFromClass(Header.Class);
         int BasisOffset     = WavePrefixSum(BasisCount);
@@ -416,8 +419,9 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
         if(Header.BasisOffset + BasisCount > MI.MaxBasisCount) {
             Header.Class = 0;
         }
-        Header.LinearDepth   = GetLinearDepth(Depth);
         Header.Position      = RecoverWorldPositionHiRes(Header.ScreenCoords);
+        float Depth          = g_DepthTexture.Load(int3(Header.ScreenCoords, 0)).x;
+        Header.LinearDepth   = GetLinearDepth(Depth);
         Header.Normal        = normalize(g_GeometryNormalTexture.Load(int3(Header.ScreenCoords, 0)).xyz * 2.f - 1.f);
         int2 ScreenProbeIndex = int2(ScreenProbeIndex1 % MI.TileDimensions.x, ScreenProbeIndex1 / MI.TileDimensions.x);
         WriteScreenProbeHeader(ScreenProbeIndex, Header);
@@ -522,20 +526,21 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     float3 PrevHomogeneous = PrevHomogeneousW.xyz / PrevHomogeneousW.w;
     // TODO TAA should be in place of the noise effect, but it malfunctions
     // (consistent directional biased blur during reprojection).
-    float2 NoiseOffset = (BlueNoise_Sample2D(ProbeIndex, MI.FrameSeed) * 2 - 1) * MI.ScreenDimensionsInv;
-    float2 PrevScreenPosition = MI.ScreenDimensions * NDC22UV(PrevHomogeneous.xy + NoiseOffset);
+    float2 NoiseOffset = (BlueNoise_Sample2D(ProbeIndex, MI.FrameSeed) * 2 - 1) * 0.5f;
+    float2 PrevScreenPosition = MI.ScreenDimensions * NDC22UV(PrevHomogeneous.xy) + NoiseOffset;
     float2 PrevProbeHistoryDimensionsMin = GetTileJitter(true) + 0.5f;
     float2 PrevProbeHistoryDimensionsMax = MI.ScreenDimensions - SSRC_TILE_SIZE + GetTileJitter(true) + 0.5f;
     float2 PrevScreenPositionClamped = clamp(PrevScreenPosition, PrevProbeHistoryDimensionsMin, PrevProbeHistoryDimensionsMax);
-    // TODO use the previous camera parameters to recover linear depth
-    float  PrevLinearDepth    = GetLinearDepth(PrevHomogeneous.z);
     SSRC_SampleData Sample;
+    // xxExclude screen space weight when doing reprojection (which UE told me to do so...)
+    // That will introduce too many bias (colors flowing in a fixed direction in screen space)
     // TODO is it okay to use the clamped screen position? 
     CalculateSSRCSampleWeights(
         PrevScreenPositionClamped,
         Header.Position,
-        PrevLinearDepth,
+        Header.LinearDepth,
         Header.Normal,
+        true, // false,
         Sample,
         true
     );
@@ -548,7 +553,8 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     // Stochastic noise for the history trust
     float Noise = BlueNoise_Sample1D(ProbeIndex, MI.FrameSeed, 3);
     // 1.5 ~ 3 probes
-    float HistoryTrust = min(dot(Sample.Weights, 1) * lerp(0.8f, 1.2f, Noise), 1.f) * OutOfRangeDecay;
+    // Noise should not be affecting the trust value... it'll make the cache unstable
+    float HistoryTrust = min(dot(Sample.Weights, 1)/* * lerp(0.8f, 1.2f, Noise)*/, 1.f) * OutOfRangeDecay;
     if(WaveIsFirstLane()) {
         g_RWProbeHistoryTrustTexture[ProbeIndex] = HistoryTrust;
     }
@@ -2235,10 +2241,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             BackupRadiance = BackupRadiance / max(NumUntracedTexels, 1.0f);
         }
 
-        float3 SH_Coefficients[9];
-        for(int i = 0; i < 9; i++) {
-            SH_Coefficients[i] = 0.f;
-        }
         for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
             int  ProbeTexelIndex = BaseProbeTexelIndex + LocalID;
             int2 ProbeTexelCoords = int2(ProbeTexelIndex % SSRC_PROBE_TEXTURE_SIZE, ProbeTexelIndex / SSRC_PROBE_TEXTURE_SIZE);
@@ -2253,29 +2255,15 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float  LumaB = luminance(OldRadianceDepth.xyz);
             // Copy-pasted from GI1.0
             // Shadow-preserving biased temporal hysteresis (inspired by: https://www.youtube.com/watch?v=WzpLWzGvFK4&t=630s)
-            // FIXME it darkens the scene, need to be fixed
+            // It darkens the scene, while not good enough providing temporal stability as a trade-off.
             float TemporalBlend = squared(clamp(max(LumaA - LumaB - min(LumaA, LumaB), 0.0f) / max(max(LumaA, LumaB), 1e-4f), 0.0f, 0.95f));
-            // FIXME
-            TemporalBlend = 0.95f;
+            // We overwrite the heuristic with a fixed value for now
+            TemporalBlend = 0.9f;
             // Clamp the lerping factor with impact factors from our pipeline
             TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
             float4 NewValue = lerp(RadianceDepthSum / Weight, OldRadianceDepth, TemporalBlend);
             WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, NewValue);
-            // Accumulate SH coefficients
-            float3 ProbeRayDirection = mapToHemiOctahedronInverse((ProbeTexelCoords + 0.5f) / SSRC_PROBE_TEXTURE_SIZE);
-            float3 TexelRayDirection = ProbeTangent * ProbeRayDirection.x + ProbeBitangent * ProbeRayDirection.y + Header.Normal * ProbeRayDirection.z;
-            float  Coefficients[9];
-            SH_GetCoefficients(TexelRayDirection, Coefficients);
-            for(int i = 0; i < 9; i++) {
-                SH_Coefficients[i] += Coefficients[i] * NewValue.xyz;
-            }
         }
-        for(int i = 0; i<9; i++) {
-            // Multiply by FOUR_PI to monte-carlo integrate to retrieve the coefficients
-            SH_Coefficients[i] = WaveActiveSum(SH_Coefficients[i]) * (1.f / SSRC_PROBE_TEXTURE_TEXEL_COUNT) * FOUR_PI;
-        }
-        // Write SH coefficients
-        WriteScreenProbeSHCoefficients(ProbeIndex, SH_Coefficients);
     }
     // Barrier updates on LocalEvaluatedRadiance
     GroupMemoryBarrierWithGroupSync();
@@ -2457,6 +2445,162 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     }
 }
 
+// From Lumen
+float GetFilterPositionWeight(float NeighborLinearDepth, float LinearDepth)
+{
+	float DepthDifference = abs(NeighborLinearDepth - LinearDepth);
+	float RelativeDepthDifference = DepthDifference / LinearDepth;
+	return exp2(-1000.f * (RelativeDepthDifference * RelativeDepthDifference));
+}
+
+void GatherProbeRadiance (
+    float3 Position,
+    float  LinearDepth,
+    float3 HitPosition,
+    int2   NeighborProbeIndex,
+    inout float3 SumRadiance,
+    inout float  SumWeight
+) {
+    if(all(NeighborProbeIndex >= 0) && all(NeighborProbeIndex < MI.TileDimensions)) {
+        float NeighborLinearDepth = GetScreenProbeLinearDepth(NeighborProbeIndex);
+        if(NeighborLinearDepth > 0) { // Valid
+            float PositionWeight = GetFilterPositionWeight(NeighborLinearDepth, LinearDepth);
+            if(PositionWeight > 0) {
+                float3 NeighborWorldPosition = GetScreenProbePosition(NeighborProbeIndex);
+                float3 ToNeighbor = HitPosition - NeighborWorldPosition;
+                float  ToNeighborLength = max(length(ToNeighbor), 1e-3f);
+                float3 ToNeighborUnit = ToNeighbor / ToNeighborLength;
+                float3 NeighborProbeNormal = GetScreenProbeNormal(NeighborProbeIndex);
+                float3 Tangent, Bitangent;
+                GetOrthoVectors(NeighborProbeNormal, Tangent, Bitangent);
+                float3 NeighborProbeLocalDirection = float3(
+                    dot(Tangent,   ToNeighborUnit),
+                    dot(Bitangent, ToNeighborUnit),
+                    dot(NeighborProbeNormal, ToNeighborUnit)
+                );
+                if(NeighborProbeLocalDirection.z > 0) {
+                    float2 NeighborProbeUV = mapToHemiOctahedron(NeighborProbeLocalDirection);
+                    int2   NeighborTexelCoords = clamp(NeighborProbeUV * SSRC_PROBE_TEXTURE_SIZE, 0, SSRC_PROBE_TEXTURE_SIZE - 1);
+                    float4 NeighborRadianceDepth = GetScreenProbeOctahedronRadianceDepth(NeighborProbeIndex, NeighborTexelCoords);
+                    float3 NeighborRadiance = NeighborRadianceDepth.xyz;
+                    float  NeighborDepth = NeighborRadianceDepth.w;
+                    float  DepthWeight = 1 - abs(NeighborDepth - ToNeighborLength) / max(1e-3f, max(NeighborDepth, ToNeighborLength));
+                    DepthWeight = pow(saturate(DepthWeight), 6);
+                    float  Weight = PositionWeight * DepthWeight;
+                    sadfsdafasdfdasfklasdjfkldsjfkldasjklfdjsklfjad
+                    inspect probe depth please!!!!!!
+                    SumRadiance += NeighborRadiance * Weight;
+                    SumWeight   += Weight;
+                }
+            }
+        }
+    }
+    
+}
+
+[numthreads(WAVE_SIZE, 1, 1)]
+void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+
+    int2 ProbeIndex = int2(GroupID % MI.TileDimensions.x, GroupID / MI.TileDimensions.x);
+    ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
+    // Thread group early out if the probe is not valid
+    [branch]
+    if(!Header.bValid) return ;
+    
+    int2 ProbeScreenCoords  = Header.ScreenCoords;
+    int2 TileIndex = int2(ProbeScreenCoords / SSRC_TILE_SIZE);
+    float  ReprojectionTrust = g_RWProbeHistoryTrustTexture[ProbeIndex].x;
+
+    float3 Tangent, Bitangent;
+    GetOrthoVectors(Header.Normal, Tangent, Bitangent);
+
+    float3 SH_Coefficients[9];
+    for(int i = 0; i < 9; i++) {
+        SH_Coefficients[i] = 0.f;
+    }
+
+    for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
+        int  ProbeTexelIndex = BaseProbeTexelIndex + LocalID;
+        int2 ProbeTexelCoords = int2(ProbeTexelIndex % SSRC_PROBE_TEXTURE_SIZE, ProbeTexelIndex / SSRC_PROBE_TEXTURE_SIZE);
+        float2 ProbeTexelUV = (ProbeTexelCoords + 0.5f) / SSRC_PROBE_TEXTURE_SIZE;
+        float3 ProbeLocalTexelDirection = mapToHemiOctahedronInverse(ProbeTexelUV);
+        float3 ProbeWorldTexelDirection = 
+            Tangent * ProbeLocalTexelDirection.x 
+          + Bitangent * ProbeLocalTexelDirection.y
+          + Header.Normal * ProbeLocalTexelDirection.z;
+        float4  TexelRadianceDepth = GetScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords);
+        float3 HitPosition = Header.Position + ProbeWorldTexelDirection * TexelRadianceDepth.w;
+
+        float3 SumRadiance = TexelRadianceDepth.xyz;
+        float  SumWeight = 1.f;
+
+        if(MI.ProbeFiltering) {
+            int2 Offsets[4];
+            Offsets[0] = int2(-1, 0);
+            Offsets[1] = int2(1, 0);
+            Offsets[2] = int2(0, -1);
+            Offsets[3] = int2(0, 1);
+            for (uint OffsetIndex = 0; OffsetIndex < 4; OffsetIndex++)
+            {
+                GatherProbeRadiance(
+                    Header.Position,
+                    Header.LinearDepth,
+                    HitPosition,
+                    TileIndex + Offsets[OffsetIndex],
+                    SumRadiance,
+                    SumWeight
+                );
+            }
+        }
+
+        if(MI.ProbeFiltering && ReprojectionTrust < 0.8f) {
+            int2 Offsets[8];
+            Offsets[0] = int2(-2, 0);
+            Offsets[1] = int2(2, 0);
+            Offsets[2] = int2(0, -2);
+            Offsets[3] = int2(0, 2);
+            Offsets[4] = int2(-1, 1);
+            Offsets[5] = int2(1, 1);
+            Offsets[6] = int2(-1, -1);
+            Offsets[7] = int2(1, -1);
+            for (uint OffsetIndex = 0; OffsetIndex < 8; OffsetIndex++)
+            {
+                GatherProbeRadiance(
+                    Header.Position,
+                    Header.LinearDepth,
+                    HitPosition,
+                    TileIndex + Offsets[OffsetIndex],
+                    SumRadiance,
+                    SumWeight
+                );
+            }
+        }
+    
+        float3 NewRadiance = SumRadiance / SumWeight;
+        float4 NewRadianceDepth = float4(NewRadiance, TexelRadianceDepth.w);
+        WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, NewRadianceDepth, true);
+
+        // Accumulate SH coefficients
+        float  Coefficients[9];
+        SH_GetCoefficients(ProbeWorldTexelDirection, Coefficients);
+        for(int i = 0; i < 9; i++) {
+            SH_Coefficients[i] += Coefficients[i] * NewRadiance;
+        }
+    }
+
+    // Write SH coefficients
+    for(int i = 0; i<9; i++) {
+        // Multiply by TWO_PI to monte-carlo integrate to retrieve the coefficients
+        // (TWO_PI: Hemispherical integration)
+        SH_Coefficients[i] = WaveActiveSum(SH_Coefficients[i]) * (1.f / SSRC_PROBE_TEXTURE_TEXEL_COUNT) * TWO_PI;
+    }
+    if(WaveIsFirstLane()) {
+        WriteScreenProbeSHCoefficients(ProbeIndex, SH_Coefficients);
+    }
+    // TODO filter SG
+
+}
+
 void GetScreenProbeSHCoefficients (int2 ProbeIndex, out float3 ProbeSH[9]) {
     float4 R1 = g_RWProbeSHCoefficientsRTexture[ProbeIndex];
     float4 R2 = g_RWProbeSHCoefficientsRTexture[ProbeIndex + int2(MI.TileDimensions.x, 0)];
@@ -2550,6 +2694,7 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                 WorldPosition,
                 LinearDepth, 
                 GeometryNormal,
+                true,
                 Sample
             );
 
@@ -2612,7 +2757,7 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     float  VisibilityTerm   = evaluateVisibilityGGX(MaterialBRDFData.roughnessAlphaSqr, dotNL, dotNV);
                     float3 GGXIntegrationApprox = (FresnelTerm / VisibilityTerm) * GGX_D_Li_Approx;
                     // Albedo is later applied for diffuse lighting
-                    float3 Irradiance = SGDiffuseInnerProduct(SG, ShadingNormal, PI) * DiffuseCompensation;
+                    float3 Irradiance = SGIrradianceInnerProduct(SG, ShadingNormal);
                     HighFreq_Diffuse += Irradiance           * Sample.Weights[ProbeRank] * AO;
                     HighFreq_Glossy  += GGXIntegrationApprox * Sample.Weights[ProbeRank] * AO;
                 }
@@ -2626,14 +2771,12 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                         LowFreq_Diffuse += WeightedIrradiance * AO;
                     }
                 }
-                // Decay the diffuse term with fresnel effect
-                LowFreq_Diffuse *= DiffuseCompensation;
                 
                 // not implemented yet
                 float3 LowFreq_Specular = 0.f.xxx;
 
                 // Composite final lighting
-                float3 FarFieldIrradiance  = HighFreq_Diffuse + LowFreq_Diffuse;
+                float3 FarFieldIrradiance  = (HighFreq_Diffuse + LowFreq_Diffuse) * DiffuseCompensation;
                 float3 NearFieldIrradiance = MI.UseNearFieldGI 
                     ? g_NearFieldGlobalIlluminationTexture.Load(int3(TexCoords, 0)).xyz
                     : 0.f;
@@ -2777,6 +2920,7 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                     NormalWeights = select(NormalWeights < 0.5 + 0.5f * Noise, 0.f, 1.f);
                 }
                 float4 FinalWeights = BilinearWeights * VisibilityWeights * NormalWeights;
+
                 FinalWeights = FinalWeights / max(dot(FinalWeights, 1.f.xxxx), 1e-5f);
 
                 float4 HistorySamples    = 
@@ -3059,6 +3203,7 @@ void DebugSSRC_PrepareUpdateRays () {
             g_RWDebugCursorWorldPosBuffer[0],
             GetLinearDepth(Depth),
             GeometryNormal,
+            true,
             Sample
         );
         int MaxIndex;

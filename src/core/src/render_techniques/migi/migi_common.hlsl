@@ -213,6 +213,7 @@ struct MIGI_Constants {
     uint   DisableSG; //
 
     uint   BaseUpdateRayWaves;
+    uint   ProbeFiltering;
 };
 
 
@@ -230,6 +231,9 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 #define SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE (32 * 6)
 
 #define SSRC_MAX_ADAPTIVE_PROBE_LAYERS 2
+#if (1<<SSRC_MAX_ADAPTIVE_PROBE_LAYERS) > SSRC_TILE_SIZE 
+#error "1 << SSRC_MAX_ADAPTIVE_PROBE_LAYERS > SSRC_TILE_SIZE."
+#endif
 
 // The size of probe textures (hemispherical)
 #define SSRC_PROBE_TEXTURE_SIZE 8
@@ -239,7 +243,7 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 #error "SSRC_PROBE_TEXTURE_TEXEL_COUNT != 1<<SSRC_PROBE_TEXTURE_TEXEL_COUNT_L2."
 #endif
 
-#define MIGI_QUANTILIZE_RADIANCE_MULTIPLIER (65536.f)
+#define MIGI_QUANTILIZE_RADIANCE_MULTIPLIER (32768.f)
 
 #ifdef __cplusplus
 }// namespace Capsaicin

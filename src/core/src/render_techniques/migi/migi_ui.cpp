@@ -81,6 +81,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("No Importance Sampling", &options_.no_importance_sampling);
         ImGui::Checkbox("No Adaptive Probes", &options_.no_adaptive_probes);
         ImGui::Checkbox("No Denoiser", &options_.no_denoiser);
+        ImGui::Checkbox("No Probe Filtering", &options_.no_probe_filtering);
         ImGui::Checkbox("Freeze Seed", &options_.debug_freeze_frame_seed);
         ImGui::Checkbox("Freeze Tile Jitter", &options_.debug_freeze_tile_jitter);
         ImGui::Checkbox("Ambient Occlusion", &options_.ambient_occlusion);

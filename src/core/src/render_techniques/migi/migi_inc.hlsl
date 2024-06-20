@@ -8,16 +8,12 @@
 // GI1.0 invalid flag (to make the copy-pasted code from GI1.0 work)
 #define kGI10_InvalidId 0xFFFFFFFFu
 
-// Flags set with compiler flags
-
 // Use heuristic for direction update
 #define HEURISTIC_DIRECTION_UPDATE
 // Use numerical approx for color update
 #define OPTIMAL_COLOR_UPDATE
 // Debug flag to fix probes on the screen and avoid SG merging
 // #define DEBUG_FIX_PROBES
-// Use RMSE to guide update ray allocation
-// #define ERROR_RMSE
 
 #ifndef WAVE_SIZE
 // This macro is set with the compiler flags

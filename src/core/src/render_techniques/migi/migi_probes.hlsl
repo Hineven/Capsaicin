@@ -157,9 +157,10 @@ float4 GetScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords,
     return bPrevious ? g_RWPreviousProbeColorTexture[Coords] : g_RWProbeColorTexture[Coords];
 }
 
-void WriteScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords, float4 RadianceDepth) {
+void WriteScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords, float4 RadianceDepth, bool bPrevious = false) {
     int2 Coords = ProbeIndex * SSRC_PROBE_TEXTURE_SIZE + TexelCoords;
-    g_RWProbeColorTexture[Coords] = RadianceDepth;
+    if(!bPrevious) g_RWProbeColorTexture[Coords] = RadianceDepth;
+    else g_RWPreviousProbeColorTexture[Coords] = RadianceDepth;
 }
 
 #endif // MIGI_PROBES_HLSL

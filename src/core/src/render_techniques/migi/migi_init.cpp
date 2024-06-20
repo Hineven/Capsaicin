@@ -136,6 +136,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "ResolveCells", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_UpdateProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_FilterProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_FilterProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_IntegrateASG = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_Denoise = gfxCreateComputeKernel(
@@ -488,6 +490,7 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.UpdateTiles);
     gfxDestroyKernel(gfx_, kernels_.ResolveCells);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_FilterProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
     gfxDestroyKernel(gfx_, kernels_.SSRC_Denoise);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);

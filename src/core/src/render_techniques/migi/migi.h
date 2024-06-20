@@ -170,6 +170,7 @@ public:
         GfxKernel  UpdateTiles {};
         GfxKernel  ResolveCells {};
         GfxKernel  SSRC_UpdateProbes {};
+        GfxKernel  SSRC_FilterProbes {};
         GfxKernel  SSRC_IntegrateASG {};
         GfxKernel  SSRC_Denoise {};
         GfxKernel  DebugSSRC_FetchCursorPos {};
