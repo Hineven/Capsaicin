@@ -15,7 +15,7 @@ MIGI选用的参数化函数是一系列球面高斯函数的总和，与八面�
 <img src="migi_docs/moving-light-SG.gif" height="400px" width="600px">SG 增强缓存</img>
 
 这是传统的八面体探针缓存。即使在能够稳定时域降噪的静态照明下，它会丢失高频率的光泽反射，并且渲染效果整体（由于SH积分时的近似变得）偏暗，且因为重要性采样的导引分布更粗糙而有着轻微更大的噪音。
-<img src="migi_docs/no-SG.png" height="400px" width="600px">传统</img>
+<img src="migi_docs/no-sg.png" height="400px" width="600px">传统</img>
 上图不是GIF，是单帧，因此看不出动态的噪音...截GIF的时候忘了截两个图了...
 
 **注意：** 我们尚未实现任何特定的直接光算法。由于没有光样本，当前算法将所有发光物体都视为间接光源。因此，请将上面图片中的发光体视为间接光源。当前算法与针对具有光先验和光样本的直接照明进行优化的算法（ReSTIR/Manylights/LTC+Visibility）进行渲染质量的比较没有太大意义。

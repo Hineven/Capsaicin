@@ -15,7 +15,7 @@ This is SG enhanced caching with a moving light.
 <img src="migi_docs/moving-light-SG.gif" height="400px" width="600px">SG enhanced caching</img>
 
 This is conventional octahedral probe caching. It misses the glossy reflections, is darker and more noisy even with static lighting.
-<img src="migi_docs/no-SG.png" height="400px" width="600px">Conventional</img>
+<img src="migi_docs/no-sg.png" height="400px" width="600px">Conventional</img>
 
 **Note:** we have not implemented any specific direct light algorithm yet. There are no light samples so current algorithm just process all emissive objects as indirect lit.
 So just regard the above emitter an indirect light source. It makes little sense comparing the current render quality with algorithms optimized for direct lighting with light priors and light samples.
