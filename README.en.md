@@ -12,7 +12,7 @@ Compared with conventional caching schemes in real-time rendering, the crucial b
 The followings shows difference between SG enhanced caching and conventional octahedral probe caching.
 
 This is SG enhanced caching with a moving light.
-<img src="migi_docs/moving-light-SG.gif" height="400px" width="600px">SG enhanced caching</img>
+<img src="migi_docs/moving-light-sg.gif" height="400px" width="600px">SG enhanced caching</img>
 
 This is conventional octahedral probe caching. It misses the glossy reflections, is darker and more noisy even with static lighting.
 <img src="migi_docs/no-sg.png" height="400px" width="600px">Conventional</img>

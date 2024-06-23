@@ -12,7 +12,7 @@ MIGI选用的参数化函数是一系列球面高斯函数的总和，与八面�
 以下是 SG 增强缓存和传统八面体探针缓存之间的区别。
 
 这是在移动光源场景下 SG 增强缓存的表现。
-<img src="migi_docs/moving-light-SG.gif" height="400px" width="600px">SG 增强缓存</img>
+<img src="migi_docs/moving-light-sg.gif" height="400px" width="600px">SG 增强缓存</img>
 
 这是传统的八面体探针缓存。即使在能够稳定时域降噪的静态照明下，它会丢失高频率的光泽反射，并且渲染效果整体（由于SH积分时的近似变得）偏暗，且因为重要性采样的导引分布更粗糙而有着轻微更大的噪音。
 <img src="migi_docs/no-sg.png" height="400px" width="600px">传统</img>
