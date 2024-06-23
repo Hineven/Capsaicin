@@ -106,6 +106,8 @@ DebugViewList MIGI::getDebugViews() const noexcept
     ret.emplace_back("SSRC_ProbeAllocation");
     ret.emplace_back("SSRC_IncidentRadiance");
     ret.emplace_back("SSRC_UpdateRays");
+    ret.emplace_back("SSRC_ReprojectionTrust");
+    ret.emplace_back("SSRC_ProbeColor");
     return ret;
 }
 

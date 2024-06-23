@@ -34,8 +34,8 @@ float GetScreenProbeLinearDepth (int2 ProbeIndex, bool bPrevious = false) {
 
 float3 GetScreenProbeNormal (int2 ProbeIndex, bool bPrevious = false) {
     return bPrevious
-        ? OctahedronToUnitVector(g_RWPreviousProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f)
-        : OctahedronToUnitVector(g_RWProbeNormalTexture[ProbeIndex].xy * 2.f - 1.f);
+        ? OctahedronToUnitVector(UnpackUnorm2x16Unbiased(g_RWPreviousProbeNormalTexture[ProbeIndex].x) * 2.f - 1.f)
+        : OctahedronToUnitVector(UnpackUnorm2x16Unbiased(g_RWProbeNormalTexture[ProbeIndex].x) * 2.f - 1.f);
 }
 
 ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
@@ -72,7 +72,7 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
     g_RWProbeScreenCoordsTexture[ProbeIndex] = PackUint16x2(Header.ScreenCoords);
     g_RWProbeLinearDepthTexture[ProbeIndex] = Header.LinearDepth;
     g_RWProbeWorldPositionTexture[ProbeIndex] = float4(Header.Position, 0.f);
-    g_RWProbeNormalTexture[ProbeIndex] = UnitVectorToOctahedron(Header.Normal) * 0.5f + 0.5f;
+    g_RWProbeNormalTexture[ProbeIndex] = PackUnorm2x16Unbiased(UnitVectorToOctahedron(Header.Normal) * 0.5f + 0.5f);
 }
 
 int2 GetTileJitter (bool bPrevious = false) {
@@ -129,20 +129,6 @@ struct ScreenProbeMaterial {
     float3 GeometryNormal;
     bool   bValid;
 };
-
-ScreenProbeMaterial FetchScreenProbeMaterial (int2 ScreenCoords, bool HiRes) {
-    ScreenProbeMaterial Material;
-    Material.Depth = g_RWProbeLinearDepthTexture[ScreenCoords].x;
-    Material.GeometryNormal = OctahedronToUnitVector(
-        g_RWProbeNormalTexture[ScreenCoords].xy * 2.f - 1.f);
-    Material.bValid = Material.Depth > 0;
-    float2 UV = (ScreenCoords + 0.5f) * MI.ScreenDimensionsInv;
-    Material.Position = 
-        HiRes 
-        ? RecoverWorldPositionHiRes(ScreenCoords)
-        : InverseProject(MI.CameraProjViewInv, UV, Material.Depth);
-    return Material;
-}
 
 bool   IsScreenProbeValid (int2 Index) {
     return g_RWProbeLinearDepthTexture[Index].x > 0;

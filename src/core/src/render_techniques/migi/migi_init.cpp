@@ -152,6 +152,10 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         // DebugSSRC_VisualizeIncidentRadiance is a graphics kernel and is created in initGraphicsKernels()
         kernels_.DebugSSRC_PrepareUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_PrepareUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_VisualizeReprojectionTrust = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_VisualizeReprojectionTrust", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_VisualizeProbeColor = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_VisualizeProbeColor", defines_c.data(), (uint32_t)defines_c.size());
 
         if (options_.use_dxr10)
         {
@@ -286,9 +290,9 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.probe_world_position[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32G32B32A32_FLOAT);
     tex_.probe_world_position[1].setName("ProbeWorldPosition1");
 
-    tex_.probe_normal[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16_UNORM);
+    tex_.probe_normal[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
     tex_.probe_normal[0].setName("ProbeNormal0");
-    tex_.probe_normal[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16_UNORM);
+    tex_.probe_normal[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_UINT);
     tex_.probe_normal[1].setName("ProbeNormal1");
 
     tex_.probe_color[0] = gfxCreateTexture2D(gfx_, probe_texture_width * SSRC_PROBE_TEXTURE_SIZE, probe_texture_height * SSRC_PROBE_TEXTURE_SIZE, DXGI_FORMAT_R16G16B16A16_FLOAT);
@@ -499,6 +503,8 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeIncidentRadiance);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeSGDirection);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeReprojectionTrust);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeColor);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeLight);
 

@@ -179,6 +179,8 @@ public:
         GfxKernel  DebugSSRC_VisualizeIncidentRadiance {};
         GfxKernel  DebugSSRC_VisualizeProbeSGDirection {};
         GfxKernel  DebugSSRC_PrepareUpdateRays {};
+        GfxKernel  DebugSSRC_VisualizeReprojectionTrust {};
+        GfxKernel  DebugSSRC_VisualizeProbeColor {};
         GfxKernel  DebugSSRC_VisualizeUpdateRays {};
         GfxKernel  DebugSSRC_VisualizeLight {};
 

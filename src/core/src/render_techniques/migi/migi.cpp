@@ -896,6 +896,16 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandMultiDrawIndirect(gfx_, buf_.draw_command, 1);
         __override_primitive_topology = false;
         __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    } else if(options_.active_debug_view == "SSRC_ReprojectionTrust") {
+        TimedSection timed_section(*this, "SSRC_ReprojectionTrust");
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeReprojectionTrust);
+        uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    } else if(options_.active_debug_view == "SSRC_ProbeColor") {
+        TimedSection timed_section(*this, "SSRC_ProbeColor");
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeColor);
+        uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 
     if(options_.debug_light) {

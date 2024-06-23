@@ -48,6 +48,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             debug_visualize_channel_names = {"Probe", "Pixel"};
         } else if(options_.active_debug_view == "SSRC_UpdateRays") {
             debug_visualize_channel_names = {"Rays", "TracedRays", "TracedRayDepths"};
+        } else if(options_.active_debug_view == "SSRC_ProbeColor") {
+            debug_visualize_channel_names = {"Color", "Depth"};
         }
         if (debug_visualize_channel_names.empty())
         {
@@ -73,7 +75,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             need_reset_screen_space_cache_ = true;
         }
         ImGui::Checkbox("Always Reset", &options_.reset_screen_space_cache);
-        ImGui::SliderInt("Update Ray Bonus", (int*)&options_.SSRC_base_update_ray_waves, 1, 256 / cfg_.wave_lane_count);
+        ImGui::SliderInt("Update Ray Bonus", (int*)&options_.SSRC_base_update_ray_waves, 1, SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / cfg_.wave_lane_count);
         ImGui::SliderFloat("Learning Rate", &options_.cache_update_learing_rate, 0.0f, 0.05f);
         ImGui::Checkbox("Optimize SGColor", &options_.cache_update_SG_color);
         ImGui::Checkbox("Optimize SGDirection", &options_.cache_update_SG_direction);
@@ -91,7 +93,9 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);
             ImGui::Checkbox("Debug Light", &options_.debug_light);
-            ImGui::SliderFloat3("Light Position", &options_.debug_light_position.x, -3.0f, 3.0f);
+            ImGui::SliderFloat("Light Position (X)", &options_.debug_light_position.x, -1.0f, 1.0f);
+            ImGui::SliderFloat("Light Position (Y)", &options_.debug_light_position.y, -1.0f, 1.0f);
+            ImGui::SliderFloat("Light Position (Z)", &options_.debug_light_position.z, -1.0f, 1.0f);
             ImGui::SliderFloat("Light Size", &options_.debug_light_size, 0.0f, 0.5f);
             ImGui::SliderFloat3("Light Color", &options_.debug_light_color.x, 0.0f, 5.0f);
             ImGui::SliderInt("Fixed Tile Jitter", &options_.fixed_tile_jitter, 0, 7);

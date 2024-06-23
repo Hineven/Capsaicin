@@ -143,6 +143,36 @@ void SSRC_ClearCounters() {
     g_RWAllocatedProbeSGCountBuffer[0] = 0;
 }
 
+float3 GetProbeOffsetAdaptiveNormal (int2 ScreenCoords, float3 GeometryNormal, float3 ViewDirection) {
+    float3 AdaptiveNormal = GeometryNormal;//normalize(ViewDirection + GeometryNormal);
+#if true
+    // Fine-tune the normal to bent normal when close to occluded regions
+    float4 BentNormalOcc  = g_BentNormalAndOcclusionTexture.Load(int3(ScreenCoords, 0));
+    float  Occlusion      = BentNormalOcc.w;
+    float3 BentNormal     = BentNormalOcc.xyz * 2 - 1;
+    AdaptiveNormal = normalize(lerp(BentNormal, AdaptiveNormal, saturate(1.5 * Occlusion * Occlusion)));
+#endif
+    return AdaptiveNormal;
+}
+
+float3 RecoverWorldPosition (float2 UV, float LinearDepth) {
+    float2 NDC2 = UV2NDC2(UV);
+    return LinearDepth * (NDC2.x * MI.CameraRight + NDC2.y * MI.CameraUp + MI.CameraDirection) + MI.CameraPosition;
+}
+
+float3 RecoverScreenProbePosition (int2 TileCoords, float LinearDepth, bool bPrevious) {
+    // We are using the camera coordinate system to recover probe position, which is placed with G-Buffer samples
+    // We need to take care of the jittering as the camera coordinate system is not affected by TAA (but the G-Buffer is). 
+    // TODO The way using TAA jitter here may be incorrect (subtraction / addition ?)
+    float2 UV = GetUniformScreenProbeScreenUV(TileCoords, bPrevious) + (bPrevious ? MI.PreviousTAAJitterUV : MI.TAAJitterUV);
+    float2 NDC2 = UV2NDC2(UV);
+    if(!bPrevious) {
+        return LinearDepth * (NDC2.x * MI.CameraRight + NDC2.y * MI.CameraUp + MI.CameraDirection) + MI.CameraPosition;
+    } else {
+        return LinearDepth * (NDC2.x * MI.PreviousCameraRight + NDC2.y * MI.PreviousCameraUp + MI.PreviousCameraDirection) + MI.PreviousCameraPosition;
+    }
+}
+
 // Allocate fixed uniform probes for current frame
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_AllocateUniformProbes (int DispatchID : SV_DispatchThreadID) {
@@ -171,25 +201,19 @@ void SSRC_AllocateUniformProbes (int DispatchID : SV_DispatchThreadID) {
 
     // Negative depths stands for invalid probes
     Header.LinearDepth   = (bValid ? 1 : -1) * GetLinearDepth(Depth);
-    Header.Position      = RecoverWorldPositionHiRes(Header.ScreenCoords);
-    Header.Normal        = normalize(g_GeometryNormalTexture.Load(int3(Header.ScreenCoords, 0)).xyz * 2.f - 1.f);
+    // High resolution recovery for accurate probe placement (otherwise may cause artifacts because of inaccurate occlusions)
+    float3 WorldPosition  = RecoverWorldPositionHiRes(Header.ScreenCoords);
+    // Offset the probe along adaptive "normal".
+    float3 GeometryNormal = normalize(g_GeometryNormalTexture.Load(int3(Header.ScreenCoords, 0)).xyz * 2.f - 1.f);
+    float3 ViewDirection  = normalize(MI.CameraPosition - WorldPosition);
+    float3 AdaptiveNormal = GetProbeOffsetAdaptiveNormal(Header.ScreenCoords, GeometryNormal, ViewDirection);
+    float3 ProbePositionOffset = AdaptiveNormal * Header.LinearDepth * SSRC_PROBE_NORMAL_OFFSET;
+    Header.Position      = WorldPosition + ProbePositionOffset;
+    Header.Normal        = GeometryNormal;
     WriteScreenProbeHeader(ProbeIndex, Header);
 
     // Also, clear the tile adaptive probe count for later adaptive allocation
     g_RWTileAdaptiveProbeCountTexture[ProbeIndex] = 0;
-}
-
-float3 RecoverScreenProbePosition (int2 TileCoords, float LinearDepth, bool bPrevious) {
-    // We are using the camera coordinate system to recover probe position, which is placed with G-Buffer samples
-    // We need to take care of the jittering as the camera coordinate system is not affected by TAA (but the G-Buffer is). 
-    // TODO The way using TAA jitter here may be incorrect (subtraction / addition ?)
-    float2 UV = GetUniformScreenProbeScreenUV(TileCoords, bPrevious) + (bPrevious ? MI.PreviousTAAJitterUV : MI.TAAJitterUV);
-    float2 NDC2 = UV2NDC2(UV);
-    if(!bPrevious) {
-        return LinearDepth * (NDC2.x * MI.CameraRight + NDC2.y * MI.CameraUp + MI.CameraDirection) + MI.CameraPosition;
-    } else {
-        return LinearDepth * (NDC2.x * MI.PreviousCameraRight + NDC2.y * MI.PreviousCameraUp + MI.PreviousCameraDirection) + MI.PreviousCameraPosition;
-    }
 }
 
 void CalculateSSRCSampleWeightsForUniformScreenProbes (
@@ -202,7 +226,7 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
     out float4 Weights,
     bool bPrevious = false
 ) {
-    int2 ScreenCoordsProbeGrid = clamp(ScreenPosition - 0.5f - GetTileJitter(bPrevious), 0, MI.ScreenDimensions - 1);
+    int2 ScreenCoordsProbeGrid = clamp(ScreenPosition - 0.5f - GetTileJitter(bPrevious), 0, MI.ScreenDimensions - SSRC_TILE_SIZE - 1);
     TileCoordsX00         = min(ScreenCoordsProbeGrid / SSRC_TILE_SIZE, MI.TileDimensions - 2);
     // Pad the bilinear filtering weights
 #ifdef DEBUG_FIX_PROBES
@@ -212,7 +236,7 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
     int BilinearExpand = 0;
 #endif
     float2 Bilinear    = 
-        (ScreenCoordsProbeGrid - TileCoordsX00 * SSRC_TILE_SIZE + BilinearExpand) 
+        (ScreenCoordsProbeGrid + 0.5f - TileCoordsX00 * SSRC_TILE_SIZE + BilinearExpand) 
         / (float)(SSRC_TILE_SIZE + 2 * BilinearExpand);
     float4 CornerLinearDepths;
     CornerLinearDepths.x = GetScreenProbeLinearDepth(TileCoordsX00 + int2(0, 0), bPrevious);
@@ -419,10 +443,17 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
         if(Header.BasisOffset + BasisCount > MI.MaxBasisCount) {
             Header.Class = 0;
         }
-        Header.Position      = RecoverWorldPositionHiRes(Header.ScreenCoords);
+        float3 GeometryNormal = normalize(g_GeometryNormalTexture.Load(int3(Header.ScreenCoords, 0)).xyz * 2.f - 1.f);
         float Depth          = g_DepthTexture.Load(int3(Header.ScreenCoords, 0)).x;
         Header.LinearDepth   = GetLinearDepth(Depth);
-        Header.Normal        = normalize(g_GeometryNormalTexture.Load(int3(Header.ScreenCoords, 0)).xyz * 2.f - 1.f);
+        float2 UV = (Header.ScreenCoords + 0.5f) * MI.ScreenDimensionsInv;
+        // High resolution recovery for accurate probe placement (otherwise may cause artifacts because of inaccurate occlusions)
+        float3 WorldPosition = RecoverWorldPositionHiRes(Header.ScreenCoords);
+        float3 ViewDirection = normalize(MI.CameraPosition - WorldPosition);
+        float3 AdaptiveNormal = GetProbeOffsetAdaptiveNormal(Header.ScreenCoords, GeometryNormal, ViewDirection);
+        Header.Position      = WorldPosition + AdaptiveNormal * Header.LinearDepth * SSRC_PROBE_NORMAL_OFFSET;
+        
+        Header.Normal        = GeometryNormal;
         int2 ScreenProbeIndex = int2(ScreenProbeIndex1 % MI.TileDimensions.x, ScreenProbeIndex1 / MI.TileDimensions.x);
         WriteScreenProbeHeader(ScreenProbeIndex, Header);
     }
@@ -477,7 +508,7 @@ void ResetProbe (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int 
         float3 Normal    = ProbeNormal;
         float3 Tangent, Bitangent;
         GetOrthoVectors(Normal, Tangent, Bitangent);
-        float  Phi       = BlueNoise_Sample1D(int2(GroupID, LocalID), MI.FrameIndex, 2);
+        float  Phi       = BlueNoise_Sample1D(int2(GroupID, LocalID), MI.FrameSeed, 2);
         SG.Direction = normalize(Direction.x * Tangent + Direction.y * Bitangent + Direction.z * Normal);
 
         SG.Depth     = 1.f;
@@ -521,6 +552,11 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             // Clear probe history
             g_RWProbeHistoryTrustTexture[ProbeIndex] = 0;
         }
+        ResetProbe(
+            GroupID, LocalID, 
+            ProbeIndex, GetProbeBasisCountFromClass(Header.Class),
+            Header.BasisOffset, Header.Normal
+        );        
         return ;
     }
     float3 PrevHomogeneous = PrevHomogeneousW.xyz / PrevHomogeneousW.w;
@@ -532,7 +568,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
     float2 PrevProbeHistoryDimensionsMax = MI.ScreenDimensions - SSRC_TILE_SIZE + GetTileJitter(true) + 0.5f;
     float2 PrevScreenPositionClamped = clamp(PrevScreenPosition, PrevProbeHistoryDimensionsMin, PrevProbeHistoryDimensionsMax);
     SSRC_SampleData Sample;
-    // xxExclude screen space weight when doing reprojection (which UE told me to do so...)
+    // ~~~Exclude screen space weight when doing reprojection (which UE told me to do so...)~~~
     // That will introduce too many bias (colors flowing in a fixed direction in screen space)
     // TODO is it okay to use the clamped screen position? 
     CalculateSSRCSampleWeights(
@@ -898,8 +934,7 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     }
     // Naive strategy: allocate more rays for probes that failed in reprojection
     float Trust = g_RWProbeHistoryTrustTexture[ProbeIndex];
-    // FIXME
-    int   Bonus = MI.BaseUpdateRayWaves + (1.f - Trust) * (256 / WAVE_SIZE - MI.BaseUpdateRayWaves);
+    int   Bonus = MI.BaseUpdateRayWaves + (1.f - Trust) * (SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE - MI.BaseUpdateRayWaves);
     g_RWProbeUpdateRayCountBuffer[DispatchID] = min(WAVE_SIZE * max(1, Bonus), SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE);
 }
 
@@ -1041,7 +1076,9 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
             RayDirection = UniformSampleHemisphere(u2);
             RayDirection = normalize(ProbeTangent * RayDirection.x + ProbeBitangent * RayDirection.y + Header.Normal * RayDirection.z);
         }
-        if(RayPdf >= MIN_PDF_TO_TRACE) {
+        // 0623: This must be checked otherwise there're precision issues
+        float bValid = dot(RayDirection, Header.Normal) > 0;
+        if(RayPdf >= MIN_PDF_TO_TRACE && bValid) {
             WriteUpdateRay(ProbeIndex, Header.ScreenCoords, RayRank, RayDirection, RayPdf);
         } else {
             // No need to do compressing since there're just a tiny number of rays being canceled
@@ -1105,9 +1142,11 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
             RayDirection = UniformSampleHemisphere(u2);
             RayDirection = normalize(ProbeTangent * RayDirection.x + ProbeBitangent * RayDirection.y + Header.Normal * RayDirection.z);
         }
+        // 0623: This must be checked otherwise there're precision issues
+        bool bValid = dot(RayDirection, Header.Normal) > 0;
         // Pack the ray
         // TODO jitter the ray origin ? may be useless
-        if(RayPdf >= MIN_PDF_TO_TRACE) {
+        if(RayPdf >= MIN_PDF_TO_TRACE && bValid) {
             WriteUpdateRay(ProbeIndex, Header.ScreenCoords, RayRank, RayDirection, RayPdf);
         } else {
             // No need to do compressing since there're just a tiny number of rays being canceled
@@ -1281,22 +1320,17 @@ void SSRC_TraceUpdateRays (uint DispatchID) {
     // Unpack ray data
     int2   ProbeIndex = UnpackUint16x2(g_RWUpdateRayProbeBuffer[DispatchID / WAVE_SIZE]);
 
-    float3 GeometryNormal = GetScreenProbeNormal(ProbeIndex);
-    float3 RayOrigin = offsetPosition(GetScreenProbePosition(ProbeIndex), GeometryNormal);
+    float3 ProbeNormal = GetScreenProbeNormal(ProbeIndex);
+    // The probe origin is offseted by adaptive normal (bent - geom mix), so no need to do further offset here
+    float3 RayOrigin = GetScreenProbePosition(ProbeIndex);
 
-    float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[DispatchID]) * 2 - 1);
+    float3 RayDirection      = FetchUpdateRayDirection(DispatchID);
     float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[DispatchID]);
     float  InvPdf = RayRadianceInvPdf.w;
 
     // Early out if the ray is invalid / clipped for too tiny pdf.
     if(InvPdf == 0) return ;
 
-    if(dot(RayDirection, GeometryNormal) < 0.0f) {
-        // Learn negative samples.
-        g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(0.0f.xxx, InvPdf));
-        g_RWUpdateRayLinearDepthBuffer[DispatchID]    = 0.f;
-        return ;
-    }
     if(MI.DebugLight != 0) {
         float3 LightPos = MI.DebugLightPosition;
         float  DistSqr  = lengthSqr(LightPos - RayOrigin);
@@ -1461,7 +1495,7 @@ void GenerateReservoirs(in uint DispatchID : SV_DispatchThreadID)
     {
         return; // out of bounds
     }
-    float Q_Noise = BlueNoise_Sample1D(int2(DispatchID % 1024, DispatchID / 1024), MI.FrameIndex, 5);
+    float Q_Noise = BlueNoise_Sample1D(int2(DispatchID % 1024, DispatchID / 1024), MI.FrameSeed, 5);
 
     // Load our visibility sample
     float4                   packed_visibility = g_HashGridCache_VisibilityBuffer[DispatchID];
@@ -1796,7 +1830,7 @@ void PopulateCells(uint did)
     {
         return; // out of bounds
     }
-    float Q_Noise = BlueNoise_Sample1D(int2(did % 1024, did / 1024), MI.FrameIndex, 6);
+    float Q_Noise = BlueNoise_Sample1D(int2(did % 1024, did / 1024), MI.FrameSeed, 6);
 
     uint                     visibility_index = (g_HashGridCache_VisibilityRayBuffer[did] & ~0x80000000u);
     HashGridCache_Visibility visibility       = HashGridCache_UnpackVisibility(g_HashGridCache_VisibilityBuffer[visibility_index]);
@@ -1862,12 +1896,14 @@ void PopulateCells(uint did)
     // cache connection.
     bool is_bypass_cache = ((g_HashGridCache_VisibilityRayBuffer[did] >> 31) != 0);
 
+#ifdef ENABLE_INDIRECT
     if (is_bypass_cache)
     {
         float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[query_index]);
         RadianceInvPdf.xyz   += payload.lighting;
         g_RWUpdateRayRadianceInvPdfBuffer[query_index] = PackFp16x4Safe(RadianceInvPdf);
     }
+#endif // ENABLE_INDIRECT
 }
 
 [numthreads(WAVE_SIZE, 1, 1)]
@@ -2062,7 +2098,7 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
 
 
 int GetBasisRankToUpdate (int ProbeBasisCount) {
-    return MI.FrameIndex % ProbeBasisCount;
+    return MI.FrameSeed % ProbeBasisCount;
 }
 
 float HeuristicSGDirectionBias (float3 SG_Direction, float3 Direction) {
@@ -2135,7 +2171,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
         int RayRank  = RayRankBase + LocalID;
         int RayIndex = ProbeRayOffset + RayRank;
-        float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+        float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
         float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
         float3 RayRadiance       = RayRadianceInvPdf.xyz;
         float  InvPdf            = RayRadianceInvPdf.w;
@@ -2172,9 +2208,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             LocalProbeTexelSampleWeightQuantilized[ProbeTexelIndex] = 0;
         }
         GroupMemoryBarrierWithGroupSync();
-        // Noise for quantilization, constant for now
-        // TODO make it random
-        float Q_Noise = BlueNoise_Sample1D(uint2(GroupID, LocalID), MI.FrameIndex, 7);
+        // Noise for quantilization
+        float Q_Noise = BlueNoise_Sample1D(uint2(GroupID, LocalID), MI.FrameSeed, 7);
         // Backup radiance value for untraced probe texels in current update
         float3 BackupRadianceSum = 0.f;
         float  BackupRadianceWeightSum = 0.f;
@@ -2183,9 +2218,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
             int RayRank  = RayRankBase + LocalID;
             int RayIndex = ProbeRayOffset + RayRank;
-            float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+            float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
             float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
             float3 RayRadiance       = RayRadianceInvPdf.xyz;
+            // RayRadiance = select(RayRadiance > 0.05, 0.05f.xxx, 0.xxx);
             float  InvPdf            = RayRadianceInvPdf.w;
             float  RayDepth          = g_RWUpdateRayLinearDepthBuffer[RayIndex];
             // Check for valid update rays
@@ -2258,7 +2294,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             // It darkens the scene, while not good enough providing temporal stability as a trade-off.
             float TemporalBlend = squared(clamp(max(LumaA - LumaB - min(LumaA, LumaB), 0.0f) / max(max(LumaA, LumaB), 1e-4f), 0.0f, 0.95f));
             // We overwrite the heuristic with a fixed value for now
-            TemporalBlend = 0.9f;
+            TemporalBlend = 0.8f;
             // Clamp the lerping factor with impact factors from our pipeline
             TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
             float4 NewValue = lerp(RadianceDepthSum / Weight, OldRadianceDepth, TemporalBlend);
@@ -2280,7 +2316,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             int RayRank = RayRankBase + LocalID;
             int RayIndex = ProbeRayOffset + RayRank;
             float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-            float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+            float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
             float3 RayRadiance       = RayRadianceInvPdf.xyz;
             float  InvPdf            = RayRadianceInvPdf.w;
             if(InvPdf > 0) {
@@ -2320,7 +2356,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
                 int RayRank  = RayRankBase + LocalID;
                 int RayIndex = ProbeRayOffset + RayRank;
-                float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+                float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
                 float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
                 float3 RayRadiance       = RayRadianceInvPdf.xyz;
                 float  InvPdf            = RayRadianceInvPdf.w;
@@ -2354,7 +2390,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 int RayIndex = ProbeRayOffset + RayRank;
                 float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
                 float  RayLinearDepth    = g_RWUpdateRayLinearDepthBuffer[RayIndex];
-                float3 RayDirection      = OctahedronToUnitVector(unpackUnorm2x16(g_RWUpdateRayDirectionBuffer[RayIndex]) * 2 - 1);
+                float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
                 float3 RayRadiance       = RayRadianceInvPdf.xyz;
                 float  InvPdf            = RayRadianceInvPdf.w;
                 if(InvPdf > 0) {
@@ -2487,8 +2523,6 @@ void GatherProbeRadiance (
                     float  DepthWeight = 1 - abs(NeighborDepth - ToNeighborLength) / max(1e-3f, max(NeighborDepth, ToNeighborLength));
                     DepthWeight = pow(saturate(DepthWeight), 6);
                     float  Weight = PositionWeight * DepthWeight;
-                    sadfsdafasdfdasfklasdjfkldsjfkldasjklfdjsklfjad
-                    inspect probe depth please!!!!!!
                     SumRadiance += NeighborRadiance * Weight;
                     SumWeight   += Weight;
                 }
@@ -2860,7 +2894,7 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
             // Reproject to previous frame
             float2 PreviousUV = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0.0f).xy;
 
-            if (all(PreviousUV > 0.0f) && all(PreviousUV < 1.0f))
+            if (all(PreviousUV >= 0.0f) && all(PreviousUV < 1.0f))
             {
                 float3 Homogeneous     = float3(UV2NDC2(UV), Depth);
                 float3 HomogeneousPrev = transformPointProjection(Homogeneous, MI.Reprojection);
@@ -2882,7 +2916,7 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                     GetLinearDepth(HistoryGBufferDepths.w)
                 );
                 // Lumen alike method, jitter disocclusion threshold
-                float Noise = BlueNoise_Sample1D(uint2(PixelX, PixelY), MI.FrameIndex, 8);
+                float Noise = BlueNoise_Sample1D(uint2(PixelX, PixelY), MI.FrameSeed, 8);
                 float HistoryDistanceThreshold = 0.005f;
                 float DisocclusionDistanceThreshold = HistoryDistanceThreshold * lerp(0.5f, 1.5f, Noise);
                 DisocclusionDistanceThreshold /= clamp(saturate(dot(ViewDirection, GeometryNormal)), .1f, 1.0f); 
@@ -3249,8 +3283,56 @@ void DebugSSRC_PrepareUpdateRays () {
 
 
 [numthreads(SSRC_TILE_SIZE, SSRC_TILE_SIZE, 1)]
-void DebugSSRC_VisualizeReprojectionTrust (int2 DispatchID) {
+void DebugSSRC_VisualizeReprojectionTrust (int2 DispatchID : SV_DispatchThreadID) {
+    float  Depth          = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+    if(Depth < 1.f) {
+        float3 GeometryNormal = normalize(2.f * g_GeometryNormalTexture.Load(int3(DispatchID, 0)).xyz - 1.f);
+        SSRC_SampleData Sample;
+        float3 Position = RecoverWorldPositionHiRes(DispatchID);
+        CalculateSSRCSampleWeights(
+            DispatchID + 0.5f,
+            Position,
+            GetLinearDepth(Depth),
+            GeometryNormal,
+            true,
+            Sample
+        );
+        int MaxIndex;
+        if(Sample.Weights[0] > Sample.Weights[1]) {
+            MaxIndex = 0;
+        } else {
+            MaxIndex = 1;
+        }
+        if(Sample.Weights[2] > Sample.Weights[MaxIndex]) {
+            MaxIndex = 2;
+        }
+        if(Sample.Weights[3] > Sample.Weights[MaxIndex]) {
+            MaxIndex = 3;
+        }
+        int2 ProbeIndex = Sample.Index[MaxIndex];
+        ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
+        if(Header.bValid) {
+            float Trust = g_RWProbeHistoryTrustTexture[ProbeIndex];
+            g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(Trust), 1.f);
+        }
+    }
+}
 
+[numthreads(SSRC_TILE_SIZE, SSRC_TILE_SIZE, 1)]
+void DebugSSRC_VisualizeProbeColor (int2 DispatchID : SV_DispatchThreadID) {
+    float  Depth          = g_DepthTexture.Load(int3(DispatchID, 0)).x;
+#if SSRC_TILE_SIZE < SSRC_PROBE_TEXTURE_SIZE || SSRC_TILE_SIZE % SSRC_PROBE_TEXTURE_SIZE != 0
+    #error "SSRC_TILE_SIZE must be a multiple of SSRC_PROBE_TEXTURE_SIZE"
+#endif 
+    int Scale = SSRC_TILE_SIZE / SSRC_PROBE_TEXTURE_SIZE;
+    int2 TexCoords = DispatchID / Scale;
+    if(all(TexCoords < MI.TileDimensions * SSRC_PROBE_TEXTURE_SIZE)) {
+        float4 Color          = g_RWProbeColorTexture[TexCoords];
+        float3 Normal         = GetScreenProbeNormal(TexCoords/SSRC_PROBE_TEXTURE_SIZE);
+        if(MI.DebugVisualizeChannel == 0) 
+            g_RWDebugOutput[DispatchID] = float4(Color.xyz, 1.f);
+        else g_RWDebugOutput[DispatchID] = float4(Color.w, 0.f, 0.f, 1.f);
+    }
 }
 
 

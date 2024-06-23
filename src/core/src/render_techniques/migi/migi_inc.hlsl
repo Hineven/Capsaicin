@@ -83,12 +83,12 @@ RWTexture2D<uint>   g_RWProbeHeaderPackedTexture;
 RWTexture2D<uint>   g_RWProbeScreenCoordsTexture;
 RWTexture2D<float>  g_RWProbeLinearDepthTexture;
 RWTexture2D<float4> g_RWProbeWorldPositionTexture; 
-RWTexture2D<unorm float2> g_RWProbeNormalTexture;
+RWTexture2D<uint>   g_RWProbeNormalTexture;
 RWTexture2D<uint>   g_RWPreviousProbeHeaderPackedTexture;
 RWTexture2D<uint>   g_RWPreviousProbeScreenCoordsTexture;
 RWTexture2D<float>  g_RWPreviousProbeLinearDepthTexture;
 RWTexture2D<float4> g_RWPreviousProbeWorldPositionTexture;
-RWTexture2D<unorm float2> g_RWPreviousProbeNormalTexture;
+RWTexture2D<uint>   g_RWPreviousProbeNormalTexture;
 // Probe color maps
 // R16G16B16A16, 8x8 per probe, 3 color + 1 linear depth
 RWTexture2D<float4>  g_RWProbeColorTexture; 

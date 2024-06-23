@@ -271,11 +271,20 @@ uint PackNormal (float3 Normal) {
     return Dir.x | (Dir.y << 10) | (Dir.z << 20);
 }
 
+uint PackUnorm2x16Unbiased (float2 V) {
+    uint2 packedValue = min(uint2(saturate(V) * 65536.0f), 65535);
+    return packedValue.x | (packedValue.y << 16);
+}
+
+float2 UnpackUnorm2x16Unbiased (uint Packed) {
+    return float2((Packed & 0xFFFF) / 65536.0f + 0.5f / 65536.f, (Packed >> 16) / 65536.0f + 0.5f / 65536.f);
+}
+
 SGData UnpackBasisData (uint4 Packed) {
     SGData SG;
     SG.Color     = float3(f16tof32(Packed.x & 0xFFFF), f16tof32(Packed.x >> 16), f16tof32(Packed.y & 0xFFFF));
     SG.Lambda    = f16tof32(Packed.y >> 16);
-    SG.Direction = OctahedronToUnitVector(unpackUnorm2x16(Packed.z) * 2 - 1);
+    SG.Direction = OctahedronToUnitVector(UnpackUnorm2x16Unbiased(Packed.z) * 2 - 1);
     SG.Depth     = asfloat(Packed.w);
     return SG;
 }
@@ -287,7 +296,7 @@ uint4 PackBasisData (SGData SG) {
     Packed.x = f32tof16(SG.Color.x) | (f32tof16(SG.Color.y) << 16);
     Packed.y = f32tof16(SG.Color.z) | (f32tof16(SG.Lambda) << 16);
     // TODO oct encode
-    Packed.z = packUnorm2x16(UnitVectorToOctahedron(SG.Direction) * 0.5 + 0.5);
+    Packed.z = PackUnorm2x16Unbiased(UnitVectorToOctahedron(SG.Direction) * 0.5 + 0.5);
     Packed.w = asuint(SG.Depth);
     return Packed;
 }
@@ -307,8 +316,8 @@ SGData FetchBasisData (int BasisIndex, bool bPrevious = false) {
 }
 
 float3 FetchUpdateRayDirection (int RayIndex) {
-    int Packed = g_RWUpdateRayDirectionBuffer[RayIndex];
-    return OctahedronToUnitVector(unpackUnorm2x16(Packed) * 2.f - 1.f);
+    uint Packed = g_RWUpdateRayDirectionBuffer[RayIndex];
+    return OctahedronToUnitVector(UnpackUnorm2x16Unbiased(Packed) * 2.f - 1.f);
 }
 
 void WriteUpdateRay(int2 ProbeIndex, int2 ProbeScreenPosition, int RayRank, float3 RayDirection, float RayPdf) {
@@ -316,7 +325,7 @@ void WriteUpdateRay(int2 ProbeIndex, int2 ProbeScreenPosition, int RayRank, floa
     int BaseOffset = g_RWProbeUpdateRayOffsetBuffer[ProbeIndex1];
     int RayIndex = BaseOffset + RayRank;
     if(WaveIsFirstLane()) g_RWUpdateRayProbeBuffer[RayIndex / WAVE_SIZE] = PackUint16x2(ProbeIndex);
-    g_RWUpdateRayDirectionBuffer[RayIndex] = packUnorm2x16(UnitVectorToOctahedron(RayDirection) * 0.5 + 0.5);
+    g_RWUpdateRayDirectionBuffer[RayIndex] = PackUnorm2x16Unbiased(UnitVectorToOctahedron(RayDirection) * 0.5 + 0.5);
     g_RWUpdateRayRadianceInvPdfBuffer[RayIndex] = PackFp16x4Safe(float4(0.f.xxx, RayPdf == 0 ? 0 : (1.f / RayPdf)));
 }
 
@@ -697,9 +706,9 @@ float3 InterpolateDirection (float3 X, float3 Y, float A) {
 }
 
 // Quantilization
-// May overflow if the radiance is too large (e.g. 25000)
+// May overflow if the radiance is too large (e.g. 5000)
 int QuantilizeRadiance (float V, float Noise) {
-    return floor(V * MIGI_QUANTILIZE_RADIANCE_MULTIPLIER + Noise);
+    return floor(sign(V) * min(abs(V), 5000) * MIGI_QUANTILIZE_RADIANCE_MULTIPLIER + Noise);
 }
 float RecoverRadiance (int V) {
     return float(V) / MIGI_QUANTILIZE_RADIANCE_MULTIPLIER;
@@ -711,11 +720,12 @@ float4 RecoverRadiance (int4 V) {
     return float4(V) / MIGI_QUANTILIZE_RADIANCE_MULTIPLIER;
 }
 int QuantilizeWeight (float V, float Noise) {
-    // 2^22 = 4194304, spare 1 bit for insurance of overflow (fp32: 2^23 precision)
-    return floor(V * 4194304.f + Noise);
+    // 2^17 = 131,072 (fp32: 2^23 precision)
+    // Note: InvPdf < 100, no worries about overflowing
+    return floor(V * 131072.f + Noise);
 }
 float RecoverWeight (int V) {
-    return float(V) / 4194304.f;
+    return float(V) / 131072.f;
 }
 
 
