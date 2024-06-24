@@ -28,6 +28,8 @@ uint     g_FaceIndex;
 uint     g_FrameIndex;
 uint2    g_BufferDimensions;
 float4x4 g_ViewProjectionInverse;
+float3   g_LightDirection;
+float3   g_LightColor;
 
 RWTexture2DArray<float4> g_InEnvironmentBuffer;
 RWTexture2DArray<float4> g_OutEnvironmentBuffer;
@@ -54,8 +56,8 @@ void DrawAtmosphere(in uint2 did : SV_DispatchThreadID)
 
     m = 20.0f * m * m * sign(m);
 
-    float3 light_direction = normalize(float3(m * sin(t), 1.0f, m * cos(t)));
-    float3 light_color     = light_direction.y * float3(1.0f, 1.0f, 1.0f) + 0.1f;
+    float3 light_direction = g_LightDirection;//normalize(float3(m * sin(t), 1.0f, m * cos(t)));
+    float3 light_color     = g_LightColor;//float3(3.f, 2.5f, 2.f);//light_direction.y * float3(1.0f, 1.0f, 1.0f) + 0.1f;
 
     float3 transmittance;
     float3 color = IntegrateScattering(ray_origin, ray_direction, ray_length, light_direction, light_color, transmittance);

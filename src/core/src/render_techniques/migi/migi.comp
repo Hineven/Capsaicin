@@ -2414,7 +2414,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #else
                     // least squares method
                     // Clip rays that only evaluates to a tiny value on SG to prevent outflares
-                    if(SGEvaluatedRaw > 2e-2f || dot(TargetRadiance, 1.f.xxx) < dot(SGEvaluatedRadiance, 1.f.xxx)) {
+                    if(SGEvaluatedRaw > 1e-2f || dot(TargetRadiance, 1.f.xxx) < dot(SGEvaluatedRadiance, 1.f.xxx)) {
                         SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight;
                         SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
                     }
@@ -2832,6 +2832,32 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
 
 #define MAX_TEMPORAL_ACCUMULATION 10
 
+// https://www.gdcvault.com/play/1022970/Temporal-Reprojection-Anti-Aliasing-in
+float2 GetClosestVelocity(in float2 uv, in float2 texel_size, out bool is_sky_pixel)
+{
+    float2 velocity;
+    float  closest_depth = 9.9f;
+
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            float2 st    = uv + float2(x, y) * texel_size;
+            float  depth = g_DepthTexture.SampleLevel(g_NearestSampler, st, 0.0f).x;
+
+            if (depth < closest_depth)
+            {
+                velocity      = g_VelocityTexture.SampleLevel(g_NearestSampler, st, 0.0f).xy;
+                closest_depth = depth;
+            }
+        }
+    }
+
+    is_sky_pixel = (closest_depth >= 1.0f);
+
+    return velocity;
+}
+
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
     int TileID = GroupID.x + GroupID.y * MI.TileDimensions.x;
@@ -2892,9 +2918,11 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
             float  TotalSamples    = NewLightingValid > 0 ? 1.f : 0.f;
 
             // Reproject to previous frame
-            float2 PreviousUV = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0.0f).xy;
+            bool PreviousIsSkyPixel = false;
+            float2 PreviousUV = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0).xy;
+            //GetClosestVelocity(UV, MI.ScreenDimensionsInv, PreviousIsSkyPixel);
 
-            if (all(PreviousUV >= 0.0f) && all(PreviousUV < 1.0f))
+            if (!PreviousIsSkyPixel && all(PreviousUV >= 0.0f) && all(PreviousUV < 1.0f))
             {
                 float3 Homogeneous     = float3(UV2NDC2(UV), Depth);
                 float3 HomogeneousPrev = transformPointProjection(Homogeneous, MI.Reprojection);
@@ -2904,8 +2932,9 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                 float2 PixelScale  = 1.0f / MI.ScreenDimensions;
 
                 // top-left corner pixel index for bilinear interpolation
-                float2 PreviousBilinearPixelPos = floor(PreviousUV * MI.ScreenDimensions - 0.5);
-                float2 PreviousBilinearSubpixel = frac(PreviousUV * MI.ScreenDimensions - 0.5);
+                float2 PreviousBilinear         = PreviousUV * MI.ScreenDimensions - 0.5;
+                float2 PreviousBilinearPixelPos = floor(PreviousBilinear);
+                float2 PreviousBilinearSubpixel = frac(PreviousBilinear);
                 float2 HistoryGatherUV          = (PreviousBilinearPixelPos + 1) * MI.ScreenDimensionsInv;
 
                 float4 HistoryGBufferDepths  = g_PreviousDepthTexture.GatherRed(g_ClampedPointSampler, HistoryGatherUV).wzxy;
@@ -2929,7 +2958,8 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                     (1.f - PreviousBilinearSubpixel.x) * PreviousBilinearSubpixel.y,
                     PreviousBilinearSubpixel.x * PreviousBilinearSubpixel.y
                 );
-                float4 NormalWeights;
+                float4 NormalWeights = 1.f.xxxx;
+#if false
                 // Normal rejection
                 {
                     float2 BaseUV = (PreviousBilinearPixelPos + 0.5f) * MI.ScreenDimensionsInv;
@@ -2953,6 +2983,7 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                     );
                     NormalWeights = select(NormalWeights < 0.5 + 0.5f * Noise, 0.f, 1.f);
                 }
+#endif
                 float4 FinalWeights = BilinearWeights * VisibilityWeights * NormalWeights;
 
                 FinalWeights = FinalWeights / max(dot(FinalWeights, 1.f.xxxx), 1e-5f);
@@ -2981,10 +3012,10 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                         g_ClampedPointSampler, BaseUV + float2(PixelScale.x,  PixelScale.y), 0.f
                     ).xyz;
                     HistoryIrradiance = 
-                        HistoryIrradianceX00 * BilinearWeights.x + 
-                        HistoryIrradianceX10 * BilinearWeights.y + 
-                        HistoryIrradianceX01 * BilinearWeights.z + 
-                        HistoryIrradianceX11 * BilinearWeights.w;
+                        HistoryIrradianceX00 * FinalWeights.x + 
+                        HistoryIrradianceX10 * FinalWeights.y + 
+                        HistoryIrradianceX01 * FinalWeights.z + 
+                        HistoryIrradianceX11 * FinalWeights.w;
                     
                     float3 HistoryGlossySpecularX00 = g_PreviousGlossySpecularTexture.SampleLevel(
                         g_ClampedPointSampler, BaseUV, 0.f
@@ -2999,10 +3030,10 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
                         g_ClampedPointSampler, BaseUV + float2(PixelScale.x,  PixelScale.y), 0.f
                     ).xyz;
                     HistoryGlossySpecular = 
-                        HistoryGlossySpecularX00 * BilinearWeights.x + 
-                        HistoryGlossySpecularX10 * BilinearWeights.y + 
-                        HistoryGlossySpecularX01 * BilinearWeights.z + 
-                        HistoryGlossySpecularX11 * BilinearWeights.w;
+                        HistoryGlossySpecularX00 * FinalWeights.x + 
+                        HistoryGlossySpecularX10 * FinalWeights.y + 
+                        HistoryGlossySpecularX01 * FinalWeights.z + 
+                        HistoryGlossySpecularX11 * FinalWeights.w;
 
                 }
             }

@@ -21,6 +21,8 @@ THE SOFTWARE.
 ********************************************************************/
 #pragma once
 
+#include "glm/vec3.hpp"
+#include "glm/vec4.hpp"
 #include "render_technique.h"
 
 namespace Capsaicin
@@ -64,6 +66,8 @@ public:
      */
     void render(CapsaicinInternal &capsaicin) noexcept override;
 
+    void renderGUI(CapsaicinInternal &capsaicin) const noexcept override;
+
     /**
      * Destroy any used internal resources and shutdown.
      */
@@ -74,5 +78,8 @@ protected:
     GfxProgram    atmosphere_program_;
     GfxKernel     draw_atmosphere_kernel_;
     GfxKernel     filter_atmosphere_kernel_;
+
+    mutable glm::vec3    sun_direction_ = glm::vec3(0.0f, 1.0f, 0.0f);
+    mutable glm::vec4    sun_color_     = glm::vec4(3.0f, 2.5f, 2.0f, 1.f);
 };
 } // namespace Capsaicin

@@ -88,6 +88,11 @@ void Atmosphere::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, atmosphere_program_, "g_FrameIndex", capsaicin.getFrameIndex());
     gfxProgramSetParameter(gfx_, atmosphere_program_, "g_BufferDimensions", buffer_dimensions);
 
+    glm::vec3 const sun_color = glm::vec3(sun_color_ * sun_color_.w);
+    sun_direction_ = glm::normalize(sun_direction_);
+    gfxProgramSetParameter(gfx_, atmosphere_program_, "g_LightDirection", sun_direction_);
+    gfxProgramSetParameter(gfx_, atmosphere_program_, "g_LightColor", sun_color);
+
     gfxProgramSetParameter(gfx_, atmosphere_program_, "g_OutEnvironmentBuffer", environment_buffer);
 
     // Draw the atmosphere
@@ -152,5 +157,18 @@ void Atmosphere::terminate() noexcept
     gfxDestroyProgram(gfx_, atmosphere_program_);
     gfxDestroyKernel(gfx_, draw_atmosphere_kernel_);
     gfxDestroyKernel(gfx_, filter_atmosphere_kernel_);
+}
+
+void Atmosphere::renderGUI(CapsaicinInternal &capsaicin) const noexcept
+{
+    (void)capsaicin;
+    if(ImGui::CollapsingHeader("Atmosphere", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::SliderFloat("Sun Direction X", &sun_direction_.x, -1.0f, 1.0f);
+        ImGui::SliderFloat("Sun Direction Y", &sun_direction_.y, -1.0f, 1.0f);
+        ImGui::SliderFloat("Sun Direction Z", &sun_direction_.z, -1.0f, 1.0f);
+        ImGui::ColorEdit3("Sun Color", &sun_color_.x);
+        ImGui::SliderFloat("Sun Intensity", &sun_color_.w, 0.0f, 10.0f);
+    }
 }
 } // namespace Capsaicin
