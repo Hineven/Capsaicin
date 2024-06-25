@@ -482,15 +482,6 @@ void SSRC_WriteProbeDispatchParameters () {
 
 }
 
-SGData GetIrradianceSG (float3 Normal, float3 Color) {
-    SGData SG;
-    SG.Color = Color;
-    SG.Direction = Normal;
-    SG.Depth = 0.f;
-    // Similar to the cosine lobe
-    SG.Lambda = 0.85f;
-    return SG;
-}
 
 void ResetProbe (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int BasisOffset, float3 ProbeNormal) {
     for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
@@ -502,7 +493,7 @@ void ResetProbe (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int 
         SGData SG;
         SG.Color     = 0.001f.xxx;
         // TODO better initialization
-        SG.Lambda    = 0.65f + 0.2f * BasisCount;
+        SG.Lambda    = InitSGLambda(BasisCount);
 
         float3 Direction = InitHemiDirections(LocalID, BasisCount);
         float3 Normal    = ProbeNormal;
@@ -511,7 +502,7 @@ void ResetProbe (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int 
         float  Phi       = BlueNoise_Sample1D(int2(GroupID, LocalID), MI.FrameSeed, 2);
         SG.Direction = normalize(Direction.x * Tangent + Direction.y * Bitangent + Direction.z * Normal);
 
-        SG.Depth     = 1.f;
+        SG.Depth     = MI.CameraFar;
         WriteBasisData(BasisOffset + LocalID, SG);
     }
     GroupMemoryBarrierWithGroupSync();
@@ -906,9 +897,9 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             if(LocalID < NumBasis) SG = LocalSGData4[LocalID];
             else {
                 // Initialize the basis
-                SG.Color = 1e-4f;
-                SG.Lambda = 0.65f + 0.2f * NumBasis;
-                SG.Depth  = 1.f;
+                SG.Color = 0.001f;
+                SG.Lambda = InitSGLambda(NumBasis);
+                SG.Depth  = MI.CameraFar;
                 float3 Direction = InitHemiDirections(LocalID, CurrentProbeBasisCount);
                 SG.Direction = normalize(Direction.x * ProbeTangent + Direction.y * ProbeBitangent + Direction.z * Header.Normal);
             }
@@ -2128,6 +2119,8 @@ groupshared float3 LocalDColorPrefixSum[WAVE_SIZE];
 groupshared float3 LocalDDirectionPrefixSum[WAVE_SIZE];
 groupshared float  LocalAFactorSum[WAVE_SIZE];
 groupshared float  LocalDLambdaPrefixSum[WAVE_SIZE];
+
+groupshared float3 LocalProbeTexels[SSRC_PROBE_TEXTURE_TEXEL_COUNT];
 // The coverage of each ray by SGs
 groupshared float  LocalRayCoverage[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
 groupshared float  LocalSampleWeightPrefixSum[WAVE_SIZE];
@@ -2250,9 +2243,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].z, QuantilizeRadiance(WeightedTargetRadiance.z, Q_Noise));
                 InterlockedAdd(LocalProbeTexelsQuantilized[OctahedronTexelIndex].w, QuantilizeRadiance(WeightedRayDepth, Q_Noise));
                 InterlockedAdd(LocalProbeTexelSampleWeightQuantilized[OctahedronTexelIndex], QuantilizeWeight(SampleWeight, Q_Noise));
-                // Accumulate probe octahedron radiance to evaluated radiance
-                float3 OldOctahedronRadiance = GetScreenProbeOctahedronRadianceDepth(ProbeIndex, OctahedronTexelCoords).xyz;
-                LocalEvaluatedRadiance[RayRank] += OldOctahedronRadiance;
                 // Accumulate backup radiance
                 BackupRadianceSum += WeightedTargetRadiance;
                 BackupRadianceWeightSum += SampleWeight;
@@ -2298,7 +2288,34 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             // Clamp the lerping factor with impact factors from our pipeline
             TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
             float4 NewValue = lerp(RadianceDepthSum / Weight, OldRadianceDepth, TemporalBlend);
+            LocalProbeTexels[ProbeTexelIndex] = NewValue.xyz;
             WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, NewValue);
+        }
+    }
+    // Barrier updates on LocalProbeTexels
+    GroupMemoryBarrierWithGroupSync();
+    for(int BaseUpdateRayRank = 0; BaseUpdateRayRank < ProbeRayCount; BaseUpdateRayRank += WAVE_SIZE) {
+        int RayRank = BaseUpdateRayRank + LocalID;
+        int UpdateRayIndex = ProbeRayOffset + RayRank;
+        float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[UpdateRayIndex]);
+        float3 Radiance = RadianceInvPdf.xyz;
+        float  InvPdf   = RadianceInvPdf.w;
+        if(InvPdf > 0) {
+            float3 RayDirection = FetchUpdateRayDirection(UpdateRayIndex);
+            float3 LocalRayDirection = float3(
+                dot(ProbeTangent,   RayDirection),
+                dot(ProbeBitangent, RayDirection),
+                dot(Header.Normal,  RayDirection)
+            );
+            if(LocalRayDirection.z > 0) {
+                float2 OctahedronUV = mapToHemiOctahedron(LocalRayDirection);
+                int2 OctahedronTexelCoords = clamp(int2(
+                    int(OctahedronUV.x * SSRC_PROBE_TEXTURE_SIZE),
+                    int(OctahedronUV.y * SSRC_PROBE_TEXTURE_SIZE)
+                    ), 0, SSRC_PROBE_TEXTURE_SIZE - 1);
+                int  OctahedronTexelIndex = OctahedronTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE + OctahedronTexelCoords.x;
+                LocalEvaluatedRadiance[RayRank] += LocalProbeTexels[OctahedronTexelIndex];
+            }
         }
     }
     // Barrier updates on LocalEvaluatedRadiance

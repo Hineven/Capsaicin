@@ -425,6 +425,10 @@ float3 InitHemiDirections (int i, int n) {
     return FibonacciSphere(i, n*2);
 }
 
+float InitSGLambda (int Count) {
+    return 5.f;
+}
+
 // Replaced with the better impl from GI10 (GetOrthoVectors)
 // void TangentVectors (float3 Normal, out float3 Tangent, out float3 Bitangent) {
 //     float3 AbsNormal = abs(Normal);
