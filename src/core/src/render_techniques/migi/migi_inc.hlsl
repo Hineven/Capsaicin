@@ -93,6 +93,9 @@ RWTexture2D<uint>   g_RWPreviousProbeNormalTexture;
 // R16G16B16A16, 8x8 per probe, 3 color + 1 linear depth
 RWTexture2D<float4>  g_RWProbeColorTexture; 
 RWTexture2D<float4>  g_RWPreviousProbeColorTexture;
+// Padded probe color texture for hardware filtering
+RWTexture2D<float4>  g_RWProbeSampleColorTexture;
+Texture2D<float4>    g_ProbeSampleColorTexture;
 // SH coefficients 8+1 per channel
 RWTexture2D<float4>  g_RWProbeSHCoefficientsRTexture;
 RWTexture2D<float4>  g_RWProbeSHCoefficientsGTexture;
@@ -164,6 +167,10 @@ ConstantBuffer<WorldSpaceReSTIRConstants>  g_WorldSpaceReSTIRConstants;
 ConstantBuffer<RTConstants>  g_RTConstants;
 
 ConstantBuffer<MIGI_Constants>              MI;
+
+// LUT
+Texture2D g_LutBuffer;
+uint g_LutSize;
 
 // Debugging
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;

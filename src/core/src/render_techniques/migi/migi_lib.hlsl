@@ -77,6 +77,8 @@ float2 Hammersley16( uint Index, uint NumSamples, uint2 Random )
 	return float2( E1, E2 );
 }
 
+// From Lumen
+
 // to [-1, 1]^2
 float2 UnitVectorToOctahedron(float3 N)
 {
@@ -95,6 +97,31 @@ float3 OctahedronToUnitVector( float2 Oct )
 	float t = max( -N.z, 0 );
 	N.xy += select(N.xy >= 0, float2(-t, -t), float2(t, t));
 	return normalize(N);
+}
+
+float2 UnitVectorToHemiOctahedron( float3 N )
+{
+	N.xy /= dot( 1, abs(N) );
+	return float2( N.x + N.y, N.x - N.y );
+}
+float2 UnitVectorToHemiOctahedron01( float3 N )
+{
+    // TODO some artefacts if we use UE style mapping (commonly used mapping)
+    return UnitVectorToHemiOctahedron(N) * 0.5 + 0.5;
+    return mapToHemiOctahedron(N);
+}
+
+float3 HemiOctahedronToUnitVector( float2 Oct )
+{
+	Oct = float2( Oct.x + Oct.y, Oct.x - Oct.y );
+	float3 N = float3( Oct, 2.0 - dot( 1, abs(Oct) ) );
+	return normalize(N);
+}
+float3 HemiOctahedron01ToUnitVector( float2 Oct )
+{
+    // TODO some artefacts if we use UE style mapping (commonly used mapping)
+    return HemiOctahedronToUnitVector(Oct * 2 - 1);
+    return mapToHemiOctahedronInverse(Oct);
 }
 
 

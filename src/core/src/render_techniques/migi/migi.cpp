@@ -10,6 +10,7 @@
 #include "components/blue_noise_sampler/blue_noise_sampler.h"
 #include "components/light_sampler_grid_stream/light_sampler_grid_stream.h"
 #include "components/stratified_sampler/stratified_sampler.h"
+#include "components/brdf_lut/brdf_lut.h"
 #include "migi_internal.h"
 
 // Special hacking for manipulating the draw topology withing gfx
@@ -38,6 +39,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     auto light_sampler      = capsaicin.getComponent<LightSamplerGridStream>();
     auto blue_noise_sampler = capsaicin.getComponent<BlueNoiseSampler>();
     auto stratified_sampler = capsaicin.getComponent<StratifiedSampler>();
+    auto brdf_lut      = capsaicin.getComponent<BrdfLut>();
 
     // Prepare for settings changes
     {
@@ -89,6 +91,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     light_sampler->addProgramParameters(capsaicin, kernels_.program);
     stratified_sampler->addProgramParameters(capsaicin, kernels_.program);
     blue_noise_sampler->addProgramParameters(capsaicin, kernels_.program);
+    brdf_lut->addProgramParameters(capsaicin, kernels_.program);
 
     // Global read-only
     gfxProgramSetParameter(gfx_, kernels_.program, "g_EnvironmentBuffer", capsaicin.getEnvironmentBuffer());
@@ -167,6 +170,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         // Color texture is rolled twice per frame, so no need for flipping.
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeColorTexture", tex_.probe_color[0]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeColorTexture", tex_.probe_color[1]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSampleColorTexture", tex_.probe_sample_color);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_ProbeSampleColorTexture", tex_.probe_sample_color);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsRTexture", tex_.probe_SH_coefficients_R);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSHCoefficientsGTexture", tex_.probe_SH_coefficients_G);
@@ -781,6 +786,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     {
         TimedSection const timed_section(*this, "SSRC_FilterProbes");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_FilterProbes);
+        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
+    }
+
+    // Pad probe texture edges for later sampling
+    {
+        TimedSection const timed_section(*this, "SSRC_PadProbeTextureEdges");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_PadProbeTextureEdges);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 

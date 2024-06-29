@@ -73,6 +73,7 @@ public:
 
         // Octahedral encoded color + depth fp16x4
         GfxTexture   probe_color[2];
+        GfxTexture   probe_sample_color;
         // Probe SH coefficients 4xfloat16, 8 coefficients packed in one texture
         GfxTexture   probe_SH_coefficients_R;
         GfxTexture   probe_SH_coefficients_G;
@@ -171,6 +172,7 @@ public:
         GfxKernel  ResolveCells {};
         GfxKernel  SSRC_UpdateProbes {};
         GfxKernel  SSRC_FilterProbes {};
+        GfxKernel  SSRC_PadProbeTextureEdges {};
         GfxKernel  SSRC_IntegrateASG {};
         GfxKernel  SSRC_Denoise {};
         GfxKernel  DebugSSRC_FetchCursorPos {};

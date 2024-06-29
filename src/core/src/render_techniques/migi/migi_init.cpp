@@ -138,6 +138,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_FilterProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_FilterProbes", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_PadProbeTextureEdges = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_PadProbeTextureEdges", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_IntegrateASG = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_Denoise = gfxCreateComputeKernel(
@@ -299,6 +301,7 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.probe_color[0].setName("ProbeColor0");
     tex_.probe_color[1] = gfxCreateTexture2D(gfx_, probe_texture_width * SSRC_PROBE_TEXTURE_SIZE, probe_texture_height * SSRC_PROBE_TEXTURE_SIZE, DXGI_FORMAT_R16G16B16A16_FLOAT);
     tex_.probe_color[1].setName("ProbeColor1");
+    tex_.probe_sample_color = gfxCreateTexture2D(gfx_, probe_texture_width * (SSRC_PROBE_TEXTURE_SIZE+2), probe_texture_height * (SSRC_PROBE_TEXTURE_SIZE+2), DXGI_FORMAT_R16G16B16A16_FLOAT);
 
     // Double the width to store all 8 coefficients
     tex_.probe_SH_coefficients_R = gfxCreateTexture2D(gfx_, probe_texture_width * 2, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
@@ -495,6 +498,7 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.ResolveCells);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_FilterProbes);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_PadProbeTextureEdges);
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
     gfxDestroyKernel(gfx_, kernels_.SSRC_Denoise);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
@@ -538,6 +542,7 @@ void MIGI::releaseResources()
     gfxDestroyTexture(gfx_, tex_.probe_normal[1]);
     gfxDestroyTexture(gfx_, tex_.probe_color[0]);
     gfxDestroyTexture(gfx_, tex_.probe_color[1]);
+    gfxDestroyTexture(gfx_, tex_.probe_sample_color);
     gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_R);
     gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_G);
     gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_B);

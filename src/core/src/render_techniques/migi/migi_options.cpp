@@ -6,9 +6,9 @@
 
 #include "capsaicin_internal.h"
 #include "components/blue_noise_sampler/blue_noise_sampler.h"
+#include "components/brdf_lut/brdf_lut.h"
 #include "components/light_sampler_grid_stream/light_sampler_grid_stream.h"
 #include "components/stratified_sampler/stratified_sampler.h"
-
 #include "migi.h"
 #include "migi_internal.h"
 
@@ -117,6 +117,7 @@ ComponentList MIGI::getComponents() const noexcept
     components.emplace_back(COMPONENT_MAKE(LightSamplerGridStream));
     components.emplace_back(COMPONENT_MAKE(BlueNoiseSampler));
     components.emplace_back(COMPONENT_MAKE(StratifiedSampler));
+    components.emplace_back(COMPONENT_MAKE(BrdfLut));
     return components;
 }
 
