@@ -214,6 +214,7 @@ struct MIGI_Constants {
 
     uint   BaseUpdateRayWaves;
     uint   ProbeFiltering;
+    uint   SquaredSGDirectionalRadianceWeight;
 };
 
 

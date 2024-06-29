@@ -93,7 +93,7 @@ int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
     // TODO: Implement this function
     // FIXME
     // 2 causes MORE outflares
-    return MI.DisableSG ? 0 : 3;
+    return MI.DisableSG ? 0 : 1;
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {

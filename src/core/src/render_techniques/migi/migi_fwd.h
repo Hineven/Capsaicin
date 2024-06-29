@@ -69,6 +69,8 @@ struct MIGIRenderOptions {
     bool enable_indirect = true;
     // Whether to disable SGs for caching (use irradiance only)
     bool disable_SG = false;
+    // Whether to use square weighted radiance for SG direction update
+    bool SSRC_squared_SG_directional_weight = false;
 
     bool ambient_occlusion = false;
     bool near_field_global_illumination = false;

@@ -89,6 +89,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Ambient Occlusion", &options_.ambient_occlusion);
         ImGui::Checkbox("SSGI", &options_.near_field_global_illumination);
         ImGui::Checkbox("Disable SG", &options_.disable_SG);
+        ImGui::Checkbox("Squared radiance weight for SG direction", &options_.SSRC_squared_SG_directional_weight);
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);

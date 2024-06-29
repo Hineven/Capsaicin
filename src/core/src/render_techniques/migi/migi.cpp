@@ -320,6 +320,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         C.BaseUpdateRayWaves      = options_.SSRC_base_update_ray_waves;
         C.ProbeFiltering          = !options_.no_probe_filtering;
+        C.SquaredSGDirectionalRadianceWeight = options_.SSRC_squared_SG_directional_weight;
 
         previous_constants_ = C;
 

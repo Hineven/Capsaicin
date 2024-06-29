@@ -2343,7 +2343,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 // but its color is not converged to the correct result yet.
                 float3 DiffRadianceClamped = max(RayRadiance - LocalEvaluatedRadiance[RayRank], 0.f);
                 float3 TargetRadiance = DiffRadianceClamped + SGEvaluatedRadiance;
-                float  RadianceWeight    = dot(TargetRadiance, TargetRadiance);
+                float  RadianceWeight    = MI.SquaredSGDirectionalRadianceWeight ? dot(TargetRadiance, TargetRadiance) : dot(TargetRadiance, 1.f.xxx);
                 // The weight for balancing sample distribution
                 float  SampleWeight      = InvPdf;
                 // 0529: Add a bias to reserve affection for closer light sources in the same direction
