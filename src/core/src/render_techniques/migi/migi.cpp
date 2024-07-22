@@ -332,42 +332,18 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     // Hash grid radiance cache and world space ReSTIR, Raytracing: constant buffers
     {
         // Allocate and populate our constant data
-        GfxBuffer hash_grid_cache_constants    = capsaicin.allocateConstantBuffer<HashGridCacheConstants>(1);
+        GfxBuffer world_cache_constants    = capsaicin.allocateConstantBuffer<WorldCacheConstants>(1);
         GfxBuffer world_space_restir_constants = capsaicin.allocateConstantBuffer<WorldSpaceReSTIRConstants>(1);
 
         // Convert pixel size to view space size
         float          cell_size   = tanf(capsaicin.getCamera().fovY * options_.hash_grid_cache.cell_size
                                                                          * GFX_MAX(1.0f / capsaicin.getHeight(),
                                                                              (float)capsaicin.getHeight() / (capsaicin.getWidth() * capsaicin.getWidth())));
-        HashGridCacheConstants hash_grid_cache_constant_data = {};
-        // TODO use near-far plane to determine cell size
-        hash_grid_cache_constant_data.cell_size              = cell_size;
-        hash_grid_cache_constant_data.min_cell_size          = options_.hash_grid_cache.min_cell_size;
-        hash_grid_cache_constant_data.tile_size       = cell_size * float(options_.hash_grid_cache.tile_cell_ratio);
-        hash_grid_cache_constant_data.tile_cell_ratio = (float)options_.hash_grid_cache.tile_cell_ratio;
-        hash_grid_cache_constant_data.num_buckets     = hash_grid_cache_.num_buckets_;
-        hash_grid_cache_constant_data.num_cells       = hash_grid_cache_.num_cells_;
-        hash_grid_cache_constant_data.num_tiles       = hash_grid_cache_.num_tiles_;
-        hash_grid_cache_constant_data.num_tiles_per_bucket        = hash_grid_cache_.num_tiles_per_bucket_;
-        hash_grid_cache_constant_data.size_tile_mip0              = hash_grid_cache_.size_tile_mip0_;
-        hash_grid_cache_constant_data.size_tile_mip1              = hash_grid_cache_.size_tile_mip1_;
-        hash_grid_cache_constant_data.size_tile_mip2              = hash_grid_cache_.size_tile_mip2_;
-        hash_grid_cache_constant_data.size_tile_mip3              = hash_grid_cache_.size_tile_mip3_;
-        hash_grid_cache_constant_data.num_cells_per_tile_mip0     = hash_grid_cache_.num_cells_per_tile_mip0_;
-        hash_grid_cache_constant_data.num_cells_per_tile_mip1     = hash_grid_cache_.num_cells_per_tile_mip1_;
-        hash_grid_cache_constant_data.num_cells_per_tile_mip2     = hash_grid_cache_.num_cells_per_tile_mip2_;
-        hash_grid_cache_constant_data.num_cells_per_tile_mip3     = hash_grid_cache_.num_cells_per_tile_mip3_;
-        hash_grid_cache_constant_data.num_cells_per_tile          = hash_grid_cache_.num_cells_per_tile_;
-        hash_grid_cache_constant_data.first_cell_offset_tile_mip0 = hash_grid_cache_.first_cell_offset_tile_mip0_;
-        hash_grid_cache_constant_data.first_cell_offset_tile_mip1 = hash_grid_cache_.first_cell_offset_tile_mip1_;
-        hash_grid_cache_constant_data.first_cell_offset_tile_mip2 = hash_grid_cache_.first_cell_offset_tile_mip2_;
-        hash_grid_cache_constant_data.first_cell_offset_tile_mip3 = hash_grid_cache_.first_cell_offset_tile_mip3_;
-        hash_grid_cache_constant_data.buffer_ping_pong = hash_grid_cache_.radiance_cache_hash_buffer_ping_pong_;
-        hash_grid_cache_constant_data.max_sample_count = options_.hash_grid_cache.max_sample_count;
+        WorldCacheConstants world_cache_constant_data = {};
         // Debugging features are clipped for the hash grid cache
 
-        gfxBufferGetData<HashGridCacheConstants>(gfx_, hash_grid_cache_constants)[0] =
-            hash_grid_cache_constant_data;
+        gfxBufferGetData<WorldCacheConstants>(gfx_, world_cache_constants)[0] =
+            world_cache_constant_data;
 
         WorldSpaceReSTIRConstants world_space_restir_constant_data = {};
         world_space_restir_constant_data.cell_size =
@@ -390,7 +366,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         }
 
         // Bind buffers
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_HashGridCacheConstants", hash_grid_cache_constants);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_WorldSpaceReSTIRConstants", world_space_restir_constants);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RTConstants", rt_constants);
     }

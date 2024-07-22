@@ -118,7 +118,7 @@ RWStructuredBuffer<uint>  g_RWProbeUpdateRayCountBuffer;
 RWStructuredBuffer<uint>  g_RWProbeUpdateRayOffsetBuffer;
 // Total number of allocated update rays
 RWStructuredBuffer<uint>  g_RWUpdateRayCountBuffer;
-// Index probe index with ray index, unorm16x2 packed
+// Index probe index with ray index, screen probe: unorm16x2, world probe: index with 0x80000000u
 RWStructuredBuffer<uint>  g_RWUpdateRayProbeBuffer;
 // Octahedral packed direction for each update ray (fp16x2)
 RWStructuredBuffer<uint>  g_RWUpdateRayDirectionBuffer;
