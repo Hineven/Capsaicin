@@ -107,7 +107,7 @@ float2 UnitVectorToHemiOctahedron( float3 N )
 float2 UnitVectorToHemiOctahedron01( float3 N )
 {
     // TODO some artefacts if we use UE style mapping (commonly used mapping)
-    return UnitVectorToHemiOctahedron(N) * 0.5 + 0.5;
+    // return UnitVectorToHemiOctahedron(N) * 0.5 + 0.5;
     return mapToHemiOctahedron(N);
 }
 
@@ -120,7 +120,7 @@ float3 HemiOctahedronToUnitVector( float2 Oct )
 float3 HemiOctahedron01ToUnitVector( float2 Oct )
 {
     // TODO some artefacts if we use UE style mapping (commonly used mapping)
-    return HemiOctahedronToUnitVector(Oct * 2 - 1);
+    // return HemiOctahedronToUnitVector(Oct * 2 - 1);
     return mapToHemiOctahedronInverse(Oct);
 }
 

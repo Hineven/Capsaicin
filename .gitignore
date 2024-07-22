@@ -6,3 +6,4 @@ imgui.ini
 out
 cmake-build-debug
 .idea
+third_party/gfx/third_party/*

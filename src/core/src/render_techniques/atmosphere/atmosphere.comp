@@ -57,10 +57,12 @@ void DrawAtmosphere(in uint2 did : SV_DispatchThreadID)
     m = 20.0f * m * m * sign(m);
 
     float3 light_direction = g_LightDirection;//normalize(float3(m * sin(t), 1.0f, m * cos(t)));
-    float3 light_color     = g_LightColor;//float3(3.f, 2.5f, 2.f);//light_direction.y * float3(1.0f, 1.0f, 1.0f) + 0.1f;
+    float3 light_color     = g_LightColor * light_direction.y + 0.1f;//float3(3.f, 2.5f, 2.f);//light_direction.y * float3(1.0f, 1.0f, 1.0f) + 0.1f;
 
     float3 transmittance;
     float3 color = IntegrateScattering(ray_origin, ray_direction, ray_length, light_direction, light_color, transmittance);
+
+    color += max(dot(ray_direction, g_LightDirection) - 0.92f, 0.f) * 50.f * g_LightColor;
 
     g_OutEnvironmentBuffer[uint3(did, g_FaceIndex)] = float4(color, 1.0f);
 }

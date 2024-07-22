@@ -508,8 +508,6 @@ void ResetProbe (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int 
     GroupMemoryBarrierWithGroupSync();
 }
 
-#define DIRECTION_EXPAND (1.5f)
-
 groupshared float  LocalSGSize4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared SGData LocalSGData4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared SGData LocalSGData4New[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
@@ -718,8 +716,9 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             // FIXME directional reprojection is missing
 
             // Manually reduce the SG weight if it is mostly zero on the new probe's hemisphere
+            float NormalProjection = dot(SG.Direction, Header.Normal);
             // TODO correct the SG's direction with heuristic
-            float3 HemiDirection = SG.Direction - min(dot(SG.Direction, Header.Normal), 0.f) * Header.Normal;
+            float3 HemiDirection = SG.Direction - min(NormalProjection, 0.f) * Header.Normal;
             float HemiDirectionLength = length(HemiDirection);
             if(HemiDirectionLength < 1e-3f) {
                 float3 Tangent, Bitangent;
@@ -729,7 +728,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             } else {
                 HemiDirection /= HemiDirectionLength;
             }
-            float WeightDecay = saturate(lerp(0, DIRECTION_EXPAND, EvaluateSGRaw(SG, HemiDirection)));
+            float WeightDecay = saturate(lerp(0.f, 1.f, EvaluateSGRaw(SG, HemiDirection)));
             Weight *= WeightDecay;
 
             // Scale the color by the weight
@@ -2362,7 +2361,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             // float  SrcWeight = SGIntegrate(SG_D.Lambda) * dot(SG_D.Color, 1.f.xxx) + Epsilon;
             // float  DstWeight = SumTotalWeight + Epsilon;
             // float  T = SrcWeight / (SrcWeight + DstWeight);
-            float T = 0.5f;
+            float T = 0.15f;
             SG_O = SG_D;
             SG_D.Direction = normalize(lerp(SG_D.Direction, TargetDirection, T));//InterpolateDirection(SG_D.Direction, TargetDirection, T);
             if(WaveIsFirstLane()) {
