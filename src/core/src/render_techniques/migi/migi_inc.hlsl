@@ -17,7 +17,7 @@
 
 #ifndef WAVE_SIZE
 // This macro is set with the compiler flags
-// Default to NVIDIA
+// Defaults to NVIDIA
 #define WAVE_SIZE 32
 #endif
 
@@ -162,10 +162,8 @@ Texture2D g_TileHiZ_Min;
 Texture2D g_TileHiZ_Max;
 
 // Constant buffers for sub-components
-ConstantBuffer<HashGridCacheConstants>     g_HashGridCacheConstants;
-ConstantBuffer<WorldSpaceReSTIRConstants>  g_WorldSpaceReSTIRConstants;
-ConstantBuffer<RTConstants>  g_RTConstants;
-
+ConstantBuffer<WorldCacheConstants>     WorldCache;
+ConstantBuffer<RTConstants>  RayTracing;
 ConstantBuffer<MIGI_Constants>              MI;
 
 // LUT

@@ -78,61 +78,24 @@ void GenerateDispatchRays()
     g_RWDispatchRaysCommandBuffer[0] = dispatch_rays_command;
 }
 
-[numthreads(64, 1, 1)]
-void PurgeTiles(in uint did : SV_DispatchThreadID)
-{
-    if (did >= g_HashGridCache_PreviousPackedTileCountBuffer[0])
-    {
-        return; // out of bounds
+[numthreads(WAVE_SIZE, 1, 1)]
+void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
+    if(DispatchID >= WorldCache_GetActiveProbeCount()) return ;
+    int ProbeIndex = g_RWWorldCacheActiveProbeIndexBuffer[DispatchID];
+    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
+    Header.Score -= WorldCache.ProbeScoreDecay;
+    bool bShouldRecycleProbe = Header.Score <= 0;
+    int4 WorldCacheProbeGridCoords = WorldCache_GetProbeGridCoords(Header.Position);
+    WorldCacheProbeGrids bShouldRecycleProbe = true;
+
+    if(bShouldRecycleProbe) {
+        WorldCache_RecycleProbe(ProbeIndex);
     }
-
-    // We opt for calculating the decay of each tile from the
-    // current frame index, as it saves many writes per frame
-    // and is quite a bit faster than having to decrement all
-    // cell's decay values.
-    uint tile_index = g_HashGridCache_PreviousPackedTileIndexBuffer[did];
-    uint tile_decay = g_HashGridCache_DecayTileBuffer[tile_index];
-
-    if (MI.FrameIndex < tile_decay)   // account for integer wraparound case
-    {
-        tile_decay = ((0xFFFFFFFFu - tile_decay) + MI.FrameIndex + 1);
-    }
-    else
-    {
-        tile_decay = (MI.FrameIndex - tile_decay);
-    }
-
-    if (tile_decay >= kHashGridCache_TileDecay)
-    {
-        g_HashGridCache_HashBuffer[tile_index] = 0;
-
-#ifdef DEBUG_HASH_CELLS
-        // Clear all mipmaps
-        for (int cell_offset = 0; cell_offset < g_HashGridCacheConstants.num_cells_per_tile; ++cell_offset)
-        {
-            uint cell_index = HashGridCache_CellIndex(cell_offset, tile_index);
-            g_HashGridCache_DecayCellBuffer[cell_index] = 0xFFFFFFFFu;
-        }
-#endif // DEBUG_HASH_CELLS
-
-        return; // kill the tile
-    }
-
-    uint packed_tile_index;
-    InterlockedAdd(g_HashGridCache_PackedTileCountBuffer[0], 1, packed_tile_index);
-    g_HashGridCache_PackedTileIndexBuffer[packed_tile_index] = tile_index;
 }
 
-[numthreads(1, 1, 1)]
-void ClearCounters()
-{
-    g_Reservoir_HashListCountBuffer[0] = 0; // reset counters
+[numthreads(WAVE_SIZE, 1, 1)]
+void WorldCache_SpawnProbes () {
 
-    g_HashGridCache_PackedTileCountBuffer[0]    = 0;
-    g_HashGridCache_UpdateTileCountBuffer[0]    = 0;
-    g_HashGridCache_VisibilityCountBuffer[0]    = 0;
-    g_HashGridCache_VisibilityRayCountBuffer[0] = 0;
-    
 }
 
 // Clear the counters at the begginging of the frame
@@ -480,7 +443,6 @@ void SSRC_WriteProbeDispatchParameters () {
     g_RWReduceCountBuffer[0] = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + 1;
 
 }
-
 
 void ResetProbe (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int BasisOffset, float3 ProbeNormal) {
     for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
@@ -1231,8 +1193,8 @@ void ScreenCacheUpdateTraceRay(uint did, inout MIGI_CacheUpdatePayload payload, 
 #endif
 }
 
-// Trace visibility rays to generate intersections for secondary vertices
-void SSRC_TraceUpdateRays (uint DispatchID) {
+// Trace visibility rays to generate secondary vertices / hits for world cache update 
+void MIGI_TraceUpdateRays (uint DispatchID) {
     int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0];
     int RayCount   = g_RWProbeUpdateRayOffsetBuffer[ProbeCount];
     if(DispatchID >= RayCount) return ;
