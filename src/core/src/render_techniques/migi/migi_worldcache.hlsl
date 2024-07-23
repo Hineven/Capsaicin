@@ -23,16 +23,24 @@ struct WorldCacheVisibility {
 RWStructuredBuffer<uint> g_RWWorldCacheQueryCountBuffer;
 // Queries, packed in visibility
 RWStructuredBuffer<uint4> g_RWWorldCacheQueryVisibilityBuffer;
-// Queries, direction
-RWStructuredBuffer<uint4> g_RWWorldCacheQueryDirectionBuffer;
-
+// Queries, direction, octahedron encoded
+RWStructuredBuffer<uint> g_RWWorldCacheQueryDirectionBuffer;
 
 // World cache probe atlas
-RWTexture2D<float4> g_RWWorldCacheRadianceDepthTexture;
+RWTexture2D<float4> g_RWWorldCacheIrradianceLuminanceTexture;
+RWTexture2D<float2> g_RWWorldCacheDepthDepthSquaredTexture;
+// Sum of probe irradiances in a single pixel per probe
+RWTexture2D<float4> g_RWWorldCacheProbeIrradianceTexture;
 // Folded 3d clipmaps, 0xffffffff means invalid
 RWTexture2D<uint> g_RWWorldCacheProbeIndexTexture;
 // Probe headers, packed in float4
 RWStructuredBuffer<float4> g_RWWorldCacheProbeHeaderBuffer;
+// Free probe indices
+RWStructuredBuffer<uint> g_RWWorldCacheFreeProbeIndexBuffer;
+// Number of active probes
+RWStructuredBuffer<uint> g_RWWorldCacheProbeCountBuffer;
+// List of active probes, generated every frame and used for ray dispatching
+RWStructuredBuffer<uint> g_RWWorldCacheActiveProbeIndexBuffer;
 
 uint4 WorldCache_PackQueryVisibility (WorldCacheVisibility Visibility) {
     // 1 + 15 + 16 + 32 + 32 x 2
@@ -64,18 +72,5 @@ void WorldCache_WriteQueryVisibility (uint QueryIndex, WorldCacheVisibility Visi
     g_RWWorldCacheQueryVisibilityBuffer[QueryIndex] = WorldCache_PackQueryVisibility(Visibility);
 }
 
-// Indexing
-struct MIGI_RayProbeIndex {
-    int2 ScreenProbeIndex;
-    int  WorldProbeIndex;
-    bool IsWorldProbe;
-};
-MIGI_RayProbeIndex UnpackRayProbeIndex (int Index) {
-    MIGI_RayProbeIndex Result;
-    Result.ScreenProbeIndex = UnpackUint16x2(Index);
-    Result.WorldProbeIndex = Index >> 16;
-    Result.IsWorldProbe = Result.WorldProbeIndex != -1;
-    return Result;
-}
 
 #endif // MIGI_WORLDCACHE_HLSL

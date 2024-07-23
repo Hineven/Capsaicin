@@ -21,6 +21,8 @@ struct WorldCacheConstants {
     uint   ProbeAtlasWidth;
     // In probes
     uint   ProbeAtlasHeight;
+
+    uint   UpdateRayPerProbe;
 };
 
 struct WorldSpaceReSTIRConstants
