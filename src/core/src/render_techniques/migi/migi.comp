@@ -78,30 +78,188 @@ void GenerateDispatchRays()
     g_RWDispatchRaysCommandBuffer[0] = dispatch_rays_command;
 }
 
-[numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
-    if(DispatchID >= WorldCache_GetActiveProbeCount()) return ;
-    int ProbeIndex = g_RWWorldCacheActiveProbeIndexBuffer[DispatchID];
-    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
-    Header.Score -= WorldCache.ProbeScoreDecay;
-    bool bShouldRecycleProbe = Header.Score <= 0;
-    int4 WorldCacheProbeGridCoords = WorldCache_GetProbeGridCoords(Header.Position);
-    WorldCacheProbeGrids bShouldRecycleProbe = true;
+[numthreads(1, 1, 1)]
+void WorldCache_ResetCounters () {
+    ...
+}
 
-    if(bShouldRecycleProbe) {
-        WorldCache_RecycleProbe(ProbeIndex);
+// Spawn probes that are requested in the last frame.
+// NOTE: doing delayed allocation may cause artifacts when shading directly with the world cache.
+// We use the temporal denoising to mitigate the artifacts. Pixels with missing lighting will be 
+// filled with the previous frame's data or quickly discarded.
+[numthreads(WAVE_SIZE, 1, 1)]
+void WorldCache_SpawnProbes (uint GroupID : SV_GroupID, uint LocalID : SV_GroupThreadID) {
+    if(GroupID >= g_RWWorldCacheProbeSpawnRequestCountBuffer[0]) return ;
+    int SpawnRequestIndex = GroupID;
+    WorldCacheProbeSpawnRequest Request = WorldCache_GetProbeSpawnRequest(SpawnRequestIndex);
+    int4 GridCoords = Request.GridCoords;
+
+    int  CascadeIndex = GridCoords.w;
+    int  ProbeIndex = -1;
+    if(WaveIsFirstLane()) ProbeIndex = WorldCache_AllocateProbe();
+    ProbeIndex = WaveReadLaneFirst(ProbeIndex);
+    if(ProbeIndex >= 0) {
+        // Successful allocation
+        WorldCacheProbeHeader Header = (WorldCacheProbeHeader)0;
+        Header.GridCoords = GridCoords;
+        Header.Score = WorldCache.ProbeInitialScore;
+        Header.bActive = true;
+        Header.GridInternalNormalizedPosition = 0;
+        WorldCache_WriteProbeHeader(ProbeIndex, Header);
+        float3 NewProbeWorldPosition = WorldCache_GetProbeWorldCenterFromGridCoords(GridCoords, true);
+
+        // Cooperatively initialize the probe data using the previous frame's data
+        WorldCacheSample Sample = WorldCache_SampleProbes(Header.WorldPosition, true);
+#define TEXEL_COUNT (WORLD_CACHE_PROBE_RESOLUTION * WORLD_CACHE_PROBE_RESOLUTION)
+#define LOOP ((TEXEL_COUNT + WAVE_SIZE - 1) / WAVE_SIZE)
+
+        float4 ThreadLocalDataSum0[LOOP];
+        float4 ThreadLocalDataSum1[LOOP];
+        for(int i = 0; i < LOOP; i++) {
+            ThreadLocalDataSum0[i] = 0;
+            ThreadLocalDataSum1[i] = 0;
+        }
+        for(int i = 0; i < 4; i++) {
+            if(Sample.ProbeIndex[i] > 0) {
+                int2 Offset = WorldCache_GetProbeAtlasBase(Sample.ProbeIndex[i]);
+                WorldCacheProbeHeader SrcHeader = WorldCache_GetProbeHeader(Sample.ProbeIndex[i]);
+                float3 V = SrcHeader.WorldPosition - NewProbeWorldPosition;
+                for(int BaseTexelIndex = 0; BaseTexelIndex < TEXEL_COUNT; BaseTexelIndex ++) {
+                    int TexelIndex = BaseTexelIndex + LocalID;
+                    int2 TexelCoords = int2(TexelIndex % WORLD_CACHE_PROBE_RESOLUTION, TexelIndex / WORLD_CACHE_PROBE_RESOLUTION);
+                    float2 TexelUV   = (TexelCoords + 0.5f) / WORLD_CACHE_PROBE_RESOLUTION;
+                    float3 Direction = OctahedronToUnitVector(TexelUV);
+                    float4 Data0 = g_RWWorldCacheIrradianceLuminanceTexture.Load(int3(TexelCoords + Offset, 0));
+                    float2 Data1 = g_RWWorldCacheDepthDepthSquaredTexture.Load(int3(TexelCoords + Offset, 0)).xy;
+                    float  DeltaDistance =  dot(V, Direction);
+                    Data1.y += DeltaDistance * DeltaDistance + 2.f * Data1.x * DeltaDistance;
+                    Data1.x += DeltaDistance;
+                    int Loop = BaseTexelIndex / WAVE_SIZE;
+                    ThreadLocalDataSum0[Loop] += Data0 * Sample.Weights[i];
+                    ThreadLocalDataSum1[Loop] += Data1 * Sample.Weights[i];
+                }
+            }
+        }
+        // Write back
+        for(int BaseTexelIndex = 0; BaseTexelIndex < TEXEL_COUNT; BaseTexelIndex += WAVE_SIZE) {
+            int TexelIndex = BaseTexelIndex + LocalID;
+            int2 TexelCoords = int2(TexelIndex % WORLD_CACHE_PROBE_RESOLUTION, TexelIndex / WORLD_CACHE_PROBE_RESOLUTION);
+            int2 Offset = WorldCache_GetProbeAtlasBase(ProbeIndex);
+            g_RWWorldCacheIrradianceLuminanceTexture[TexelCoords + Offset]
+                = ThreadLocalDataSum0[BaseTexelIndex / WAVE_SIZE];
+            g_RWWorldCacheDepthDepthSquaredTexture[TexelCoords + Offset]
+                = ThreadLocalDataSum1[BaseTexelIndex / WAVE_SIZE];
+        }
+#undef LOOP
+#undef TEXEL_COUNT
     }
 }
 
+// Decay probe scores and recycle probes that are no longer useful.
+// Also, relocate probes grid coords to their appropriate clipmap levels when rolling.
 [numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_SpawnProbes () {
+void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
+    if(DispatchID >= WorldCache.NumProbes) return ;
+    int ProbeIndex = DispatchID;
+    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
+    if(Header.bActive) {
+        Header.Score -= WorldCache.ProbeScoreDecay;
+        // Recycle unused probes.
+        bool bShouldRecycleProbe = Header.Score <= 0;
+        int4 GridCoords = Header.GridCoords;
+        // Roll cascades. Update the probe grid coords.
+        GridCoords.xyz += WorldCache.CascadeRolling[GridCoords.w];
+        bool bIsOutOfBounds = WorldCache_IsProbeCoordsOutOfBounds(GridCoords);
+        if(bIsOutOfBounds) {
+            bShouldRecycleProbe = true;
+        }
+        bool bIsOverlapped = WorldCache_IsProbeCoordsOverlapped(GridCoords);
+        if(bIsOverlapped) {
+            bShouldRecycleProbe = true;
+        }
 
+        // Override the recycle flag if the probe is fading into a higher level cascade
+        // The probe will be injected directly to the higher level cascade
+        if(GridCoords.w < WorldCache.MaxClipmapCascades - 1 && bIsOutOfBounds
+        && any((GridCoords.xyz & 1) == 0)) {
+            int4 HigherLevelGridCoords = int4(GridCoords.xyz >> 1, GridCoords.w + 1);
+            if(!WorldCache_IsProbeCoordsOutOfBounds(HigherLevelGridCoords)) {
+                bShouldRecycleProbe = false;
+                GridCoords = HigherLevelGridCoords;
+            }
+            // TODO fast rolling
+            // We just ignored the case when the probe fades into at least 2 levels higher cascade
+            // Cases when we're rolling too fast are rare.
+        }
+
+        if(bShouldRecycleProbe) {
+            WorldCache_RecycleProbe(ProbeIndex);
+        }
+        // Update the probe header
+        Header.GridCoords = GridCoords;
+        Header.Score = max(Header.Score, 0);
+
+        // Write back
+        WorldCache_WriteProbeHeader(ProbeIndex, Header);
+    }
 }
 
-// Clear the counters at the begginging of the frame
+// The clipmaps are cleared after probe recycling and spawnning.
+
+groupshared int LocalProbeIndex_WorldCache[WAVE_SIZE];
+groupshared int LocalProbeIndexCount_WorldCache;
+// Enumerate probes , respawn the active list & clipmap index
+[numthreads(WAVE_SIZE, 1, 1)]
+void WorldCache_UpdateActiveListAndIndex (uint DispatchID : SV_DispatchIndex) {
+    if(DispatchID >= WorldCache.NumProbes) return ;
+    int ProbeIndex = DispatchID;
+    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
+    if(Header.bActive) {
+        int LocalIndex;
+        InterlockedAdd(LocalProbeIndexCount_WorldCache, 1, LocalIndex);
+        LocalProbeIndex_WorldCache[LocalIndex] = ProbeIndex;
+
+        // Inject to clipmaps
+        int4 GridCoords = Header.GridCoords;
+        WorldCache_WriteProbeIndexToGrid(GridCoords, ProbeIndex);
+
+        bool bIsOnBorder = false;
+        if(GridCoords.w < WorldCache.MaxClipmapCascades - 1) {
+            int3 BorderMin = WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w + 1] * 2;
+            int3 BorderMax = BorderMin + WorldCache.GridCoordsBound * 2;
+            bIsOnBorder = any(GridCoords.xyz == BorderMin) || any(GridCoords.xyz == BorderMax);
+        }
+        // Also promote the probe to higher level clipmaps if it's on the border.
+        if(all((GridCoords & 1) == 0) && bIsOnBorder) {
+            WorldCache_WriteProbeIndexToGrid(int4(GridCoords.xyz >> 1, GridCoords.w + 1), ProbeIndex);
+        } 
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    int ActiveListBaseOffset = 0;
+    if(WaveIsFirstLane()) {
+        // Update the active list
+        ActiveListBaseOffset = InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], LocalProbeIndexCount_WorldCache);
+    }
+    ActiveListBaseOffset = WaveReadLaneFirst(ActiveListBaseOffset);
+
+    GroupMemoryBarrierWithGroupSync();
+    g_RWWorldCacheActiveProbeIndexBuffer[ActiveListBaseOffset + DispatchID] = LocalProbeIndex_WorldCache[DispatchID];
+}
+
+// Clear counters
+[numthreads(1, 1, 1)] 
+void WorldCache_ClipCounters () {    
+    // Calling AllocateProbe too many times may overflow the counter.
+    g_RWWorldCacheActiveProbeCountBuffer[0] = min(g_RWWorldCacheActiveProbeCountBuffer[0], WorldCache.NumProbes);
+    // Clear spawn requests (from last frame)
+    g_RWWorldCacheProbeSpawnRequestCountBuffer[0] = 0;
+}
+
+// Clear the counters at the beginging of the frame
 [numthreads(1, 1, 1)]
 void SSRC_ClearCounters() {
-    g_RWAdaptiveProbeCountBuffer[0]      = 0;
+    g_RWAdaptiveProbeCountBuffer[0]    = 0;
     g_RWAllocatedProbeSGCountBuffer[0] = 0;
 }
 
@@ -896,6 +1054,17 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     g_RWProbeUpdateRayCountBuffer[DispatchID] = min(WAVE_SIZE * max(1, Bonus), SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE);
 }
 
+// Allocate rays for world cache update
+[numthreads(WAVE_SIZE, 1, 1)]
+void WorldCache_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= WorldCache_GetActiveProbeCount()) return ;
+    int ProbeIndex = DispatchID;
+    // Simple uniform allocation
+    // TODO better allocation strategy
+    int RayCount = WorldCache.NumUpdateRayPerProbe;
+    g_RWProbeUpdateRayCountBuffer[MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + ProbeIndex] = RayCount;
+}
+
 // A scan sum is performed to accumulate allocated raycount for each probe
 
 [numthreads(1, 1, 1)]
@@ -1113,17 +1282,26 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
     }
 }
 
+// Sample update rays for world cache update
 [numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_SampleUpdateRays () {
-    ...
+void WorldCache_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
+    if(GroupID >= WorldCache_GetActiveProbeCount()) return ;
+    int ProbeIndirectIndex = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + GroupID;
+    int RayCount = g_RWProbeUpdateRayCountBuffer[ProbeIndirectIndex];
+    // Simple uniform sampling using fibonacci lattice
+    // TODO better sampling strategy
+    for(int RayRankBase = 0; RayRankBase < RayCount; RayRankBase += WAVE_SIZE) {
+        int RayRank = RayRankBase + LocalID;
+        float3 RayDirection = FibonacciSphere(RayRank, RayCount);
+        float RayPdf = UniformSampleHemispherePdf();
+        WriteUpdateRay(ProbeIndirectIndex, int2(0, 0), RayRank, RayDirection, RayPdf);
+    }
 }
-
 
 #define SSRC_DISPATCH_RAYS_GROUP_SIZE 8
 
 [numthreads(1, 1, 1)]
 void MIGI_GenerateTraceUpdateRays () {
-    int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + g_WorldCacheActiveProbeCount[0];
     int RayCount   = g_RWUpdateRayCountBuffer[0];
     DispatchRaysCommand dispatch_command_rays = (DispatchRaysCommand)0;
     dispatch_command_rays.ray_generation_shader_record = g_RTConstants.ray_generation_shader_record;
@@ -1147,24 +1325,30 @@ void MIGI_GenerateTraceUpdateRays () {
 
 void MIGI_CacheUpdateHandleHit(uint DispatchID, inout MIGI_CacheUpdatePayload payload, RayDesc ray, HitInfo hit_info)
 {
-    WorldCacheQuery Query;
-    Query.Hit = ray.Origin + payload.hit_dist * ray.Direction;
-    Query.Direction   = ray.Direction;
-    Query.HitDistance = payload.hit_dist;
-
+    WorldCacheVisibility Visibility;
+    Visibility.InstanceIndex = hit_info.instanceIndex;
+    Visibility.GeometryIndex = hit_info.geometryIndex;
+    Visibility.PrimitiveIndex = hit_info.primitiveIndex;
+    Visibility.Barycentrics = hit_info.barycentrics;
+    Visibility.IsFrontFace = hit_info.frontFace;
+    // Record query
+    WorldCache_WriteQueryVisibility(DispatchID, Visibility);
+    WorldCache_WriteQueryDirection(DispatchID, ray.Direction);
+    
     // Record hit distance
     g_RWUpdateRayLinearDepthBuffer[DispatchID] = payload.hit_dist;
-
-    // Enqueue query
-    WorldCacheEnqueueQuery(Query);
 }
 
-void MIGI_CacheUpdateHandleMiss(inout MIGI_CacheUpdatePayload payload, RayDesc ray)
+void MIGI_CacheUpdateHandleMiss(uint DispatchID, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
 {
     payload.sky_sample = g_EnvironmentBuffer.SampleLevel(g_TextureSampler, ray.Direction, 0.0f).xyz;
+    // Fallback to sky sample if no intersection
+    float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[DispatchID]);
+    g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(payload.sky_sample, RayRadianceInvPdf.w));
+    g_RWUpdateRayLinearDepthBuffer[DispatchID] = MI.CameraFar;
 }
 
-void ScreenCacheUpdateTraceRayInline(uint did, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
+void MIGI_CacheUpdateTraceRayInline(uint did, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
 {
     ClosestRayQuery ray_query = TraceRay<ClosestRayQuery>(ray);
 
@@ -1175,21 +1359,21 @@ void ScreenCacheUpdateTraceRayInline(uint did, inout MIGI_CacheUpdatePayload pay
         MIGI_CacheUpdateHandleHit(did, payload, ray, GetHitInfoRtInlineCommitted(ray_query));
     } else {
         payload.hit_dist = ray_query.CommittedRayT();
-        MIGI_CacheUpdateHandleMiss(payload, ray);
+        MIGI_CacheUpdateHandleMiss(did, payload, ray);
     }
 }
 
-void ScreenCacheUpdateTraceRayRt(uint did, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
+void MIGI_CacheUpdateTraceRayRt(uint did, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
 {
     TraceRay(g_Scene, RAY_FLAG_NONE, 0xFFu, 0, 0, 0, ray, payload);
 }
 
-void ScreenCacheUpdateTraceRay(uint did, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
+void MIGI_CacheUpdateTraceRay(uint did, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
 {
 #if USE_INLINE_RT
-    ScreenCacheUpdateTraceRayInline(did, payload, ray);
+    MIGI_CacheUpdateTraceRayInline(did, payload, ray);
 #else
-    ScreenCacheUpdateTraceRayRt(did, payload, ray);
+    MIGI_CacheUpdateTraceRayRt(did, payload, ray);
 #endif
 }
 
@@ -1211,8 +1395,13 @@ void MIGI_TraceUpdateRays (uint DispatchID) {
     float  InvPdf = RayRadianceInvPdf.w;
 
     // Early out if the ray is invalid / clipped for too tiny pdf.
-    if(InvPdf == 0) return ;
+    if(InvPdf == 0) {
+        g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(0.f);
+        g_RWUpdateRayLinearDepthBuffer[DispatchID] = 0.f;
+        return ;
+    }
 
+    // Override ray traced lighting for debugging
     if(MI.DebugLight != 0) {
         float3 LightPos = MI.DebugLightPosition;
         float  DistSqr  = lengthSqr(LightPos - RayOrigin);
@@ -1238,20 +1427,17 @@ void MIGI_TraceUpdateRays (uint DispatchID) {
 
     MIGI_CacheUpdatePayload payload;
     payload.sky_sample = float3(0.0f, 0.0f, 0.0f);
-    ScreenCacheUpdateTraceRay(
+    MIGI_CacheUpdateTraceRay(
         DispatchID,
         payload, VisibilityRayDesc
     );
-    // Fallback to sky sample if no intersection
-    g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(payload.sky_sample, InvPdf));
     
 }
 
 [numthreads(SSRC_DISPATCH_RAYS_GROUP_SIZE, 1, 1)]
-void SSRC_TraceUpdateRaysMain (uint DispatchID : SV_DispatchThreadID) {
-    SSRC_TraceUpdateRays(DispatchID);
+void MIGI_TraceUpdateRaysMain (uint DispatchID : SV_DispatchThreadID) {
+    MIGI_TraceUpdateRays(DispatchID);
 }
-
 
 // HiZ required for injection culling
 [numthreads(8, 8, 1)]
@@ -1300,10 +1486,10 @@ void SSRC_ReprojectPreviousUpdateError (int2 DispatchID : SV_DispatchThreadID) {
     float3 Normal = normalize(2.f * NormalPrev - 1.f);
 
     // Reproject the update error texture from previous frame to current frame
-    float4 packed_visibility = g_VisibilityTexture.Load(int3(DispatchID, 0));
-    float2 Barycentrics      = packed_visibility.xy;
-    int   InstanceIndex      = asint(packed_visibility.z);
-    int   PrimitiveIndex      = asint(packed_visibility.w);
+    float4 Visibility = g_VisibilityTexture.Load(int3(DispatchID, 0));
+    float2 Barycentrics      = Visibility.xy;
+    int   InstanceIndex      = asint(Visibility.z);
+    int   PrimitiveIndex      = asint(Visibility.w);
 
     // Reconstruct world-space position and normal
     Instance instance  = g_InstanceBuffer[InstanceIndex];
@@ -1367,11 +1553,18 @@ struct MIGI_RayProbeIndex {
     int  WorldProbeIndex;
     bool IsWorldProbe;
 };
-MIGI_RayProbeIndex UnpackRayProbeIndex (uint Packed) {
-    MIGI_RayProbeIndex Result;
-    Result.ScreenProbeIndex = UnpackUint16x2(Packed);
-    Result.WorldProbeIndex = Packed & 0x7fffffffu;
-    Result.IsWorldProbe = (Packed & 0x80000000u) != 0;
+MIGI_RayProbeIndex GetUpdateRayProbeIndex (int QueryIndex) {
+    MIGI_RayProbeIndex Result = (MIGI_RayProbeIndex)0;
+    if(QueryIndex >= g_RWUpdateRayCountBuffer[0] - WorldCache.NumUpdateRayPerProbe * WorldCache_GetActiveProbeCount()) {
+        Result.ScreenProbeIndex = int2(0, 0);
+        Result.WorldProbeIndex = 0;
+        Result.IsWorldProbe = true;
+    } else {
+        int ProbeRecordIndex = QueryIndex / WorldCache.NumUpdateRayPerProbe;
+        Result.ScreenProbeIndex = UnpackUint16x2(g_RWUpdateRayProbeBuffer[ProbeRecordIndex]);
+        Result.WorldProbeIndex = 0;
+        Result.IsWorldProbe = false;
+    }
     return Result;
 }
 
@@ -1381,9 +1574,9 @@ MIGI_RayProbeIndex UnpackRayProbeIndex (uint Packed) {
 void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
 {
     uint QueryIndex = DispatchID;
-    if (QueryIndex >= g_HashGridCache_VisibilityCountBuffer[0])
+    if (QueryIndex >= g_RWWorldCacheQueryCountBuffer[0])
     {
-        return; // out of bounds
+        return;
     }
     float Q_Noise = BlueNoise_Sample1D(int2(QueryIndex % 1024, QueryIndex / 1024), MI.FrameSeed, 5);
 
@@ -1391,11 +1584,11 @@ void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
     WorldCacheVisibility QueryVisibility = WorldCache_FetchQueryVisibility(QueryIndex);
 
     // Reconstruct world-space position and normal
-    Instance InstanceData  = g_InstanceBuffer[QueryVisibility.instance_index];
+    Instance InstanceData  = g_InstanceBuffer[QueryVisibility.InstanceIndex];
     Mesh     mesh      = g_MeshBuffer[InstanceData.mesh_index];
     float3x4 transform = g_TransformBuffer[InstanceData.transform_index];
 
-    TriangleNormUV vertices = fetchVerticesNormUV(mesh, QueryVisibility.primitive_index);
+    TriangleNormUV vertices = fetchVerticesNormUV(mesh, QueryVisibility.PrimitiveIndex);
 
     vertices.v0 = transformPoint(vertices.v0, transform);
     vertices.v1 = transformPoint(vertices.v1, transform);
@@ -1405,25 +1598,25 @@ void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
     vertices.n1 = transformNormal(vertices.n1, transform);
     vertices.n2 = transformNormal(vertices.n2, transform);
 
-    float3   WorldPosition    = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
+    float3   WorldPosition    = interpolate(vertices.v0, vertices.v1, vertices.v2, QueryVisibility.Barycentrics);
     float3   WorldNormal      = 
-        (QueryVisibility.is_front_face ? 1.0f : -1.0f) * 
-        normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
+        (QueryVisibility.IsFrontFace ? 1.0f : -1.0f) * 
+        normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, QueryVisibility.Barycentrics));
     Material MaterialData = g_MaterialBuffer[InstanceData.material_index];
 
     // Recover the ray origin
     float3 RayOrigin = 0;
     {
-        MIGI_RayProbeIndex RPI = UnpackRayProbeIndex(g_RWUpdateRayProbeBuffer[QueryIndex / WAVE_SIZE]);
+        MIGI_RayProbeIndex RPI = GetUpdateRayProbeIndex(QueryIndex);
         if(RPI.IsWorldProbe)
-            RayOrigin = WorldCache_ProbePosition(RPI.WorldProbeIndex);
+            RayOrigin = WorldCache_GetProbeHeader(RPI.WorldProbeIndex).WorldPosition;
         else RayOrigin = GetScreenProbePosition(RPI.ScreenProbeIndex);
     }
-    float2 MeshUV = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, QueryVisibility.barycentrics);
+    float2 MeshUV = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, QueryVisibility.Barycentrics);
 
     // Bypass the cache if we hit an emitter. Normally emissive materials overwhelm ambient lighting.
 
-    if (QueryVisibility.is_front_face && dot(MaterialData.emissivity.xyz, MaterialData.emissivity.xyz) > 0.0f)
+    if (QueryVisibility.IsFrontFace && dot(MaterialData.emissivity.xyz, MaterialData.emissivity.xyz) > 0.0f)
     {
         MaterialEmissive emissive = MakeMaterialEmissive(MaterialData, MeshUV);
         float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex]);
@@ -1431,9 +1624,6 @@ void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
         g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RadianceInvPdf);
         return; // do not continue past an emissive surface
     }
-
-    // Touch the cache to accumulate probe scores
-    WorldCache_Touch(WorldPosition, WorldNormal);
 
     // Bypass diffuse shading if the projection is valid on screen. 
     // Reuse the previous frame's diffuse irradiance for better quality.
@@ -1466,41 +1656,27 @@ void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
                         // Diffuse only. Glossy / specular lighting may vary significantly according
                         // to the viewing angle, so we cannot reuse them.
                         float3 previous_lighting = LoadPreviousDiffuseLighting(previous_uv);
-                        uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[DispatchID];
-                        uint4 quantized_radiance = HashGridCache_QuantizeRadiance(previous_lighting, Q_Noise);
     #ifdef ENABLE_INDIRECT
                         float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[query_index]);
                         RayRadianceInvPdf.xyz      += previous_lighting;
                         g_RWUpdateRayRadianceInvPdfBuffer[query_index] = PackFp16x4Safe(RayRadianceInvPdf);
     #endif // ENABLE_INDIRECT
-                        if(IsDiffuseMaterial) {
-                            // Skip world cache shading for diffuse materials that project well on screen
-                            return;
-                        }
                     }
                 }
             }
         }
     }
 
+    asdasdasdasasd
+    // Touch the cache to accumulate probe scores
+    int WaveJitter = MI.FrameIndex % WAVE_SIZE;
+    WorldCache_Touch(WaveJitter, WorldPosition, WorldNormal);
+    if(IsDiffuseMaterial) {
+        // Skip world cache shading for diffuse materials that project well on screen
+        return;
+    }
     // Group queries to the world cache grids for better memory access concurrency
     WorldCache_GroupQuery(WorldPosition, QueryIndex);
-}
-
-// Perform shading for the world cache queries
-[numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_ShadeQueries(in uint did : SV_DispatchThreadID)
-{
-    if (did >= g_Reservoir_HashListCountBuffer[0])
-    {
-        return; // out of bounds
-    }
-
-    {
-        float3 Wi = normalize(RayOrigin - WorldPosition);
-        MaterialEvaluated MaterialEvaluatedData = MakeMaterialEvaluated(MaterialData, MeshUV);
-        MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvaluatedData);
-    }
 }
 
 // Update world cache
