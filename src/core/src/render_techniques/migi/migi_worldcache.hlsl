@@ -31,8 +31,13 @@ RWStructuredBuffer<uint> g_RWWorldCacheRawQueryDirectionBuffer;
 RWStructuredBuffer<uint> g_RWWorldCacheQueryDirectionBuffer;
 
 // World cache probe atlas
-RWTexture2D<float4> g_RWWorldCacheIrradianceLuminanceTexture;
-RWTexture2D<float2> g_RWWorldCacheDepthDepthSquaredTexture;
+// Actually, it stores Irradiance / (2PI)
+RWTexture2D<float4> g_RWWorldCacheIrradiance2PLuminanceTexture;
+Texture2D<float4> g_WorldCacheIrradiance2PLuminanceTexture;
+RWTexture2D<float2> g_RWWorldCacheMomentumTexture;
+Texture2D<float2> g_WorldCacheMomentumTexture;
+RWTexture2D<float4> g_RWWorldCacheCOVTexture;
+Texture2D<float4> g_WorldCacheCOVTexture;
 // Sum of probe irradiances in a single pixel per probe
 RWTexture2D<float4> g_RWWorldCacheProbeIrradianceTexture;
 // 3D clipmaps, -1 means empty, -2 means spawn requested 
@@ -74,15 +79,22 @@ WorldCacheVisibility WorldCache_FetchQueryVisibility (uint QueryIndex) {
     uint4 Packed = g_RWWorldCacheQueryVisibilityBuffer[QueryIndex];
     return WorldCache_UnpackQueryVisibility(Packed);
 }
+float3 WorldCache_FetchQueryDirection (uint QueryIndex) {
+    float2 Oct01 = UnpackUnorm2x16Unbiased(g_RWWorldCacheQueryDirectionBuffer[QueryIndex]);
+    return OctahedronToUnitVector01(Oct01);
+}
 
 void WorldCache_WriteQueryVisibility (uint QueryIndex, WorldCacheVisibility Visibility) {
     g_RWWorldCacheQueryVisibilityBuffer[QueryIndex] = WorldCache_PackQueryVisibility(Visibility);
 }
 void WorldCache_WriteQueryDirection (uint QueryIndex, float3 Direction) {
-    float2 Oct = UnitVectorToOctahedron(Direction);
-    g_RWWorldCacheQueryDirectionBuffer[QueryIndex] = PackUnorm2x16Unbiased(Oct);
+    float2 Oct01 = UnitVectorToOctahedron(Direction);
+    g_RWWorldCacheQueryDirectionBuffer[QueryIndex] = PackUnorm2x16Unbiased(Oct01);
 }
 
+float WorldCache_GetGridSizeForLevel (int Level) {
+    return WorldCache.GridSize * (1 << Level);
+}
 
 uint WorldCache_GetActiveProbeCount () {
     return g_RWWorldCacheActiveProbeCountBuffer[0];
@@ -100,7 +112,7 @@ int3 WorldCache_GetAbsoluteGridCoords (int4 GridCoords) {
 }
 
 float3 WorldCache_GetProbeWorldCenterFromGridCoords (int4 GridCoords) {
-    float GridSize = WorldCache.GridSize * (1 << GridCoords.w);
+    float GridSize = WorldCache_GetGridSizeForLevel(GridCoords.w);
     return WorldCache.VolumeMin +
         WorldCache_GetAbsoluteGridCoords(GridCoords) * GridSize;
 }
@@ -183,15 +195,17 @@ void WorldCache_WriteProbeHeader(int Index, WorldCacheProbeHeader Header) {
 }
 
 // Get the min probe coords of the grid that the position is in
-int4 WorldCache_GetProbeGridCoordsBase (float3 Position) {
-    float3 LocalPosition = Position - WorldCache.VolumeMin;
+int4 WorldCache_GetProbeGridCoordsBase (float3 Position, bool bPrevious = false) {
+    float3 LocalPosition = Position - bPrevious ? WorldCache.PreviousVolumeMin : WorldCache.VolumeMin;
     float3 AbsoluteGridPosition  = LocalPosition * WorldCache.GridSizeInv;
     int ClipmapLevel = WorldCache.MaxClipmapCascades;
     // fine-to-coarse grain search
     float3 LevelGridPosition;
     [unroll(WORLD_CACHE_MAX_CLIPMAP_CASCADES)]
     for(int i = 0; i < WorldCache.MaxClipmapCascades; i--) {
-        LevelGridPosition = AbsoluteGridPosition * (1.f / (1 << i)) - WorldCache.VolumeCascadeGridCoordOffsets[i].xyz;
+        LevelGridPosition = AbsoluteGridPosition * (1.f / (1 << i)) - 
+            bPrevious ? WorldCache.PreviousVolumeCascadeGridCoordOffsets[i].xyz
+                : WorldCache.VolumeCascadeGridCoordOffsets[i].xyz;
         if(all(LevelGridPosition >= 0)
         && all(LevelGridPosition <= (WorldCache.GridCoordsBound - 1))) {
             ClipmapLevel = i;
@@ -205,6 +219,19 @@ int4 WorldCache_GetProbeGridCoordsBase (float3 Position) {
         ClipmapLevel
     );
 }
+
+float WorldCache_GetSampleOffsetAmount (float3 WorldPosition) {
+    int4 Coords = WorldCache_GetProbeGridCoordsBase(WorldPosition);
+    float Size = WorldCache.GridSize;;
+    if(Coords.w > 0) {
+        int3 LowerLevelCoords = (Coords.xyz + WorldCache.VolumeCascadeGridCoordOffsets[Coords.w].xyz) * 2
+            - WorldCache.VolumeCascadeGridCoordOffsets[Coords.w - 1].xyz;
+        int MaxDist = max(hmax(- LowerLevelCoords), hmax(LowerLevelCoords - WorldCache.GridCoordsBound + 2));
+        // 2 grids smooth transition
+        Size = WorldCache_GetGridSizeForLevel(Coords.w) * lerp(0.5, 1, saturate(MaxDist / 2));
+    }
+    return Size * WorldCache.SampleBias;
+} 
 
 void WorldCache_RecycleProbe (int ProbeIndex) {
     int FreeProbeListIndex = WorldCache.NumProbes - InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], -1);
@@ -269,27 +296,109 @@ void WorldCache_WriteProbeIndexToGrid (int4 GridCoords, int ProbeIndex) {
     }
 }
 
-int2 WorldCache_GetProbeAtlasBase (int ProbeIndex) {
+int2 WorldCache_GetProbeAtlasCoords (int ProbeIndex) {
     int2 ProbeCoords = int2(
         ProbeIndex % WorldCache.ProbeAtlasWidth,
         ProbeIndex / WorldCache.ProbeAtlasWidth
     );
+    return ProbeCoords;
+}
+
+int2 WorldCache_GetProbeAtlasBase (int ProbeIndex) {
+    int2 ProbeCoords = WorldCache_GetProbeAtlasCoords(ProbeIndex);
     return ProbeCoords * WORLD_CACHE_PROBE_RESOLUTION;
 }
 
 struct WorldCacheSample {
-    int ProbeIndex[4];
-    float4 Weights;
+    int ProbeIndex[8];
+    float Weights[8];
 };
 
-WorldCacheSample WorldCache_SampleProbes (float3 WorldPosition, bool bPrevious = false) {
+// Logic mostly comes from RTXGI-DDGI
+WorldCacheSample WorldCache_SampleProbes (
+    float3 WorldPosition,
+    float3 WorldPositionBiased,
+    float3 WorldNormal,
+    bool bPrevious = false
+) {
     WorldCacheSample Sample;
-    int4 GridCoords = WorldCache_GetProbeGridCoordsBase(WorldPosition, bPrevious);
+    int4 GridCoordsBase = WorldCache_GetProbeGridCoordsBase(WorldPositionBiased, bPrevious);
+    float3 Trillinear = 
+        saturate((WorldPositionBiased - WorldCache_GetProbeWorldCenterFromGridCoords(GridCoordsBase))
+         / WorldCache_GetGridSizeForLevel(GridCoordsBase.w));
+    float SumWeight = 0;
+    for(int i = 0; i<8; i++) {
+        int3 GridCoordsOffset = int3(
+            i & 1, (i >> 1) & 1, (i >> 2) & 1
+        );
+        int4 GridCoords = GridCoordsBase + int4(GridCoordsOffset, 0);
+        int ProbeIndex = -1;
+        if(!WorldCache_IsProbeCoordsOutOfBounds(GridCoords)) {
+            ProbeIndex = WorldCache_GetProbeIndexFromGrid(GridCoords);
+        }
+        float3 ProbePosition = 0;
+        if(ProbeIndex != -1) {
+            WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
+            ProbePosition = Header.WorldPosition;
+        }
+        float3 PosToProbeN = normalize(ProbePosition - WorldPosition);
+        float3 BiasedPosToAdjProbe = normalize(ProbePosition - WorldPositionBiased);
+        float LinearWeight = 
+            (GridCoordsOffset.x ? 1.f - Trillinear.x : Trillinear.x) *
+            (GridCoordsOffset.y ? 1.f - Trillinear.y : Trillinear.y) *
+            (GridCoordsOffset.z ? 1.f - Trillinear.z : Trillinear.z);
+        float Weight = 1.f;
+        float WrapShading = (dot(PosToProbeN, WorldNormal) + 1.f) * 0.5f;
+        Weight *= (WrapShading * WrapShading) + 0.2f;
+        float2 MomentumOct01 = UnitVectorToOctahedron01(BiasedPosToAdjProbe);
+        int2 ProbeCoords = WorldCache_GetProbeAtlasCoords(ProbeIndex);
+        float2 MomentumAtlasUV = (ProbeCoords + MomentumOct01) * WorldCache.InvAtlasDimensions;
+        float2 Momentum = g_WorldCacheMomentumTexture.SampleLevel(
+            g_LinearSampler, MomentumAtlasUV, 0
+        ).xy;
+        // Use absolute value in case y < x*x due to approximations
+        float Variance = abs((Momentum.x * Momentum.x) - Momentum.y);
+        
+        // Occlusion test
+        float ChebyshevWeight = 1.f;
+        float BiasedPosToAdjProbeDist = length(ProbePosition - WorldPositionBiased);
+        if(BiasedPosToAdjProbeDist > Momentum.x) // occluded
+        {
+            // v must be greater than 0, which is guaranteed by the if condition above.
+            float v = BiasedPosToAdjProbeDist - Momentum.x;
+            ChebyshevWeight = Variance / (Variance + (v * v));
+            // Increase the contrast in the weight
+            ChebyshevWeight = max((ChebyshevWeight * ChebyshevWeight * ChebyshevWeight), 0.f);
+        }
+        // Make sure we have a fallback value if all probes are occluded.
+        Weight *= max(0.05, ChebyshevWeight);
+        // Does this make sense?
+        Weight = max(Weight, 1e-6f);
 
+        // A small amount of light is visible due to logarithmic perception, so
+        // crush tiny weights but keep the curve continuous
+        const float CrushThreshold = 0.2f;
+        if (Weight < CrushThreshold)
+        {
+            Weight *= (Weight * Weight) * (1.f / (CrushThreshold * CrushThreshold));
+        }
+        // Apply the trilinear weights
+        Weight *= LinearWeight;
+
+        Sample.ProbeIndex[i] = ProbeIndex;
+        Sample.Weights[i] = Weight;
+        SumWeight += Weight;
+    }
+    SumWeight = max(SumWeight, 1e-6f);
+    // Normalize the weights
+    for(int i = 0; i < 8; i++) {
+        Sample.Weights[i] /= SumWeight;
+    }
+    return Sample;
 }
 
 void WorldCache_TouchSample (WorldCacheSample Sample) {
-    for(int i = 0; i<4; i++) {
+    for(int i = 0; i < 8; i++) {
         if(Sample.ProbeIndex[i] != -1) {
             int Score = WorldCache_GetProbeScore(Sample.ProbeIndex[i]);
             Score = min(Score + WorldCache.ProbeScoreBonus, WorldCache.ProbeInitialScore);
@@ -297,7 +406,6 @@ void WorldCache_TouchSample (WorldCacheSample Sample) {
         }
     }
 }
-
 
 
 #endif // MIGI_WORLDCACHE_HLSL

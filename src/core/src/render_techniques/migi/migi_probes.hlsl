@@ -149,4 +149,13 @@ void WriteScreenProbeOctahedronRadianceDepth (int2 ProbeIndex, int2 TexelCoords,
     else g_RWPreviousProbeColorTexture[Coords] = RadianceDepth;
 }
 
+int SSRC_GetTotalProbeCount () {
+    int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0];
+    return ProbeCount;
+}
+
+int SSRC_GetTotalUpdateRayCount () {
+    return g_RWProbeUpdateRayOffsetBuffer[SSRC_GetTotalProbeCount()];
+}
+
 #endif // MIGI_PROBES_HLSL

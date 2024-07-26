@@ -78,9 +78,21 @@ void GenerateDispatchRays()
     g_RWDispatchRaysCommandBuffer[0] = dispatch_rays_command;
 }
 
+[numthreads(WAVE_SIZE, 1, 1)]
+void WorldCache_Reset (uint DispatchID : SV_DispatchThreadID) {
+    if(DispatchID >= WorldCache.NumProbes) return ;
+    int ProbeIndex = DispatchID;
+    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
+    if(Header.bActive) {
+        WorldCache_RecycleProbe(ProbeIndex);
+    }
+    // Mark as recycled
+    WorldCache_WriteProbeScore(ProbeIndex, 0);
+}
+
 [numthreads(1, 1, 1)]
 void WorldCache_ResetCounters () {
-    ...
+    g_RWWorldCacheActiveProbeCountBuffer[0] = 0;
 }
 
 // Spawn probes that are requested in the last frame.
@@ -119,8 +131,8 @@ void WorldCache_SpawnProbes (uint GroupID : SV_GroupID, uint LocalID : SV_GroupT
             ThreadLocalDataSum0[i] = 0;
             ThreadLocalDataSum1[i] = 0;
         }
-        for(int i = 0; i < 4; i++) {
-            if(Sample.ProbeIndex[i] > 0) {
+        for(int i = 0; i < 8; i++) {
+            if(Sample.ProbeIndex[i] > 0 && Sample.Weights[i] > 0) {
                 int2 Offset = WorldCache_GetProbeAtlasBase(Sample.ProbeIndex[i]);
                 WorldCacheProbeHeader SrcHeader = WorldCache_GetProbeHeader(Sample.ProbeIndex[i]);
                 float3 V = SrcHeader.WorldPosition - NewProbeWorldPosition;
@@ -128,7 +140,7 @@ void WorldCache_SpawnProbes (uint GroupID : SV_GroupID, uint LocalID : SV_GroupT
                     int TexelIndex = BaseTexelIndex + LocalID;
                     int2 TexelCoords = int2(TexelIndex % WORLD_CACHE_PROBE_RESOLUTION, TexelIndex / WORLD_CACHE_PROBE_RESOLUTION);
                     float2 TexelUV   = (TexelCoords + 0.5f) / WORLD_CACHE_PROBE_RESOLUTION;
-                    float3 Direction = OctahedronToUnitVector(TexelUV);
+                    float3 Direction = OctahedronToUnitVector01(TexelUV);
                     float4 Data0 = g_RWWorldCacheIrradianceLuminanceTexture.Load(int3(TexelCoords + Offset, 0));
                     float2 Data1 = g_RWWorldCacheDepthDepthSquaredTexture.Load(int3(TexelCoords + Offset, 0)).xy;
                     float  DeltaDistance =  dot(V, Direction);
@@ -157,9 +169,16 @@ void WorldCache_SpawnProbes (uint GroupID : SV_GroupID, uint LocalID : SV_GroupT
 
 // Decay probe scores and recycle probes that are no longer useful.
 // Also, relocate probes grid coords to their appropriate clipmap levels when rolling.
+groupshared uint LocalNumProbesToRecycle_WorldCache;
+groupshared uint LocalProbeToRecycleIndices_WorldCache[WAVE_SIZE];
 [numthreads(WAVE_SIZE, 1, 1)]
 void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
     if(DispatchID >= WorldCache.NumProbes) return ;
+    if(WaveIsFirstLane()) {
+        LocalNumProbesToRecycle_WorldCache = 0;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
     int ProbeIndex = DispatchID;
     WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
     if(Header.bActive) {
@@ -201,6 +220,28 @@ void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
 
         // Write back
         WorldCache_WriteProbeHeader(ProbeIndex, Header);
+
+        // Record the probe index to recycle
+        if(bShouldRecycleProbe) {
+            int LocalIndex;
+            InterlockedAdd(LocalNumProbesToRecycle_WorldCache, 1, LocalIndex);
+            LocalProbeToRecycleIndices_WorldCache[LocalIndex] = ProbeIndex;
+        }
+    }
+    
+    // Clear probe atlas data
+    GroupMemoryBarrierWithGroupSync();
+    int NumProbesToRecycle = LocalNumProbesToRecycle_WorldCache;
+    for(int i = 0; i < NumProbesToRecycle; i++) {
+        int2 Offset = WorldCache_GetProbeAtlasBase(LocalProbeToRecycleIndices_WorldCache[i]);
+        for(int BaseTexelIndex = 0; 
+            BaseTexelIndex < WORLD_CACHE_PROBE_RESOLUTION * WORLD_CACHE_PROBE_RESOLUTION;
+            BaseTexelIndex += WAVE_SIZE) {
+            int TexelIndex = BaseTexelIndex + DispatchID;
+            int2 TexCoords = int2(TexelIndex % WORLD_CACHE_PROBE_RESOLUTION, TexelIndex / WORLD_CACHE_PROBE_RESOLUTION);
+            g_RWWorldCacheIrradiance2PLuminanceTexture[TexCoords + Offset] = 0;
+            g_RWWorldCacheMomentumTexture[TexCoords + Offset] = 0;
+        }
     }
 }
 
@@ -212,6 +253,11 @@ groupshared int LocalProbeIndexCount_WorldCache;
 [numthreads(WAVE_SIZE, 1, 1)]
 void WorldCache_UpdateActiveListAndIndex (uint DispatchID : SV_DispatchIndex) {
     if(DispatchID >= WorldCache.NumProbes) return ;
+    if(WaveIsFirstLane()) {
+        LocalProbeIndexCount_WorldCache = 0;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
     int ProbeIndex = DispatchID;
     WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
     if(Header.bActive) {
@@ -1377,6 +1423,25 @@ void MIGI_CacheUpdateTraceRay(uint did, inout MIGI_CacheUpdatePayload payload, R
 #endif
 }
 
+struct MIGI_RayProbeIndex {
+    int2 ScreenProbeIndex;
+    int  WorldProbeIndex;
+    bool IsWorldProbe;
+};
+MIGI_RayProbeIndex GetUpdateRayProbeIndex (int QueryIndex) {
+    MIGI_RayProbeIndex Result = (MIGI_RayProbeIndex)0;
+    if(QueryIndex >= SSRC_GetTotalUpdateRayCount()) {
+        Result.ScreenProbeIndex = int2(0, 0);
+        Result.WorldProbeIndex = (QueryIndex - SSRC_GetTotalUpdateRayCount()) / WorldCache.NumUpdateRayPerProbe;
+        Result.IsWorldProbe = true;
+    } else {
+        Result.ScreenProbeIndex = UnpackUint16x2(g_RWUpdateRayProbeBuffer[QueryIndex / WAVE_SIZE]);
+        Result.WorldProbeIndex = 0;
+        Result.IsWorldProbe = false;
+    }
+    return Result;
+}
+
 // Trace visibility rays to generate secondary vertices / hits for world cache update 
 void MIGI_TraceUpdateRays (uint DispatchID) {
     int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0];
@@ -1384,11 +1449,13 @@ void MIGI_TraceUpdateRays (uint DispatchID) {
     if(DispatchID >= RayCount) return ;
     
     // Unpack ray data
-    int2   ProbeIndex = UnpackUint16x2(g_RWUpdateRayProbeBuffer[DispatchID / WAVE_SIZE]);
+    MIGI_RayProbeIndex RayProbeIndex = GetUpdateRayProbeIndex(DispatchID);
 
-    float3 ProbeNormal = GetScreenProbeNormal(ProbeIndex);
-    // The probe origin is offseted by adaptive normal (bent - geom mix), so no need to do further offset here
-    float3 RayOrigin = GetScreenProbePosition(ProbeIndex);
+    float3 RayOrigin;
+    if(!RayProbeIndex.IsWorldProbe) {
+        // The probe origin offseted by an adaptive value, so no need to move further here.
+        RayOrigin = GetScreenProbePosition(RayProbeIndex.ScreenProbeIndex);
+    } else RayOrigin = WorldCache_GetProbeHeader(RayProbeIndex.WorldProbeIndex).WorldPosition;
 
     float3 RayDirection      = FetchUpdateRayDirection(DispatchID);
     float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[DispatchID]);
@@ -1548,30 +1615,8 @@ void SSRC_ReprojectPreviousUpdateError (int2 DispatchID : SV_DispatchThreadID) {
 
 // UpdateErrorSplatTexture is later mipmapped.
 
-struct MIGI_RayProbeIndex {
-    int2 ScreenProbeIndex;
-    int  WorldProbeIndex;
-    bool IsWorldProbe;
-};
-MIGI_RayProbeIndex GetUpdateRayProbeIndex (int QueryIndex) {
-    MIGI_RayProbeIndex Result = (MIGI_RayProbeIndex)0;
-    if(QueryIndex >= g_RWUpdateRayCountBuffer[0] - WorldCache.NumUpdateRayPerProbe * WorldCache_GetActiveProbeCount()) {
-        Result.ScreenProbeIndex = int2(0, 0);
-        Result.WorldProbeIndex = 0;
-        Result.IsWorldProbe = true;
-    } else {
-        int ProbeRecordIndex = QueryIndex / WorldCache.NumUpdateRayPerProbe;
-        Result.ScreenProbeIndex = UnpackUint16x2(g_RWUpdateRayProbeBuffer[ProbeRecordIndex]);
-        Result.WorldProbeIndex = 0;
-        Result.IsWorldProbe = false;
-    }
-    return Result;
-}
-
-// Try to reproject the previous diffuse irradiance to the current frame 
-// and bypass world cache shading for possible queries 
 [numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
+void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID)
 {
     uint QueryIndex = DispatchID;
     if (QueryIndex >= g_RWWorldCacheQueryCountBuffer[0])
@@ -1582,6 +1627,7 @@ void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
 
     // Load our visibility sample
     WorldCacheVisibility QueryVisibility = WorldCache_FetchQueryVisibility(QueryIndex);
+    float3 QueryDirection = WorldCache_FetchQueryDirection(QueryIndex);
 
     // Reconstruct world-space position and normal
     Instance InstanceData  = g_InstanceBuffer[QueryVisibility.InstanceIndex];
@@ -1625,8 +1671,24 @@ void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
         return; // do not continue past an emissive surface
     }
 
-    // Bypass diffuse shading if the projection is valid on screen. 
-    // Reuse the previous frame's diffuse irradiance for better quality.
+    bool bReprojectionSuccess = false;
+    float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex]);
+                       
+    MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialData, MeshUV);
+    // Approximate the shading normal with the geometry normal
+    float3 ShadingNormal = WorldNormal;
+    float Roughness = sqrt(MaterialBRDFData.roughnessAlpha);
+    float3 SpecDV = calculateGGXSpecularDirection(ShadingNormal, -QueryDirection, Roughness);
+    float3 SpecHV = normalize(SpecDV + QueryDirection);
+    float DotHV = saturate(dot(-QueryDirection, SpecHV));
+    float3 DiffuseCompensation = diffuseCompensation(MaterialBRDFData.F0, DotHV);
+    float2 IrradianceTexPosition = 1.f + UnitVectorToOctahedron01(SpecDV) * WORLD_CACHE_PROBE_RESOLUTION_INTERNAL;
+    float  DotNV = saturate(dot(ShadingNormal, QueryDirection));
+    float2 LUT = g_LutBuffer.SampleLevel(g_LinearSampler, float2(DotNV, Roughness), 0.0f).xy;
+    float3 DirectionalAlbedo = saturate(MaterialBRDFData.F0 * LUT.x + (1.0f - MaterialBRDFData.F0) * LUT.y);
+
+    // Try to reproject the previous diffuse irradiance to the current frame 
+    // and bypass world cache shading for possible queries 
     {
         float4 homogeneous_w = mul(MI.CameraProjView, float4(WorldPosition, 1.0f));
         if(homogeneous_w.w > 0) {
@@ -1655,38 +1717,176 @@ void WorldCache_ReuseScreenRadiance(in uint DispatchID : SV_DispatchThreadID)
                     {
                         // Diffuse only. Glossy / specular lighting may vary significantly according
                         // to the viewing angle, so we cannot reuse them.
-                        float3 previous_lighting = LoadPreviousDiffuseLighting(previous_uv);
+                        float3 PreviousDiffuse = LoadPreviousDiffuseLighting(previous_uv);
     #ifdef ENABLE_INDIRECT
-                        float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[query_index]);
-                        RayRadianceInvPdf.xyz      += previous_lighting;
-                        g_RWUpdateRayRadianceInvPdfBuffer[query_index] = PackFp16x4Safe(RayRadianceInvPdf);
+                        RayRadianceInvPdf.xyz      += PreviousDiffuse * DiffuseCompensation;
     #endif // ENABLE_INDIRECT
+                        bReprojectionSuccess = true;
                     }
                 }
             }
         }
     }
 
-    asdasdasdasasd
-    // Touch the cache to accumulate probe scores
+    // Touch the cache to increase probe scores
     int WaveJitter = MI.FrameIndex % WAVE_SIZE;
-    WorldCache_Touch(WaveJitter, WorldPosition, WorldNormal);
-    if(IsDiffuseMaterial) {
+    float3 WorldPositionBiased = 
+        WorldPosition + WorldNormal * WorldCache_GetSampleOffsetAmount(WorldPosition);
+    WorldCacheSample Sample = WorldCache_SampleProbes(WorldPosition, WorldPositionBiased, WorldNormal);
+    if(WaveJitter == DispatchID % WAVE_SIZE) WorldCache_TouchSample(Sample);
+    bool bIsDiffuseMaterial = false;
+    if(bReprojectionSuccess && DiffuseCompensation.x > 0.95f) {
         // Skip world cache shading for diffuse materials that project well on screen
-        return;
+        g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RayRadianceInvPdf);
+        return ;
     }
-    // Group queries to the world cache grids for better memory access concurrency
-    WorldCache_GroupQuery(WorldPosition, QueryIndex);
+    
+    // Shade query using world cache
+    float3 Radiance = 0;
+    for(int i = 0; i < 8; i++) {
+        int2 AtlasBase = WorldCache_GetProbeAtlasBase(Sample.ProbeIndex[i]);
+        float2 AtlasUV = (AtlasBase + IrradianceTexPosition) * WorldCache.InvAtlasDimensions;
+        float3 Irradiance = TWO_PI * g_WorldCacheIrradiance2PLuminanceTexture.Sample(g_LinearSampler, AtlasUV).xyz;
+        float3 Diffuse = DiffuseCompensation * Irradiance * evaluateLambert(MaterialBRDFData.albedo);
+        // Skip diffuse lighting from world cache as we have reprojected that from the previous frame
+        if(bReprojectionSuccess) Diffuse = 0; 
+        // compute specular term with split-sum approximation
+        float3 SpecularR = Irradiance  / PI;
+        float3 Specular = DirectionalAlbedo * SpecularR;
+        Radiance += (Diffuse + Specular) * Sample.Weights[i];
+    }
+
+#ifdef ENABLE_INDIRECT
+    RayRadianceInvPdf.xyz      += Radiance;
+#endif
+
+    g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RayRadianceInvPdf);
 }
 
 // Update world cache
-[numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_UpdateProbes () {
+// Fine, I'll just use 2 warp ops for the whole thing on NVIDIA hardware. 
+// (though almost a half of the threads wont be active)
+[numthreads(WORLD_CACHE_PROBE_RESOLUTION, WORLD_CACHE_PROBE_RESOLUTION, 1)]
+void WorldCache_UpdateProbes (int2 LocalID : SV_DispatchThreadID, int GroupID : SV_GroupID) {
+    int ActiveProbeListIndex = GroupID;
+    int RayBaseOffset = SSRC_GetTotalUpdateRayCount() + ActiveProbeListIndex * WorldCache.NumUpdateRayPerProbe;
+    int ProbeIndex = g_RWWorldCacheActiveProbeIndexBuffer[ActiveProbeListIndex];
+    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
     // Update probe location if relocation is enabled
+    // todo
+    // Update probe atlas
+    bool IsBorderPixel = LocalID.x == 0 || LocalID.y == 0 
+        || LocalID.x == WORLD_CACHE_PROBE_RESOLUTION - 1 
+        || LocalID.y == WORLD_CACHE_PROBE_RESOLUTION - 1;
+    if(!IsBorderPixel) {
+        float SumDepth = 0, SumDepthSqr = 0, SumWeight = 0;
+        float3 SumIrradiance = 0;
+        float SumIrradianceWeight = 0;
+        float3 OctDirection = OctahedronToUnitVector01((LocalID - 0.5f) / float(WORLD_CACHE_PROBE_RESOLUTION_INTERNAL));
+        [unroll(WORLD_CACHE_MAX_UPDATE_RAYS_PER_PROBE)]
+        for(int RayRank = 0; RayRank < WorldCache.NumUpdateRayPerProbe; RayRank++) {
+            int RayIndex = RayBaseOffset + RayRank;
+            float3 RayDirection = FetchUpdateRayDirection(RayIndex);
+            float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+            float3 RayRadiance = RayRadianceInvPdf.xyz;
+            float  RayDepth    = g_RWUpdateRayLinearDepthBuffer[RayIndex];
+            if(RayRadianceInvPdf.w > 0) {
+                float CosineFactor = saturate(dot(RayDirection, OctDirection));
+                SumIrradiance += RayRadiance * CosineFactor * RayRadianceInvPdf.w;
+                SumIrradianceWeight += RayRadianceInvPdf.w;
+                float Weight = pow(CosineFactor, 2) * RayRadianceInvPdf.w;
+                // Clamp the ray depth to 1.5 * the probe grid size, cause larger values are meaningless.
+                RayDepth = min(RayDepth, 1.5f * WorldCache_GetGridSizeForLevel(Header.GridCoords.w));
+                SumDepth += RayDepth * Weight;
+                SumDepthSqr += RayDepth * RayDepth * Weight;
+                SumWeight += Weight;
+            }
+        }
+        float3 Irradiance2P = SumIrradiance / max(SumIrradianceWeight, 1e-4f);
+        float2 Momentum = float2(SumDepth, SumDepthSqr) / SumWeight;
+        int2 AtlasBase = WorldCache_GetProbeAtlasBase(ProbeIndex);
+        int2 AtlasCoords = AtlasBase + LocalID;
+        float3 PrevIrradiance2P = g_RWWorldCacheIrradiance2PLuminanceTexture[AtlasCoords];
+        float2 PrevMomentum = g_RWWorldCacheMomentumTexture[AtlasCoords];
 
-    // Update probe radiance.
+        // Implementation comes from RTXGI-DDGI source.
+        float Hysteresis = 0.96f;
+        // If the probe has been cleared, reset the hysteresis value
+        if(dot(PrevIrradiance2P, PrevIrradiance2P) == 0) Hysteresis = 0.f;
+
+        // Momentum update
+        g_RWWorldCacheMomentumTexture[AtlasCoords] = float4(lerp(Momentum, PrevMomentum, Hysteresis), 0.f);
+
+        // Get the difference between the current irradiance and the irradiance mean stored in the probe
+        float3 Delta = Irradiance2P - PrevIrradiance2P;
+
+        if (hmax(PrevIrradiance2P - Irradiance2P) > WorldCache.ProbeIrradianceThreshold)
+        {
+            // Lower the hysteresis when a large lighting (darkening) change is detected
+            Hysteresis = max(0.f, Hysteresis - 0.75f);
+        }
+
+        if (luminance(Delta) > WorldCache.ProbeLuminanceThreshold)
+        {
+            // Clamp the maximum per-update change in irradiance when a large brightness change is detected
+            Delta *= 0.25f;
+        }
+
+        // Interpolate the new blended irradiance with the existing irradiance in the probe.
+        // A high hysteresis value emphasizes the existing probe irradiance.
+        //
+        // When using lower bit depth formats for irradiance, the difference between lerped values
+        // may be smaller than what the texture format can represent. This can stop progress towards
+        // the target value when going from high to low values. When darkening, step at least the minimum
+        // value the texture format can represent to ensure the target value is reached. The threshold value
+        // for 10-bit/channel formats is always used (even for 32-bit/channel formats) to speed up light to
+        // dark convergence.
+        static const float ColorThreshold = 1.f / 1024.f;
+        float3 FinalDelta = (1.f - Hysteresis) * Delta;
+        if (hmax(Irradiance2P) < hmax(PrevIrradiance2P))
+        {
+            FinalDelta = min(max(ColorThreshold, abs(FinalDelta)), abs(Delta)) * sign(FinalDelta);
+        }
+        float3 FinalIrradiance2P = PrevIrradiance2P + FinalDelta;
+        g_RWWorldCacheIrradiance2PLuminanceTexture[AtlasCoords] = float4(FinalIrradiance2P, luminance(FinalIrradiance2P));
+        g_RWWorldCacheMomentumTexture[AtlasCoords] = float4(Momentum, 0.f, 0.f);
+        {
+            // Compute the coefficient of variation
+            float3 Irradiance2 = (Irradiance2P - PrevIrradiance2P) * (Irradiance2P - FinalIrradiance2P);
+            float  Luminance2 = luminance(Irradiance2);
+            float  Luminance = luminance(FinalIrradiance2P);
+            float  COV = (Luminance <= ColorThreshold) ? 0.f : sqrt(Luminance2) / Luminance;
+            g_RWWorldCacheCOVTexture[AtlasCoords] = COV;
+        }
+    }
+    AllMemoryBarrierWithGroupSync();
+    if(IsBorderPixel) {
+        bool IsCornerTexel = (LocalID.x == 0 || LocalID.x == (WORLD_CACHE_PROBE_RESOLUTION - 1))
+             && (LocalID.y == 0 || LocalID.y == (WORLD_CACHE_PROBE_RESOLUTION - 1));
+        bool IsRowTexel = (LocalID.x > 0 && LocalID.x < (WORLD_CACHE_PROBE_RESOLUTION - 1));
+
+        int2 CopyTexCoords = WorldCache_GetProbeAtlasBase(ProbeIndex);
+        int  TexCoords = CopyTexCoords + LocalID;
+
+        if(IsCornerTexel)
+        {
+            CopyTexCoords.x += LocalID.x > 0 ? 1 : WORLD_CACHE_PROBE_RESOLUTION_INTERNAL;
+            CopyTexCoords.y += LocalID.y > 0 ? 1 : WORLD_CACHE_PROBE_RESOLUTION_INTERNAL;
+        }
+        else if(IsRowTexel)
+        {
+            CopyTexCoords.x += (WORLD_CACHE_PROBE_RESOLUTION_INTERNAL - 1) - LocalID.x;
+            CopyTexCoords.y += LocalID.y + ((LocalID.y > 0) ? -1 : 1);
+        }
+        else // Column Texel
+        {
+            CopyTexCoords.x += LocalID.x + ((LocalID.x > 0) ? -1 : 1);
+            CopyTexCoords.y += (WORLD_CACHE_PROBE_RESOLUTION_INTERNAL - 1) - LocalID.y;
+        }
+        g_RWWorldCacheIrradiance2PLuminanceTexture[TexCoords] = g_RWWorldCacheIrradiance2PLuminanceTexture[CopyTexCoords];
+        g_RWWorldCacheMomentumTexture[TexCoords] = g_RWWorldCacheMomentumTexture[CopyTexCoords];
+    }
 }
-
 
 int GetBasisRankToUpdate (int ProbeBasisCount) {
     return MI.FrameSeed % ProbeBasisCount;

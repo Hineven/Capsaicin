@@ -90,6 +90,11 @@ float2 UnitVectorToOctahedron(float3 N)
 	return N.xy;
 }
 
+float2 UnitVectorToOctahedron01(float3 N)
+{
+    return (UnitVectorToOctahedron(N) + 1) * 0.5;
+}
+
 // from [-1, 1]^2
 float3 OctahedronToUnitVector( float2 Oct )
 {
@@ -97,6 +102,11 @@ float3 OctahedronToUnitVector( float2 Oct )
 	float t = max( -N.z, 0 );
 	N.xy += select(N.xy >= 0, float2(-t, -t), float2(t, t));
 	return normalize(N);
+}
+
+float3 OctahedronToUnitVector01 (float2 Oct)
+{
+    return OctahedronToUnitVector(Oct * 2 - 1);
 }
 
 float2 UnitVectorToHemiOctahedron( float3 N )

@@ -13,6 +13,7 @@ namespace Capsaicin {
 
 #define WORLD_CACHE_PROBE_RESOLUTION_INTERNAL 6
 #define WORLD_CACHE_PROBE_RESOLUTION          8
+#define WORLD_CACHE_MAX_UPDATE_RAYS_PER_PROBE 144
 
 #define MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES 4
 #if MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES > 4
@@ -22,27 +23,34 @@ namespace Capsaicin {
 struct WorldCacheConstants {
     float3 VolumeMin;
     float  GridSize;
-    int4   VolumeCascadeGridCoordOffsets[MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES];
-
+    float3 PreviousVolumeMin;
     float  HalfGridSize;
+
+    int4   VolumeCascadeGridCoordOffsets[MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES];
+    int4   PreviousVolumeCascadeGridCoordOffsets[MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES];
+
     uint   MaxClipmapCascades;
     // In probes
     uint   ProbeAtlasWidth;
     // In probes
     uint   ProbeAtlasHeight;
+    uint   NumUpdateRayPerProbe;
 
+    // Equal to PreviousVolumeCascadeGridCoordOffsets - VolumeCascadeGridCoordOffsets
     int4   CascadeRolling[MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES];
 
-    uint   NumUpdateRayPerProbe;
     // GridCoordsBound == Probe grid resolution == Volume grid resolution + 1
     // It has to be no greater than 128
     uint   GridCoordsBound;
     uint   ProbeScoreDecay;
-
     float  GridSizeInv;
     int    NumProbes;
+
     uint   ProbeInitialScore;
     uint   ProbeScoreBonus;
+    float2 InvAtlasDimensions;
+
+    float SampleBias;
 };
 
 struct WorldSpaceReSTIRConstants

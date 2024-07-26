@@ -73,7 +73,7 @@ void ScreenCacheUpdateClosestHit(inout ScreenCacheUpdatePayload payload, in Buil
 void ScreenCacheUpdateMiss(inout ScreenCacheUpdatePayload payload)
 {
     payload.hit_dist = MI.CameraFar;
-    ScreenCacheUpdateHandleMiss(payload, GetRayDescRt());
+    ScreenCacheUpdateHandleMiss(DispatchRaysIndex().x, payload, GetRayDescRt());
 }
 
 [shader("raygeneration")]
