@@ -8,8 +8,7 @@
 #include "migi_lib.hlsl"
 
 #include "migi_probes.hlsl"
-
-#include "hash_grid_cache.hlsl"
+#include "migi_worldcache.hlsl"
 
 struct DebugIncidentRadiance_Output {
     float4 Position : SV_Position;
@@ -105,5 +104,24 @@ DebugLight_Output DebugSSRC_VisualizeLight (
     Output.Position  = mul(MI.CameraProjView, float4(World, 1.f));
     float3 Color     = MI.DebugLightColor;
     Output.Color     = float4(Color, 1.f);
+    return Output;
+}
+
+struct DebugWorldCache_Output {
+    float4 Position : SV_Position;
+    float4 ProbeDirection_ID : COLOR;
+};
+
+DebugWorldCache_Output DebugWorldCache_VisualizeProbes (
+    // gfx reflects on vertex stride automatically
+    in float3 LocalVertexPosition : SV_Position,
+    in uint InstanceIndex  : SV_InstanceID
+) {
+    int ProbeIndex = g_RWWorldCacheActiveProbeIndexBuffer[InstanceIndex];
+    float3 ProbeWorldPosition = WorldCache_GetProbeHeader(ProbeIndex).WorldPosition;
+    float3 VertexPosition = LocalVertexPosition * 0.015 + ProbeWorldPosition;
+    DebugWorldCache_Output Output;
+    Output.Position = mul(MI.CameraProjView, float4(VertexPosition, 1.f));
+    Output.ProbeDirection_ID = float4(normalize(LocalVertexPosition), asfloat(ProbeIndex));
     return Output;
 }

@@ -26,11 +26,14 @@ namespace Capsaicin
 {
 
 MIGI::MIGI()
-    : RenderTechnique("MIGI"), world_space_restir_(gfx_), hash_grid_cache_(gfx_)
+    : RenderTechnique("MIGI"), world_space_restir_(gfx_), world_cache_(gfx_)
 {}
 
 MIGI::~MIGI() {terminate();}
 
+// Disable C4702
+#pragma warning(push)
+#pragma warning(disable : 4702)
 void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 {
     // Prepar settings
@@ -59,18 +62,12 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         if(need_reload_kernel_ || need_reload_memory_)
         {
             initGraphicsKernels(capsaicin);
+            need_reset_world_cache_ = true;
+            need_reset_world_space_reservoirs_ = true;
         }
 
         need_reload_kernel_ = false;
         need_reload_memory_ = false;
-
-
-        // Clear the hash-grid cache if user's changed the cell size
-        if (need_reset_hash_grid_cache_)
-        {
-            clearHashGridCache(); // clear the radiance cache
-            need_reset_hash_grid_cache_ = false;
-        }
 
         // The world space reservoir size relates to the camera's field of view / resolution / restir configuration
         if (need_reset_world_space_reservoirs_)
@@ -80,7 +77,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         }
 
         // Ensure our scratch memory is allocated
-        hash_grid_cache_.ensureMemoryIsAllocated(options_);
+        world_cache_.EnsureMemoryIsAllocated(options_);
         world_space_restir_.ensureMemoryIsAllocated(options_);
     }
 
@@ -215,6 +212,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousHistoryAccumulationTexture", tex_.history_accumulation[1 - flip]);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousGlobalIlluminationTexture", tex_.previous_global_illumination);
+
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDiffuseGITexture", tex_.diffuse_GI[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousDiffuseGITexture", tex_.diffuse_GI[1 - flip]);
     }
 
     // HiZ RWTextures are set upon kernel invocation
@@ -334,12 +334,14 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         // Allocate and populate our constant data
         GfxBuffer world_cache_constants    = capsaicin.allocateConstantBuffer<WorldCacheConstants>(1);
         GfxBuffer world_space_restir_constants = capsaicin.allocateConstantBuffer<WorldSpaceReSTIRConstants>(1);
+        GfxBuffer rt_constants = capsaicin.allocateConstantBuffer<RTConstants>(1);
 
         // Convert pixel size to view space size
-        float          cell_size   = tanf(capsaicin.getCamera().fovY * options_.hash_grid_cache.cell_size
-                                                                         * GFX_MAX(1.0f / capsaicin.getHeight(),
-                                                                             (float)capsaicin.getHeight() / (capsaicin.getWidth() * capsaicin.getWidth())));
-        WorldCacheConstants world_cache_constant_data = {};
+//        float          cell_size   = tanf(capsaicin.getCamera().fovY * 32
+//                                                                         * GFX_MAX(1.0f / capsaicin.getHeight(),
+//                                                                             (float)capsaicin.getHeight() / (capsaicin.getWidth() * capsaicin.getWidth())));
+        WorldCacheConstants world_cache_constant_data =
+            world_cache_.UpdateConstants(options_, capsaicin.getCamera().eye);
         // Debugging features are clipped for the hash grid cache
 
         gfxBufferGetData<WorldCacheConstants>(gfx_, world_cache_constants)[0] =
@@ -355,19 +357,23 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxBufferGetData<WorldSpaceReSTIRConstants>(gfx_, world_space_restir_constants)[0] =
             world_space_restir_constant_data;
 
-        RTConstants rt_constants = {};
+        RTConstants rt_constant_data = {};
         if (options_.use_dxr10)
         {
             gfxSbtGetGpuVirtualAddressRangeAndStride(gfx_, sbt_,
-                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE *)&rt_constants.ray_generation_shader_record,
-                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE *)&rt_constants.miss_shader_table,
-                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE *)&rt_constants.hit_group_table,
-                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE *)&rt_constants.callable_shader_table);
+                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE *)&rt_constant_data.ray_generation_shader_record,
+                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE *)&rt_constant_data.miss_shader_table,
+                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE *)&rt_constant_data.hit_group_table,
+                (D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE *)&rt_constant_data.callable_shader_table);
         }
 
+        gfxBufferGetData<RTConstants>(gfx_, rt_constants)[0] =
+            rt_constant_data;
+
         // Bind buffers
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_WorldSpaceReSTIRConstants", world_space_restir_constants);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RTConstants", rt_constants);
+//        gfxProgramSetParameter(gfx_, kernels_.program, "g_WorldSpaceReSTIRConstants", world_space_restir_constants);
+        gfxProgramSetParameter(gfx_, kernels_.program, "WorldCache", world_cache_constants);
+        gfxProgramSetParameter(gfx_, kernels_.program, "RayTracing", rt_constants);
     }
 
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugCursorWorldPosBuffer",
@@ -386,19 +392,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         }
         gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugTonemapExposure", exposure);
     }
-    // Buffers of the hash grid cache
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_HashGridCache_BuffersFloat",
-        hash_grid_cache_.radiance_cache_hash_buffer_float_,
-        ARRAYSIZE(hash_grid_cache_.radiance_cache_hash_buffer_float_));
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_HashGridCache_BuffersUint",
-        hash_grid_cache_.radiance_cache_hash_buffer_uint_,
-        ARRAYSIZE(hash_grid_cache_.radiance_cache_hash_buffer_uint_));
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_HashGridCache_BuffersUint2",
-        hash_grid_cache_.radiance_cache_hash_buffer_uint2_,
-        ARRAYSIZE(hash_grid_cache_.radiance_cache_hash_buffer_uint2_));
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_HashGridCache_BuffersFloat4",
-        hash_grid_cache_.radiance_cache_hash_buffer_float4_,
-        ARRAYSIZE(hash_grid_cache_.radiance_cache_hash_buffer_float4_));
 
     // Buffers of world-space ReSTIR
     gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_HashBuffer",
@@ -447,6 +440,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         world_space_restir_.reservoir_indirect_sample_reservoir_buffers_
             [1 - world_space_restir_.reservoir_indirect_sample_buffer_index_]);
 
+    // Buffers of world cache
+    world_cache_.BindResources(options_, kernels_.program);
+
     // ***********************************************************
     // *          Render the scene                               *
     // ***********************************************************
@@ -459,26 +455,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandClearTexture(gfx_, tex_.history_accumulation[0]);
         gfxCommandClearTexture(gfx_, tex_.history_accumulation[1]);
     }
-
-    // Decay and remove out-dated hash grid cache cells
-    // Also clear the counters for sketch buffers
-    {
-        TimedSection section_timer(*this, "ClearCountersAndPurgeTiles");
-
-        GfxBuffer radiance_cache_packed_tile_count_buffer =
-            (hash_grid_cache_.radiance_cache_hash_buffer_ping_pong_
-                    ? hash_grid_cache_.radiance_cache_packed_tile_count_buffer0_
-                    : hash_grid_cache_.radiance_cache_packed_tile_count_buffer1_);
-
-        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.PurgeTiles);
-        generateDispatch(radiance_cache_packed_tile_count_buffer, num_threads[0]);
-
-        gfxCommandBindKernel(gfx_, kernels_.ClearCounters);
-        gfxCommandDispatch(gfx_, 1, 1, 1);
-        gfxCommandBindKernel(gfx_, kernels_.PurgeTiles);
-        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
-    }
-
 
     // Precompute HiZ buffer for injection culling and other purposes
     {
@@ -520,6 +496,69 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 8, threads[0]),
                 divideAndRoundUp(options_.height / 8, threads[1]), 1);
         }
+    }
+
+    if(need_reset_world_cache_) {
+        TimedSection const timed_section(*this, "WorldCache_Reset");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_Reset);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.WorldCache_Reset);
+        int grc = divideAndRoundUp(options_.world_cache.max_probe_count, (int)threads[0]);
+        gfxCommandDispatch(gfx_, grc, 1, 1);
+        need_reset_world_cache_ = false;
+    }
+
+    {
+        TimedSection const timed_section(*this, "WorldCache_ResetCounters");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_ResetCounters);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+    }
+
+    // world cache : write spawn dispatch parameters
+    {
+        TimedSection const timed_section(*this, "WorldCache_WriteSpawnDispatchParameters");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_WriteSpawnDispatchParameters);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+    }
+
+    // world cache : spawn probes
+    {
+        TimedSection const timed_section(*this, "WorldCache_SpawnProbes");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_SpawnProbes);
+        gfxCommandDispatchIndirect(gfx_, world_cache_.WCSIndirectBuffer());
+    }
+
+    // world cache : recycle probes
+    {
+        TimedSection const timed_section(*this, "WorldCache_RecycleProbes");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_RecycleProbes);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.WorldCache_RecycleProbes);
+        uint32_t dispatch_size[] = {divideAndRoundUp((uint32_t)options_.world_cache.max_probe_count, threads[0])};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+    }
+
+    {
+        TimedSection const timed_section(*this, "WorldCache_ClearClipmaps");
+//        world_cache_.ClearClipmaps();
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_ClearClipmaps);
+        assert(options_.world_cache.clipmap_resolution % 8 == 0);
+        int stride = options_.world_cache.clipmap_resolution / 8;
+        gfxCommandDispatch(gfx_, stride, stride, options_.world_cache.clipmap_resolution);
+    }
+
+    // world cache : update active list and index
+    {
+        TimedSection const timed_section(*this, "WorldCache_UpdateActiveListAndIndex");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_UpdateActiveListAndIndex);
+        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.WorldCache_UpdateActiveListAndIndex);
+        uint32_t dispatch_size[] = {divideAndRoundUp((uint32_t)options_.world_cache.max_probe_count, threads[0])};
+        gfxCommandDispatch(gfx_, dispatch_size[0], 1, 1);
+    }
+
+    // world cache : clip counters
+    {
+        TimedSection const timed_section(*this, "WorldCache_ClipCounters");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_ClipCounters);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
     }
 
     // Clear the counter for active basis
@@ -569,6 +608,12 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     }
 
     {
+        const TimedSection timed_section(*this, "WorldCache_WriteProbeDispatchParameters");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_WriteProbeDispatchParameters);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+    }
+
+    {
         const TimedSection timed_section(*this, "SSRC_ReprojectProbeHistory");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_ReprojectProbeHistory);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
@@ -592,20 +637,32 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     }
 
     {
+        const TimedSection timed_section(*this, "SSRC_InitializeFailedProbes");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_InitializeFailedProbes);
+        // TODO: This should be a dispatch indirect
+    }
+
+    {
         const TimedSection timed_section(*this, "SSRC_AllocateUpdateRays");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_AllocateUpdateRays);
         gfxCommandDispatchIndirect(gfx_, buf_.per_lane_dispatch_command);
     }
 
     {
-        const TimedSection timed_section(*this, "SSRC_ScanSumAccumulateUpdateRayCount");
+        const TimedSection timed_section(*this, "WorldCache_AllocateUpdateRays");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_AllocateUpdateRays);
+        gfxCommandDispatchIndirect(gfx_, world_cache_.PerLaneWCAPIndirectBuffer());
+    }
+
+    {
+        const TimedSection timed_section(*this, "MIGI_ScanSumAccumulateUpdateRayCount");
         // reduce_count is set in kernel SSRC_WriteProbeDispatchParameters
         gfxCommandScanSum(gfx_, kGfxDataType_Uint, buf_.probe_update_ray_offset, buf_.probe_update_ray_count, &buf_.reduce_count);
     }
 
     {
-        const TimedSection timed_section(*this, "SSRC_SetUpdateRayCount");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_SetUpdateRayCount);
+        const TimedSection timed_section(*this, "MIGI_SetUpdateRayCount");
+        gfxCommandBindKernel(gfx_, kernels_.MIGI_SetUpdateRayCount);
         gfxCommandDispatch(gfx_, 1, 1, 1);
     }
 
@@ -616,136 +673,50 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     }
 
     {
-        const TimedSection timed_section(*this, "SSRC_GenerateTraceUpdateRays");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_GenerateTraceUpdateRays);
+        const TimedSection timed_section(*this, "WorldCache_SampleUpdateRays");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_SampleUpdateRays);
+        gfxCommandDispatchIndirect(gfx_, world_cache_.WCAPIndirectBuffer());
+    }
+
+    {
+        const TimedSection timed_section(*this, "MIGI_GenerateTraceUpdateRays");
+        gfxCommandBindKernel(gfx_, kernels_.MIGI_GenerateTraceUpdateRays);
         gfxCommandDispatch(gfx_, 1, 1, 1);
     }
 
     {
-        const TimedSection timed_section(*this, "SSRC_TraceUpdateRaysMain");
+        const TimedSection timed_section(*this, "MIGI_TraceUpdateRaysMain");
         if(options_.use_dxr10) {
             gfxSbtSetShaderGroup(
-                gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, MIGIRT::kScreenCacheUpdateRaygenShaderName);
-            gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Miss, 0, MIGIRT::kScreenCacheUpdateMissShaderName);
+                gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, MIGIRT::kMIGICacheUpdateRaygenShaderName);
+            gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Miss, 0, MIGIRT::kMIGICacheUpdateMissShaderName);
             for (uint32_t i = 0; i < gfxAccelerationStructureGetRaytracingPrimitiveCount(
                                      gfx_, capsaicin.getAccelerationStructure());
                  i++)
             {
                 gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Hit,
                     i * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
-                    MIGIRT::kScreenCacheUpdateHitGroupName);
+                    MIGIRT::kMIGICacheUpdateHitGroupName);
             }
-            gfxCommandBindKernel(gfx_, kernels_.SSRC_TraceUpdateRaysMain);
+            gfxCommandBindKernel(gfx_, kernels_.MIGI_TraceUpdateRaysMain);
             gfxCommandDispatchRaysIndirect(gfx_, sbt_, buf_.dispatch_rays_command);
         } else {
-            gfxCommandBindKernel(gfx_, kernels_.SSRC_TraceUpdateRaysMain);
+            gfxCommandBindKernel(gfx_, kernels_.MIGI_TraceUpdateRaysMain);
             gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
         }
     }
 
     // Trace results are waiting to be shaded
     // Build the light sampling cells based on shading positions from frame to frame
+    // unused for now
     light_sampler->update(capsaicin, this);
 
-    // Clear out reservoirs in the world space reservoir hash table
+    // Shade queries
     {
-        TimedSection section_timer(*this, "ClearReservoirs");
-        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.ClearReservoirs);
-        uint32_t const  num_groups_x =
-            (WorldSpaceReSTIR::kConstant_NumEntries + num_threads[0] - 1) / num_threads[0];
-
-        gfxCommandBindKernel(gfx_, kernels_.ClearReservoirs);
-        gfxCommandDispatch(gfx_, num_groups_x, 1, 1);
-    }
-
-    // Generate light sample reservoirs for our secondary hit points (from the TraceUpdateRays step)
-    {
-        TimedSection const timed_section(*this, "GenerateReservoirs");
-
-        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.GenerateReservoirs);
-        generateDispatch(hash_grid_cache_.radiance_cache_visibility_count_buffer_, num_threads[0]);
-
-        gfxCommandBindKernel(gfx_, kernels_.GenerateReservoirs);
-        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
-    }
-
-    // Compact the reservoir caching structure
-    {
-        TimedSection const timed_section(*this, "CompactReservoirs");
-
-        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.CompactReservoirs);
-        generateDispatch(world_space_restir_.reservoir_hash_list_count_buffer_, num_threads[0]);
-
-        gfxCommandScanSum(gfx_, kGfxDataType_Uint,
-            world_space_restir_
-                .reservoir_hash_index_buffers_[world_space_restir_.reservoir_indirect_sample_buffer_index_],
-            world_space_restir_
-                .reservoir_hash_count_buffers_[world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-        gfxCommandBindKernel(gfx_, kernels_.CompactReservoirs);
-        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
-    }
-
-    // Perform world-space reservoir reuse
-    {
-        TimedSection const timed_section(*this, "ResampleReservoirs");
-
-        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.ResampleReservoirs);
-        generateDispatch(hash_grid_cache_.radiance_cache_visibility_ray_count_buffer_, num_threads[0]);
-
-        gfxCommandBindKernel(gfx_, kernels_.ResampleReservoirs);
-        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
-    }
-
-    // Trace shadow rays for the sampled lights, and update the hash grid cache cells accordingly
-    // Populate the cells of our world-space hash-grid radiance cache
-    {
-        TimedSection const timed_section(*this, "PopulateCellsMain");
-        if(options_.use_dxr10) {
-            gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, MIGIRT::kPopulateCellsRaygenShaderName);
-            gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Miss, 0, MIGIRT::kPopulateCellsMissShaderName);
-            for (uint32_t i = 0; i < gfxAccelerationStructureGetRaytracingPrimitiveCount(
-                                     gfx_, capsaicin.getAccelerationStructure());
-                 i++)
-            {
-                gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Hit,
-                    i * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit), MIGIRT::kPopulateCellsHitGroupName);
-            }
-
-            generateDispatchRays(hash_grid_cache_.radiance_cache_visibility_ray_count_buffer_);
-
-            gfxCommandBindKernel(gfx_, kernels_.PopulateCellsMain);
-            gfxCommandDispatchRaysIndirect(gfx_, sbt_, buf_.dispatch_rays_command);
-
-        } else
-        {
-            uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.PopulateCellsMain);
-            generateDispatch(hash_grid_cache_.radiance_cache_visibility_ray_count_buffer_, num_threads[0]);
-
-            gfxCommandBindKernel(gfx_, kernels_.PopulateCellsMain);
-            gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
-        }
-    }
-
-    // Update our tiles using the result of the raytracing
-    // (Accumulate update values to the radiance cache)
-    {
-        TimedSection const timed_section(*this, "UpdateTiles");
-
-        gfxCommandBindKernel(gfx_, kernels_.GenerateUpdateTilesDispatch);
-        gfxCommandDispatch(gfx_, 1, 1, 1);
-
-        gfxCommandBindKernel(gfx_, kernels_.UpdateTiles);
-        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
-    }
-
-    // Resolve cells into the per-query storage
-    {
-        TimedSection const timed_section(*this, "ResolveCells");
-
-        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, kernels_.ResolveCells);
-        generateDispatch(hash_grid_cache_.radiance_cache_visibility_ray_count_buffer_, num_threads[0]);
-
-        gfxCommandBindKernel(gfx_, kernels_.ResolveCells);
+        TimedSection const timed_section(*this, "WorldCache_ShadeQueries");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_ShadeQueries);
+        generateDispatch(world_cache_.QueryCountBuffer(), (uint32_t)cfg_.wave_lane_count);
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_ShadeQueries);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
@@ -756,6 +727,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_UpdateProbes);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
+    }
+
+    // Update the world cache
+    {
+        TimedSection const timed_section(*this, "WorldCache_UpdateProbes");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_UpdateProbes);
+        gfxCommandDispatchIndirect(gfx_, world_cache_.WCAPIndirectBuffer());
     }
 
     // Spatial filter SSRC
@@ -793,7 +771,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 //        gfxCommandDispatch(gfx_, divideAndRoundUp(num_tiles, threads[0]), 1, 1);
 //    }
 
-    // Denoiser
+    // Denoise and copy the result to the output buffer
     {
         const TimedSection timed_section(*this, "SSRC_Denoise");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_Denoise);
@@ -889,11 +867,27 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeReprojectionTrust);
         uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-    } else if(options_.active_debug_view == "SSRC_ProbeColor") {
+    } else if(options_.active_debug_view == "SSRC_ProbeColor")
+    {
         TimedSection timed_section(*this, "SSRC_ProbeColor");
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeColor);
         uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    } else if(options_.active_debug_view == "WorldCache") {
+        TimedSection timed_section(*this, "WorldCache_Visualize");
+        // Copy the depth buffer to the depth buffer for debug visualization
+        if(!debug_buffer_copied)
+        {
+            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            debug_buffer_copied = true;
+        }
+        gfxCommandBindKernel(gfx_, kernels_.DebugWorldCache_GenerateDraw);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        gfxCommandBindKernel(gfx_, kernels_.DebugWorldCache_VisualizeProbes);
+        gfxCommandBindVertexBuffer(gfx_, world_cache_.UVSphereVertexBuffer());
+        gfxCommandBindIndexBuffer(gfx_, world_cache_.UVSphereIndexBuffer());
+        gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
     }
 
     if(options_.debug_light) {
@@ -955,16 +949,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     fflush(stdout);
 #endif
 }
-
-void MIGI::clearHashGridCache () {
-    if (hash_grid_cache_.radiance_cache_hash_buffer_)
-    {
-        TimedSection section_timer(*this, "ClearHashGridCache");
-        gfxCommandClearBuffer(gfx_, hash_grid_cache_.radiance_cache_hash_buffer_); // clear the radiance cache
-        gfxCommandClearBuffer(gfx_, hash_grid_cache_.radiance_cache_packed_tile_count_buffer0_);
-        gfxCommandClearBuffer(gfx_, hash_grid_cache_.radiance_cache_packed_tile_count_buffer1_);
-    }
-}
+#pragma warning(pop)
 
 void MIGI::clearReservoirs() {
     // Do nothing.

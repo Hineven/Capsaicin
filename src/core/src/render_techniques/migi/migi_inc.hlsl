@@ -63,6 +63,10 @@ uint g_GroupSize;
 StructuredBuffer<uint> g_CountBuffer;
 RWStructuredBuffer<DispatchCommand>     g_RWDispatchCommandBuffer;
 RWStructuredBuffer<DispatchCommand>     g_RWPerLaneDispatchCommandBuffer;
+RWStructuredBuffer<DispatchCommand>     g_RWWCSDispatchCommandBuffer; // World cache spawn request
+RWStructuredBuffer<DispatchCommand>     g_RWPerLaneWCSDispatchCommandBuffer;
+RWStructuredBuffer<DispatchCommand>     g_RWWCAPDispatchCommandBuffer; // World cache active probe
+RWStructuredBuffer<DispatchCommand>     g_RWPerLaneWCAPDispatchCommandBuffer;
 RWStructuredBuffer<DispatchRaysCommand> g_RWDispatchRaysCommandBuffer;
 RWStructuredBuffer<DrawCommand>         g_RWDrawCommandBuffer;
 RWStructuredBuffer<DrawIndexedCommand>  g_RWDrawIndexedCommandBuffer;
@@ -153,6 +157,9 @@ Texture2D<unorm float>     g_PreviousHistoryAccumulationTexture;
 RWTexture2D<unorm float>   g_RWHistoryAccumulationTexture;
 // Global illumination history without skybox
 Texture2D<float4>          g_PreviousGlobalIlluminationTexture;
+// Diffuse only render result
+RWTexture2D<float4>          g_RWDiffuseGITexture;
+Texture2D<float4>         g_PreviousDiffuseGITexture;
 
 // HiZ buffer generation input-outputs
 RWTexture2D<float4> g_RWHiZ_In;
@@ -162,9 +169,9 @@ Texture2D g_TileHiZ_Min;
 Texture2D g_TileHiZ_Max;
 
 // Constant buffers for sub-components
-ConstantBuffer<WorldCacheConstants>     WorldCache;
-ConstantBuffer<RTConstants>  RayTracing;
-ConstantBuffer<MIGI_Constants>              MI;
+ConstantBuffer<WorldCacheConstants> WorldCache;
+ConstantBuffer<RTConstants>         RayTracing;
+ConstantBuffer<MIGI_Constants>      MI;
 
 // LUT
 Texture2D g_LutBuffer;

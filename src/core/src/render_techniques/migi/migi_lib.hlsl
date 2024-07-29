@@ -357,11 +357,10 @@ float3 FetchUpdateRayDirection (int RayIndex) {
     return OctahedronToUnitVector(UnpackUnorm2x16Unbiased(Packed) * 2.f - 1.f);
 }
 
-void WriteUpdateRay(int2 ProbeIndex, int2 ProbeScreenPosition, int RayRank, float3 RayDirection, float RayPdf) {
-    int ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
+void WriteUpdateRay(int ProbeIndex1, int2 ProbeScreenPosition, int RayRank, float3 RayDirection, float RayPdf) {
     int BaseOffset = g_RWProbeUpdateRayOffsetBuffer[ProbeIndex1];
     int RayIndex = BaseOffset + RayRank;
-    if(WaveIsFirstLane()) g_RWUpdateRayProbeBuffer[RayIndex / WAVE_SIZE] = PackUint16x2(ProbeIndex);
+    if(WaveIsFirstLane()) g_RWUpdateRayProbeBuffer[RayIndex / WAVE_SIZE] = ProbeIndex1;
     g_RWUpdateRayDirectionBuffer[RayIndex] = PackUnorm2x16Unbiased(UnitVectorToOctahedron(RayDirection) * 0.5 + 0.5);
     g_RWUpdateRayRadianceInvPdfBuffer[RayIndex] = PackFp16x4Safe(float4(0.f.xxx, RayPdf == 0 ? 0 : (1.f / RayPdf)));
 }

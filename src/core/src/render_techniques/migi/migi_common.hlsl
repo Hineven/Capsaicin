@@ -13,7 +13,7 @@ namespace Capsaicin {
 
 #define WORLD_CACHE_PROBE_RESOLUTION_INTERNAL 6
 #define WORLD_CACHE_PROBE_RESOLUTION          8
-#define WORLD_CACHE_MAX_UPDATE_RAYS_PER_PROBE 144
+#define WORLD_CACHE_MAX_UPDATE_RAYS_PER_PROBE 243
 
 #define MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES 4
 #if MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES > 4
@@ -51,6 +51,9 @@ struct WorldCacheConstants {
     float2 InvAtlasDimensions;
 
     float SampleBias;
+    float ProbeIrradianceThreshold;
+    float ProbeLuminanceThreshold;
+    uint   Debug_DrawProbeInstanceIndexCount;
 };
 
 struct WorldSpaceReSTIRConstants

@@ -20,9 +20,6 @@
 #include "migi_probes.hlsl"
 #include "migi_worldcache.hlsl"
 
-// World space ReSTIR library
-#include "world_space_restir.hlsl"
-
 #define MAX_HIT_DISTANCE 1e9f
 
 struct MIGI_CacheUpdatePayload
@@ -65,10 +62,10 @@ void GenerateDispatch()
 void GenerateDispatchRays()
 {
     DispatchRaysCommand dispatch_rays_command;
-    dispatch_rays_command.ray_generation_shader_record = g_RTConstants.ray_generation_shader_record;
-    dispatch_rays_command.miss_shader_table = g_RTConstants.miss_shader_table;
-    dispatch_rays_command.hit_group_table = g_RTConstants.hit_group_table;
-    dispatch_rays_command.callable_shader_table = g_RTConstants.callable_shader_table;
+    dispatch_rays_command.ray_generation_shader_record = RayTracing.ray_generation_shader_record;
+    dispatch_rays_command.miss_shader_table = RayTracing.miss_shader_table;
+    dispatch_rays_command.hit_group_table = RayTracing.hit_group_table;
+    dispatch_rays_command.callable_shader_table = RayTracing.callable_shader_table;
     dispatch_rays_command.width = g_CountBuffer[0];
     dispatch_rays_command.height = 1;
     dispatch_rays_command.depth = 1;
@@ -81,18 +78,34 @@ void GenerateDispatchRays()
 [numthreads(WAVE_SIZE, 1, 1)]
 void WorldCache_Reset (uint DispatchID : SV_DispatchThreadID) {
     if(DispatchID >= WorldCache.NumProbes) return ;
-    int ProbeIndex = DispatchID;
-    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
-    if(Header.bActive) {
-        WorldCache_RecycleProbe(ProbeIndex);
+    if(DispatchID == 0) {
+        g_RWWorldCacheActiveProbeCountBuffer[0] = 0;
     }
+    g_RWWorldCacheFreeProbeIndexBuffer[DispatchID] = WorldCache.NumProbes - DispatchID - 1;
+
+    WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(DispatchID);
     // Mark as recycled
-    WorldCache_WriteProbeScore(ProbeIndex, 0);
+    WorldCache_WriteProbeScore(DispatchID, 0);
 }
 
 [numthreads(1, 1, 1)]
 void WorldCache_ResetCounters () {
-    g_RWWorldCacheActiveProbeCountBuffer[0] = 0;
+    // No need to reset this (it controls the freelist)
+    // g_RWWorldCacheActiveProbeCountBuffer[0] = 0;
+}
+
+[numthreads(1, 1, 1)]
+void WorldCache_WriteSpawnDispatchParameters () {
+    DispatchCommand Command = (DispatchCommand)0;
+    Command.num_groups_x = g_RWWorldCacheProbeSpawnRequestCountBuffer[0];
+    Command.num_groups_y = 1;
+    Command.num_groups_z = 1;
+    g_RWWCSDispatchCommandBuffer[0] = Command;
+
+    Command.num_groups_x = (g_RWWorldCacheProbeSpawnRequestCountBuffer[0] + WAVE_SIZE - 1) / WAVE_SIZE;
+    Command.num_groups_y = 1;
+    Command.num_groups_z = 1;
+    g_RWPerLaneWCSDispatchCommandBuffer[0] = Command;
 }
 
 // Spawn probes that are requested in the last frame.
@@ -107,45 +120,51 @@ void WorldCache_SpawnProbes (uint GroupID : SV_GroupID, uint LocalID : SV_GroupT
     int4 GridCoords = Request.GridCoords;
 
     int  CascadeIndex = GridCoords.w;
-    int  ProbeIndex = -1;
+    uint ProbeIndex = 0xffffffffu;
     if(WaveIsFirstLane()) ProbeIndex = WorldCache_AllocateProbe();
     ProbeIndex = WaveReadLaneFirst(ProbeIndex);
-    if(ProbeIndex >= 0) {
+    if(WorldCache_IsProbeIndexValid(ProbeIndex)) {
         // Successful allocation
         WorldCacheProbeHeader Header = (WorldCacheProbeHeader)0;
         Header.GridCoords = GridCoords;
         Header.Score = WorldCache.ProbeInitialScore;
         Header.bActive = true;
         Header.GridInternalNormalizedPosition = 0;
-        WorldCache_WriteProbeHeader(ProbeIndex, Header);
-        float3 NewProbeWorldPosition = WorldCache_GetProbeWorldCenterFromGridCoords(GridCoords, true);
+        if(WaveIsFirstLane()) {
+            WorldCache_WriteProbeHeader(ProbeIndex, Header);
+        }
+        Header.WorldPosition = WorldCache_GetProbeWorldCenterFromGridCoords(GridCoords, true);
 
         // Cooperatively initialize the probe data using the previous frame's data
-        WorldCacheSample Sample = WorldCache_SampleProbes(Header.WorldPosition, true);
+        WorldCacheSample Sample = WorldCache_SampleProbes(
+            Header.WorldPosition, Header.WorldPosition,
+            0, true, true
+        );
 #define TEXEL_COUNT (WORLD_CACHE_PROBE_RESOLUTION * WORLD_CACHE_PROBE_RESOLUTION)
 #define LOOP ((TEXEL_COUNT + WAVE_SIZE - 1) / WAVE_SIZE)
 
         float4 ThreadLocalDataSum0[LOOP];
-        float4 ThreadLocalDataSum1[LOOP];
+        float2 ThreadLocalDataSum1[LOOP];
         for(int i = 0; i < LOOP; i++) {
             ThreadLocalDataSum0[i] = 0;
             ThreadLocalDataSum1[i] = 0;
         }
         for(int i = 0; i < 8; i++) {
-            if(Sample.ProbeIndex[i] > 0 && Sample.Weights[i] > 0) {
+            if(WorldCache_IsProbeIndexValid(Sample.ProbeIndex[i]) && Sample.Weights[i] > 0) {
                 int2 Offset = WorldCache_GetProbeAtlasBase(Sample.ProbeIndex[i]);
                 WorldCacheProbeHeader SrcHeader = WorldCache_GetProbeHeader(Sample.ProbeIndex[i]);
-                float3 V = SrcHeader.WorldPosition - NewProbeWorldPosition;
+                float3 V = SrcHeader.WorldPosition - Header.WorldPosition;
                 for(int BaseTexelIndex = 0; BaseTexelIndex < TEXEL_COUNT; BaseTexelIndex ++) {
                     int TexelIndex = BaseTexelIndex + LocalID;
                     int2 TexelCoords = int2(TexelIndex % WORLD_CACHE_PROBE_RESOLUTION, TexelIndex / WORLD_CACHE_PROBE_RESOLUTION);
                     float2 TexelUV   = (TexelCoords + 0.5f) / WORLD_CACHE_PROBE_RESOLUTION;
                     float3 Direction = OctahedronToUnitVector01(TexelUV);
-                    float4 Data0 = g_RWWorldCacheIrradianceLuminanceTexture.Load(int3(TexelCoords + Offset, 0));
-                    float2 Data1 = g_RWWorldCacheDepthDepthSquaredTexture.Load(int3(TexelCoords + Offset, 0)).xy;
+                    float4 Data0 = g_RWWorldCacheIrradiance2PLuminanceTexture[TexelCoords + Offset];
+                    float2 Data1 = g_RWWorldCacheMomentumTexture[TexelCoords + Offset];
                     float  DeltaDistance =  dot(V, Direction);
                     Data1.y += DeltaDistance * DeltaDistance + 2.f * Data1.x * DeltaDistance;
                     Data1.x += DeltaDistance;
+                    Data1 = max(Data1, 0);
                     int Loop = BaseTexelIndex / WAVE_SIZE;
                     ThreadLocalDataSum0[Loop] += Data0 * Sample.Weights[i];
                     ThreadLocalDataSum1[Loop] += Data1 * Sample.Weights[i];
@@ -157,9 +176,9 @@ void WorldCache_SpawnProbes (uint GroupID : SV_GroupID, uint LocalID : SV_GroupT
             int TexelIndex = BaseTexelIndex + LocalID;
             int2 TexelCoords = int2(TexelIndex % WORLD_CACHE_PROBE_RESOLUTION, TexelIndex / WORLD_CACHE_PROBE_RESOLUTION);
             int2 Offset = WorldCache_GetProbeAtlasBase(ProbeIndex);
-            g_RWWorldCacheIrradianceLuminanceTexture[TexelCoords + Offset]
+            g_RWWorldCacheIrradiance2PLuminanceTexture[TexelCoords + Offset]
                 = ThreadLocalDataSum0[BaseTexelIndex / WAVE_SIZE];
-            g_RWWorldCacheDepthDepthSquaredTexture[TexelCoords + Offset]
+            g_RWWorldCacheMomentumTexture[TexelCoords + Offset]
                 = ThreadLocalDataSum1[BaseTexelIndex / WAVE_SIZE];
         }
 #undef LOOP
@@ -172,22 +191,29 @@ void WorldCache_SpawnProbes (uint GroupID : SV_GroupID, uint LocalID : SV_GroupT
 groupshared uint LocalNumProbesToRecycle_WorldCache;
 groupshared uint LocalProbeToRecycleIndices_WorldCache[WAVE_SIZE];
 [numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
+void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchThreadID, uint LocalID : SV_GroupThreadID) {
     if(DispatchID >= WorldCache.NumProbes) return ;
     if(WaveIsFirstLane()) {
         LocalNumProbesToRecycle_WorldCache = 0;
     }
 
     GroupMemoryBarrierWithGroupSync();
-    int ProbeIndex = DispatchID;
+    uint ProbeIndex = DispatchID;
     WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
     if(Header.bActive) {
-        Header.Score -= WorldCache.ProbeScoreDecay;
+        bool IsProbeTouched = g_RWWorldCacheProbeTouchBuffer[ProbeIndex] != 0;
+        if(IsProbeTouched) {
+            Header.Score = min(Header.Score + WorldCache.ProbeScoreBonus, WorldCache.ProbeInitialScore);
+        } else Header.Score -= WorldCache.ProbeScoreDecay;
+
+        g_RWWorldCacheProbeTouchBuffer[ProbeIndex] = 0;
+
         // Recycle unused probes.
         bool bShouldRecycleProbe = Header.Score <= 0;
         int4 GridCoords = Header.GridCoords;
         // Roll cascades. Update the probe grid coords.
-        GridCoords.xyz += WorldCache.CascadeRolling[GridCoords.w];
+        // The rolled coords lies on the grid coordinate system of the previous frame.
+        GridCoords.xyz -= WorldCache.CascadeRolling[GridCoords.w].xyz;
         bool bIsOutOfBounds = WorldCache_IsProbeCoordsOutOfBounds(GridCoords);
         if(bIsOutOfBounds) {
             bShouldRecycleProbe = true;
@@ -215,8 +241,10 @@ void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
             WorldCache_RecycleProbe(ProbeIndex);
         }
         // Update the probe header
+        int Multiplier = 1u << (WorldCache.MaxClipmapCascades - GridCoords.w - 1);
         Header.GridCoords = GridCoords;
-        Header.Score = max(Header.Score, 0);
+        // Sometimes we want to retract the recycling of a probe though it's score is 0 already.
+        Header.Score = bShouldRecycleProbe ? 0 : max(Header.Score, 1);
 
         // Write back
         WorldCache_WriteProbeHeader(ProbeIndex, Header);
@@ -232,12 +260,13 @@ void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
     // Clear probe atlas data
     GroupMemoryBarrierWithGroupSync();
     int NumProbesToRecycle = LocalNumProbesToRecycle_WorldCache;
+    [unroll(WAVE_SIZE)]
     for(int i = 0; i < NumProbesToRecycle; i++) {
         int2 Offset = WorldCache_GetProbeAtlasBase(LocalProbeToRecycleIndices_WorldCache[i]);
         for(int BaseTexelIndex = 0; 
             BaseTexelIndex < WORLD_CACHE_PROBE_RESOLUTION * WORLD_CACHE_PROBE_RESOLUTION;
             BaseTexelIndex += WAVE_SIZE) {
-            int TexelIndex = BaseTexelIndex + DispatchID;
+            int TexelIndex = BaseTexelIndex + LocalID;
             int2 TexCoords = int2(TexelIndex % WORLD_CACHE_PROBE_RESOLUTION, TexelIndex / WORLD_CACHE_PROBE_RESOLUTION);
             g_RWWorldCacheIrradiance2PLuminanceTexture[TexCoords + Offset] = 0;
             g_RWWorldCacheMomentumTexture[TexCoords + Offset] = 0;
@@ -245,20 +274,32 @@ void WorldCache_RecycleProbes (uint DispatchID : SV_DispatchIndex) {
     }
 }
 
-// The clipmaps are cleared after probe recycling and spawnning.
+[numthreads(8, 8, 1)]
+void WorldCache_ClearClipmaps (int2 DispatchID : SV_DispatchThreadID, int3 GroupID : SV_GroupID) {
+    if(all(DispatchID == 0) && GroupID.z == 0) {
+        // Clear the active probe count for next pass's recreation of the active list
+        g_RWWorldCacheActiveProbeCountBuffer[0] = 0;
+    }
+    if(any(DispatchID.xy >= WorldCache.GridCoordsBound)) return ;
+    int Layer = GroupID.z;
+    [unroll(MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES)]
+    for(int Cascade = 0; Cascade < WorldCache.MaxClipmapCascades; Cascade++) {
+        g_RWWorldCacheProbeIndexTexture[Cascade][int3(Layer, DispatchID)] = 0xffffffffu;
+    }
+}
 
 groupshared int LocalProbeIndex_WorldCache[WAVE_SIZE];
 groupshared int LocalProbeIndexCount_WorldCache;
 // Enumerate probes , respawn the active list & clipmap index
 [numthreads(WAVE_SIZE, 1, 1)]
-void WorldCache_UpdateActiveListAndIndex (uint DispatchID : SV_DispatchIndex) {
+void WorldCache_UpdateActiveListAndIndex (uint DispatchID : SV_DispatchThreadID, uint LocalID : SV_GroupThreadID) {
     if(DispatchID >= WorldCache.NumProbes) return ;
     if(WaveIsFirstLane()) {
         LocalProbeIndexCount_WorldCache = 0;
     }
 
     GroupMemoryBarrierWithGroupSync();
-    int ProbeIndex = DispatchID;
+    uint ProbeIndex = DispatchID;
     WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
     if(Header.bActive) {
         int LocalIndex;
@@ -270,13 +311,14 @@ void WorldCache_UpdateActiveListAndIndex (uint DispatchID : SV_DispatchIndex) {
         WorldCache_WriteProbeIndexToGrid(GridCoords, ProbeIndex);
 
         bool bIsOnBorder = false;
+        int3 AbsCoords = GridCoords.xyz + WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w].xyz;
         if(GridCoords.w < WorldCache.MaxClipmapCascades - 1) {
-            int3 BorderMin = WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w + 1] * 2;
-            int3 BorderMax = BorderMin + WorldCache.GridCoordsBound * 2;
-            bIsOnBorder = any(GridCoords.xyz == BorderMin) || any(GridCoords.xyz == BorderMax);
+            int3 BorderMin = WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w + 1].xyz * 2;
+            int3 BorderMax = BorderMin + (WorldCache.GridCoordsBound - 1) * 2;
+            bIsOnBorder = any(AbsCoords.xyz == BorderMin) || any(AbsCoords.xyz == BorderMax);
         }
         // Also promote the probe to higher level clipmaps if it's on the border.
-        if(all((GridCoords & 1) == 0) && bIsOnBorder) {
+        if(all((AbsCoords & 1) == 0) && bIsOnBorder) {
             WorldCache_WriteProbeIndexToGrid(int4(GridCoords.xyz >> 1, GridCoords.w + 1), ProbeIndex);
         } 
     }
@@ -285,12 +327,14 @@ void WorldCache_UpdateActiveListAndIndex (uint DispatchID : SV_DispatchIndex) {
     int ActiveListBaseOffset = 0;
     if(WaveIsFirstLane()) {
         // Update the active list
-        ActiveListBaseOffset = InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], LocalProbeIndexCount_WorldCache);
+        InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], LocalProbeIndexCount_WorldCache, ActiveListBaseOffset);
     }
     ActiveListBaseOffset = WaveReadLaneFirst(ActiveListBaseOffset);
 
     GroupMemoryBarrierWithGroupSync();
-    g_RWWorldCacheActiveProbeIndexBuffer[ActiveListBaseOffset + DispatchID] = LocalProbeIndex_WorldCache[DispatchID];
+    if(LocalID < LocalProbeIndexCount_WorldCache) {
+        g_RWWorldCacheActiveProbeIndexBuffer[ActiveListBaseOffset + LocalID] = LocalProbeIndex_WorldCache[LocalID];
+    }
 }
 
 // Clear counters
@@ -644,8 +688,24 @@ void SSRC_WriteProbeDispatchParameters () {
 
     // Also, set the reduce count for scan sum update rays
     // Pad 1 for the last element
-    g_RWReduceCountBuffer[0] = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + 1;
+    g_RWReduceCountBuffer[0] = 
+        MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0]
+         + g_RWWorldCacheActiveProbeCountBuffer[0] + 1;
+}
 
+[numthreads(1, 1, 1)]
+void WorldCache_WriteProbeDispatchParameters () {
+    // Generate commands for active probe dispatch
+    DispatchCommand Command = (DispatchCommand)0;
+    Command.num_groups_x = g_RWWorldCacheActiveProbeCountBuffer[0];
+    Command.num_groups_y = 1;
+    Command.num_groups_z = 1;
+    g_RWWCAPDispatchCommandBuffer[0] = Command;
+
+    Command.num_groups_x = (g_RWWorldCacheActiveProbeCountBuffer[0] + WAVE_SIZE - 1) / WAVE_SIZE;
+    Command.num_groups_y = 1;
+    Command.num_groups_z = 1;
+    g_RWPerLaneWCAPDispatchCommandBuffer[0] = Command;
 }
 
 void ResetProbe (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int BasisOffset, float3 ProbeNormal) {
@@ -1076,7 +1136,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
 // Initialize screen probes that failed in reprojection with world cache.
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_InitializeFailedProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
-    ...
+    // TODO
 }
 
 // Allocate update rays for each probe
@@ -1104,19 +1164,19 @@ void SSRC_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
 [numthreads(WAVE_SIZE, 1, 1)]
 void WorldCache_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
     if(DispatchID >= WorldCache_GetActiveProbeCount()) return ;
-    int ProbeIndex = DispatchID;
+    int ProbeActiveListIndex = DispatchID;
     // Simple uniform allocation
     // TODO better allocation strategy
     int RayCount = WorldCache.NumUpdateRayPerProbe;
-    g_RWProbeUpdateRayCountBuffer[MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + ProbeIndex] = RayCount;
+    g_RWProbeUpdateRayCountBuffer[MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + ProbeActiveListIndex] = RayCount;
 }
 
 // A scan sum is performed to accumulate allocated raycount for each probe
 
 [numthreads(1, 1, 1)]
-void SetUpdateRayCount () {
-    int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0];
-    g_RWUpdateRayCountBuffer[0] = g_RWProbeUpdateRayOffsetBuffer[ProbeCount] + WorldCache.NumUpdateRayPerProbe * WorldCache_GetActiveProbeCount();
+void MIGI_SetUpdateRayCount () {
+    int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + g_RWWorldCacheActiveProbeCountBuffer[0];
+    g_RWUpdateRayCountBuffer[0] = g_RWProbeUpdateRayOffsetBuffer[ProbeCount];
 }
 
 
@@ -1251,11 +1311,12 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
         }
         // 0623: This must be checked otherwise there're precision issues
         float bValid = dot(RayDirection, Header.Normal) > 0;
+        int ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
         if(RayPdf >= MIN_PDF_TO_TRACE && bValid) {
-            WriteUpdateRay(ProbeIndex, Header.ScreenCoords, RayRank, RayDirection, RayPdf);
+            WriteUpdateRay(ProbeIndex1, Header.ScreenCoords, RayRank, RayDirection, RayPdf);
         } else {
             // No need to do compressing since there're just a tiny number of rays being canceled
-            WriteUpdateRay(ProbeIndex, Header.ScreenCoords, RayRank, 0, 0);
+            WriteUpdateRay(ProbeIndex1, Header.ScreenCoords, RayRank, 0, 0);
         }
     }
     // Sample SGs
@@ -1318,12 +1379,12 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
         // 0623: This must be checked otherwise there're precision issues
         bool bValid = dot(RayDirection, Header.Normal) > 0;
         // Pack the ray
-        // TODO jitter the ray origin ? may be useless
+        int ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
         if(RayPdf >= MIN_PDF_TO_TRACE && bValid) {
-            WriteUpdateRay(ProbeIndex, Header.ScreenCoords, RayRank, RayDirection, RayPdf);
+            WriteUpdateRay(ProbeIndex1, Header.ScreenCoords, RayRank, RayDirection, RayPdf);
         } else {
             // No need to do compressing since there're just a tiny number of rays being canceled
-            WriteUpdateRay(ProbeIndex, Header.ScreenCoords, RayRank, 0, 0);
+            WriteUpdateRay(ProbeIndex1, Header.ScreenCoords, RayRank, 0, 0);
         }
     }
 }
@@ -1338,9 +1399,11 @@ void WorldCache_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : 
     // TODO better sampling strategy
     for(int RayRankBase = 0; RayRankBase < RayCount; RayRankBase += WAVE_SIZE) {
         int RayRank = RayRankBase + LocalID;
-        float3 RayDirection = FibonacciSphere(RayRank, RayCount);
-        float RayPdf = UniformSampleHemispherePdf();
-        WriteUpdateRay(ProbeIndirectIndex, int2(0, 0), RayRank, RayDirection, RayPdf);
+        if(RayRank < RayCount) {
+            float3 RayDirection = FibonacciSphere(RayRank, RayCount);
+            float RayPdf = UniformSampleHemispherePdf();
+            WriteUpdateRay(ProbeIndirectIndex, int2(0, 0), RayRank, RayDirection, RayPdf);
+        }
     }
 }
 
@@ -1350,10 +1413,10 @@ void WorldCache_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : 
 void MIGI_GenerateTraceUpdateRays () {
     int RayCount   = g_RWUpdateRayCountBuffer[0];
     DispatchRaysCommand dispatch_command_rays = (DispatchRaysCommand)0;
-    dispatch_command_rays.ray_generation_shader_record = g_RTConstants.ray_generation_shader_record;
-    dispatch_command_rays.miss_shader_table = g_RTConstants.miss_shader_table;
-    dispatch_command_rays.hit_group_table = g_RTConstants.hit_group_table;
-    dispatch_command_rays.callable_shader_table = g_RTConstants.callable_shader_table;
+    dispatch_command_rays.ray_generation_shader_record = RayTracing.ray_generation_shader_record;
+    dispatch_command_rays.miss_shader_table = RayTracing.miss_shader_table;
+    dispatch_command_rays.hit_group_table = RayTracing.hit_group_table;
+    dispatch_command_rays.callable_shader_table = RayTracing.callable_shader_table;
     dispatch_command_rays.width = RayCount;
     dispatch_command_rays.height = 1;
     dispatch_command_rays.depth = 1;
@@ -1367,6 +1430,9 @@ void MIGI_GenerateTraceUpdateRays () {
     dispatch_command.num_groups_z = 1;
     dispatch_command.padding = 0;
     g_RWDispatchCommandBuffer[0] = dispatch_command;
+
+    // Also, set the world cache query count to ray count.
+    g_RWWorldCacheQueryCountBuffer[0] = RayCount;
 }
 
 void MIGI_CacheUpdateHandleHit(uint DispatchID, inout MIGI_CacheUpdatePayload payload, RayDesc ray, HitInfo hit_info)
@@ -1430,12 +1496,15 @@ struct MIGI_RayProbeIndex {
 };
 MIGI_RayProbeIndex GetUpdateRayProbeIndex (int QueryIndex) {
     MIGI_RayProbeIndex Result = (MIGI_RayProbeIndex)0;
-    if(QueryIndex >= SSRC_GetTotalUpdateRayCount()) {
+    int SSRCUpdateRayCount = SSRC_GetTotalUpdateRayCount();
+    if(QueryIndex >= SSRCUpdateRayCount) {
         Result.ScreenProbeIndex = int2(0, 0);
-        Result.WorldProbeIndex = (QueryIndex - SSRC_GetTotalUpdateRayCount()) / WorldCache.NumUpdateRayPerProbe;
+        int ActiveIndex = (QueryIndex - SSRCUpdateRayCount) / WorldCache.NumUpdateRayPerProbe;
+        Result.WorldProbeIndex = g_RWWorldCacheActiveProbeIndexBuffer[ActiveIndex];
         Result.IsWorldProbe = true;
     } else {
-        Result.ScreenProbeIndex = UnpackUint16x2(g_RWUpdateRayProbeBuffer[QueryIndex / WAVE_SIZE]);
+        int ProbeIndex1 = g_RWUpdateRayProbeBuffer[QueryIndex / WAVE_SIZE];
+        Result.ScreenProbeIndex = int2(ProbeIndex1 % MI.TileDimensions.x, ProbeIndex1 / MI.TileDimensions.x);
         Result.WorldProbeIndex = 0;
         Result.IsWorldProbe = false;
     }
@@ -1717,7 +1786,7 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID)
                     {
                         // Diffuse only. Glossy / specular lighting may vary significantly according
                         // to the viewing angle, so we cannot reuse them.
-                        float3 PreviousDiffuse = LoadPreviousDiffuseLighting(previous_uv);
+                        float3 PreviousDiffuse = g_PreviousDiffuseGITexture.SampleLevel(g_NearestSampler, previous_uv, 0).rgb;
     #ifdef ENABLE_INDIRECT
                         RayRadianceInvPdf.xyz      += PreviousDiffuse * DiffuseCompensation;
     #endif // ENABLE_INDIRECT
@@ -1729,13 +1798,13 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID)
     }
 
     // Touch the cache to increase probe scores
-    int WaveJitter = MI.FrameIndex % WAVE_SIZE;
+    int WaveJitter = (MI.FrameIndex + DispatchID) % WAVE_SIZE;
     float3 WorldPositionBiased = 
         WorldPosition + WorldNormal * WorldCache_GetSampleOffsetAmount(WorldPosition);
-    WorldCacheSample Sample = WorldCache_SampleProbes(WorldPosition, WorldPositionBiased, WorldNormal);
-    if(WaveJitter == DispatchID % WAVE_SIZE) WorldCache_TouchSample(Sample);
-    bool bIsDiffuseMaterial = false;
-    if(bReprojectionSuccess && DiffuseCompensation.x > 0.95f) {
+    WorldCacheSample Sample = WorldCache_SampleProbes(WorldPosition, WorldPositionBiased, WorldNormal, false, false, WaveJitter == 0);
+    if(true) WorldCache_TouchSample(Sample);
+    bool bIsDiffuseMaterial = DiffuseCompensation.x > 0.95f;
+    if(bReprojectionSuccess && bIsDiffuseMaterial) {
         // Skip world cache shading for diffuse materials that project well on screen
         g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RayRadianceInvPdf);
         return ;
@@ -1746,7 +1815,7 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID)
     for(int i = 0; i < 8; i++) {
         int2 AtlasBase = WorldCache_GetProbeAtlasBase(Sample.ProbeIndex[i]);
         float2 AtlasUV = (AtlasBase + IrradianceTexPosition) * WorldCache.InvAtlasDimensions;
-        float3 Irradiance = TWO_PI * g_WorldCacheIrradiance2PLuminanceTexture.Sample(g_LinearSampler, AtlasUV).xyz;
+        float3 Irradiance = TWO_PI * g_WorldCacheIrradiance2PLuminanceTexture.SampleLevel(g_LinearSampler, AtlasUV, 0).xyz;
         float3 Diffuse = DiffuseCompensation * Irradiance * evaluateLambert(MaterialBRDFData.albedo);
         // Skip diffuse lighting from world cache as we have reprojected that from the previous frame
         if(bReprojectionSuccess) Diffuse = 0; 
@@ -1795,18 +1864,19 @@ void WorldCache_UpdateProbes (int2 LocalID : SV_DispatchThreadID, int GroupID : 
                 SumIrradiance += RayRadiance * CosineFactor * RayRadianceInvPdf.w;
                 SumIrradianceWeight += RayRadianceInvPdf.w;
                 float Weight = pow(CosineFactor, 2) * RayRadianceInvPdf.w;
-                // Clamp the ray depth to 1.5 * the probe grid size, cause larger values are meaningless.
-                RayDepth = min(RayDepth, 1.5f * WorldCache_GetGridSizeForLevel(Header.GridCoords.w));
+                // Clamp the ray depth to 2.5 * the probe grid size, cause larger values are meaningless.
+                // (We need 2 x grid size on cascade seams)
+                RayDepth = min(RayDepth, 2.5f * WorldCache_GetGridSizeForLevel(Header.GridCoords.w));
                 SumDepth += RayDepth * Weight;
                 SumDepthSqr += RayDepth * RayDepth * Weight;
                 SumWeight += Weight;
             }
         }
         float3 Irradiance2P = SumIrradiance / max(SumIrradianceWeight, 1e-4f);
-        float2 Momentum = float2(SumDepth, SumDepthSqr) / SumWeight;
+        float2 Momentum = float2(SumDepth, SumDepthSqr) / max(SumWeight, 1e-6f);
         int2 AtlasBase = WorldCache_GetProbeAtlasBase(ProbeIndex);
         int2 AtlasCoords = AtlasBase + LocalID;
-        float3 PrevIrradiance2P = g_RWWorldCacheIrradiance2PLuminanceTexture[AtlasCoords];
+        float3 PrevIrradiance2P = g_RWWorldCacheIrradiance2PLuminanceTexture[AtlasCoords].xyz;
         float2 PrevMomentum = g_RWWorldCacheMomentumTexture[AtlasCoords];
 
         // Implementation comes from RTXGI-DDGI source.
@@ -1815,7 +1885,7 @@ void WorldCache_UpdateProbes (int2 LocalID : SV_DispatchThreadID, int GroupID : 
         if(dot(PrevIrradiance2P, PrevIrradiance2P) == 0) Hysteresis = 0.f;
 
         // Momentum update
-        g_RWWorldCacheMomentumTexture[AtlasCoords] = float4(lerp(Momentum, PrevMomentum, Hysteresis), 0.f);
+        g_RWWorldCacheMomentumTexture[AtlasCoords] = lerp(Momentum, PrevMomentum, Hysteresis);
 
         // Get the difference between the current irradiance and the irradiance mean stored in the probe
         float3 Delta = Irradiance2P - PrevIrradiance2P;
@@ -1848,8 +1918,8 @@ void WorldCache_UpdateProbes (int2 LocalID : SV_DispatchThreadID, int GroupID : 
             FinalDelta = min(max(ColorThreshold, abs(FinalDelta)), abs(Delta)) * sign(FinalDelta);
         }
         float3 FinalIrradiance2P = PrevIrradiance2P + FinalDelta;
+
         g_RWWorldCacheIrradiance2PLuminanceTexture[AtlasCoords] = float4(FinalIrradiance2P, luminance(FinalIrradiance2P));
-        g_RWWorldCacheMomentumTexture[AtlasCoords] = float4(Momentum, 0.f, 0.f);
         {
             // Compute the coefficient of variation
             float3 Irradiance2 = (Irradiance2P - PrevIrradiance2P) * (Irradiance2P - FinalIrradiance2P);
@@ -1866,7 +1936,7 @@ void WorldCache_UpdateProbes (int2 LocalID : SV_DispatchThreadID, int GroupID : 
         bool IsRowTexel = (LocalID.x > 0 && LocalID.x < (WORLD_CACHE_PROBE_RESOLUTION - 1));
 
         int2 CopyTexCoords = WorldCache_GetProbeAtlasBase(ProbeIndex);
-        int  TexCoords = CopyTexCoords + LocalID;
+        int2 TexCoords = CopyTexCoords + LocalID;
 
         if(IsCornerTexel)
         {
@@ -2954,6 +3024,11 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
 
             // Shade
             float3 Albedo = MaterialBRDFData.albedo;
+            // Save diffuse only lighting for GI reuse
+            g_RWDiffuseGITexture[TexCoords] = float4(
+                DenoisedIrradiance * evaluateLambert(Albedo) + EmissiveMaterialData.emissive,
+                1.0f
+            );
             g_RWGlobalIlluminationOutput[TexCoords] = float4(
                 DenoisedIrradiance * evaluateLambert(Albedo) + DenoisedGlossySpecular + EmissiveMaterialData.emissive,
                 1.0f
@@ -3270,6 +3345,17 @@ void DebugSSRC_VisualizeProbeColor (int2 DispatchID : SV_DispatchThreadID) {
             g_RWDebugOutput[DispatchID] = float4(Color.xyz, 1.f);
         else g_RWDebugOutput[DispatchID] = float4(Color.w, 0.f, 0.f, 1.f);
     }
+}
+
+[numthreads(1, 1, 1)]
+void DebugWorldCache_GenerateDraw () {
+    DrawIndexedCommand draw_command = (DrawIndexedCommand)0;
+    draw_command.index_count_per_instance = WorldCache.Debug_DrawProbeInstanceIndexCount;
+    draw_command.instance_count  = g_RWWorldCacheActiveProbeCountBuffer[0];
+    draw_command.index_offset    = 0;
+    draw_command.vertex_offset   = 0;
+    draw_command.instance_offset = 0;
+    g_RWDrawIndexedCommandBuffer[0] = draw_command;
 }
 
 

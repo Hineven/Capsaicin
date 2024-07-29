@@ -7,9 +7,10 @@
 #ifndef CAPSAICIN_MIGI_H
 #define CAPSAICIN_MIGI_H
 
-#include "hash_grid_cache.h"
+#include <vector>
+#include <string>
 #include "world_space_restir.h"
-#include "migi_common.hlsl"
+#include "world_cache.h"
 #include "render_technique.h"
 
 namespace Capsaicin
@@ -100,6 +101,8 @@ public:
         // History sample count / MAX_COUNT R16ufloat
         GfxTexture   history_accumulation[2] {};
         GfxTexture   previous_global_illumination {};
+        // Diffuse only GI for screen space reuse
+        GfxTexture   diffuse_GI [2] {};
 
         // Hierarchical z-buffer
         // R32_FLOAT, 1/2 - 1/8 resolution, 3 mip levels
@@ -149,27 +152,31 @@ public:
         GfxKernel  PrecomputeHiZ_min {};
         GfxKernel  PrecomputeHiZ_max {};
 
-        GfxKernel  PurgeTiles {};
-        GfxKernel  ClearCounters {};
+        GfxKernel  WorldCache_Reset {};
+        GfxKernel  WorldCache_ResetCounters {};
+        GfxKernel  WorldCache_WriteSpawnDispatchParameters {};
+        GfxKernel  WorldCache_SpawnProbes {};
+        GfxKernel  WorldCache_RecycleProbes {};
+        GfxKernel  WorldCache_ClearClipmaps {};
+        GfxKernel  WorldCache_UpdateActiveListAndIndex {};
+        GfxKernel  WorldCache_ClipCounters {};
         GfxKernel  SSRC_ClearCounters {};
         GfxKernel  SSRC_AllocateUniformProbes {};
         GfxKernel  SSRC_AllocateAdaptiveProbes[SSRC_MAX_ADAPTIVE_PROBE_LAYERS] {};
+        GfxKernel  WorldCache_WriteProbeDispatchParameters {};
         GfxKernel  SSRC_WriteProbeDispatchParameters {};
         GfxKernel  SSRC_ReprojectProbeHistory {};
+        GfxKernel  SSRC_InitializeFailedProbes {};
         GfxKernel  SSRC_AllocateUpdateRays {};
-        GfxKernel  SSRC_SetUpdateRayCount {};
+        GfxKernel  WorldCache_AllocateUpdateRays {};
+        GfxKernel  MIGI_SetUpdateRayCount {};
         GfxKernel  SSRC_SampleUpdateRays {};
-        GfxKernel  SSRC_GenerateTraceUpdateRays {};
-        GfxKernel  SSRC_TraceUpdateRaysMain {};
+        GfxKernel  WorldCache_SampleUpdateRays {};
+        GfxKernel  MIGI_GenerateTraceUpdateRays {};
+        GfxKernel  MIGI_TraceUpdateRaysMain {};
         GfxKernel  SSRC_ReprojectPreviousUpdateError {};
-        GfxKernel  ClearReservoirs {};
-        GfxKernel  GenerateReservoirs {};
-        GfxKernel  CompactReservoirs {};
-        GfxKernel  ResampleReservoirs {};
-        GfxKernel  PopulateCellsMain {};
-        GfxKernel  GenerateUpdateTilesDispatch {};
-        GfxKernel  UpdateTiles {};
-        GfxKernel  ResolveCells {};
+        GfxKernel  WorldCache_ShadeQueries {};
+        GfxKernel  WorldCache_UpdateProbes {};
         GfxKernel  SSRC_UpdateProbes {};
         GfxKernel  SSRC_FilterProbes {};
         GfxKernel  SSRC_PadProbeTextureEdges {};
@@ -185,6 +192,8 @@ public:
         GfxKernel  DebugSSRC_VisualizeProbeColor {};
         GfxKernel  DebugSSRC_VisualizeUpdateRays {};
         GfxKernel  DebugSSRC_VisualizeLight {};
+        GfxKernel  DebugWorldCache_GenerateDraw {};
+        GfxKernel  DebugWorldCache_VisualizeProbes {};
 
         GfxKernel  GenerateDispatch {};
         GfxKernel  GenerateDispatchRays {};
@@ -196,8 +205,6 @@ public:
     // Called  after initResources
     bool initGraphicsKernels (const CapsaicinInternal & capsaicin);
     void releaseKernels () ;
-
-    void clearHashGridCache () ;
 
     void clearReservoirs () ;
 
@@ -212,7 +219,7 @@ protected:
     mutable MIGIRenderOptions options_ {};
 
     WorldSpaceReSTIR world_space_restir_;
-    HashGridCache   hash_grid_cache_;
+    WorldCache       world_cache_;
 
     GfxCamera previous_camera_ {};
 
@@ -224,10 +231,10 @@ protected:
     bool need_reload_memory_ {false};
     // If the screen space cache needs to be reset.
     mutable bool need_reset_screen_space_cache_ {true};
-    // If the hash grid cache needs to be reset.
-    bool need_reset_hash_grid_cache_ {true};
     // If the reservoirs need to be reset.
     bool need_reset_world_space_reservoirs_ {true};
+    // If the world cache needs to be reset
+    bool need_reset_world_cache_ {true};
 
     bool readback_pending_ [kGfxConstant_BackBufferCount] {};
     MIGIReadBackValues readback_values_;

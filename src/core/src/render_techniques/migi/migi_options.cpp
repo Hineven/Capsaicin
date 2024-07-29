@@ -24,20 +24,19 @@ RenderOptionList MIGI::getRenderOptions() noexcept
 
 AOVList MIGI::getAOVs() const noexcept
 {
-    auto aovs = AOVList{};
+    AOVList aovs;
     aovs.push_back({"Debug", AOV::Write});
     aovs.push_back({"GlobalIllumination", AOV::Write, AOV::None, DXGI_FORMAT_R16G16B16A16_FLOAT});
-    aovs.push_back({"Reflection", AOV::Write, AOV::None, DXGI_FORMAT_R16G16B16A16_FLOAT, "PrevReflection"});
-    aovs.push_back({.name = "VisibilityDepth", .backup_name = "PrevVisibilityDepth"});
-    aovs.push_back({.name = "GeometryNormal", .backup_name = "PrevGeometryNormal"});
-    aovs.push_back({.name = "ShadingNormal", .backup_name = "PrevShadingNormal"});
-    aovs.push_back({"Velocity"});
-    aovs.push_back({.name = "Roughness", .backup_name = "PrevRoughness"});
-    aovs.push_back({"OcclusionAndBentNormal"});
-    aovs.push_back({"NearFieldGlobalIllumination"});
-    aovs.push_back({"Visibility"});
-    aovs.push_back({"PrevCombinedIllumination"});
-    aovs.push_back({"DisocclusionMask"});
+    aovs.push_back({.name = "VisibilityDepth", .access = AOV::Read, .backup_name = "PrevVisibilityDepth"});
+    aovs.push_back({.name = "GeometryNormal", .access = AOV::Read, .backup_name = "PrevGeometryNormal"});
+    aovs.push_back({.name = "ShadingNormal", .access = AOV::Read, .backup_name = "PrevShadingNormal"});
+    aovs.push_back({"Velocity", AOV::Read});
+    aovs.push_back({.name = "Roughness", .access = AOV::Read, .backup_name = "PrevRoughness"});
+    aovs.push_back({"OcclusionAndBentNormal", AOV::Read});
+    aovs.push_back({"NearFieldGlobalIllumination", AOV::Read});
+    aovs.push_back({"Visibility", AOV::Read});
+    aovs.push_back({"PrevCombinedIllumination", AOV::Read});
+    aovs.push_back({"DisocclusionMask", AOV::Read});
     return aovs;
 }
 
@@ -72,6 +71,10 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     }
     options_.enable_indirect = new_enable_indirect;
 
+    if(options_.world_cache.max_query_count < (int)options_.SSRC_max_update_ray_count)
+    {
+        options_.world_cache.max_query_count = (int)options_.SSRC_max_update_ray_count;
+    }
 
     // Debugging
 
@@ -108,6 +111,7 @@ DebugViewList MIGI::getDebugViews() const noexcept
     ret.emplace_back("SSRC_UpdateRays");
     ret.emplace_back("SSRC_ReprojectionTrust");
     ret.emplace_back("SSRC_ProbeColor");
+    ret.emplace_back("WorldCache");
     return ret;
 }
 

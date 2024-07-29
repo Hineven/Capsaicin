@@ -35,26 +35,28 @@ struct MIGIRenderOptions {
     uint32_t SSRC_base_update_ray_waves {2};
 
     struct {
-        uint32_t num_buckets_l2 {12}; // 1<<12 = 4096
-        uint32_t num_tiles_per_bucket_l2 {4}; // 1<<4 = 16 tiles per bucket
-        uint32_t tile_cell_ratio {8}; // 8x8 cells per tile
-        float    cell_size {32.f};
-        float    min_cell_size {1e-1f};
-        // 16 samples ensembles a stable result
-        float max_sample_count {16.f};
-        uint32_t debug_mip_level {};
-        bool debug_propagate {false};
-        uint32_t debug_max_cell_decay {50};
-        HashGridCacheDebugMode debug_mode {HASHGRIDCACHE_DEBUG_RADIANCE};
-
-        int debug_max_bucket_overflow {64};
-    } hash_grid_cache ;
-
-    struct {
         float    reservoir_cache_cell_size {16.f};
         // This parameter is set with the screen resolution during options update every frame.
         uint32_t max_query_ray_count {};
     } restir;
+
+    struct {
+        int max_query_count;  // reload
+        float grid_size {0.1f}; // reset
+        int   clipmap_resolution {64};  // reload
+        int   clipmap_levels {4}; // reload
+
+        int probe_initial_score {30}; // < 31
+        int probe_score_decay {1};
+        int probe_score_bonus {25};
+
+        int max_probe_count          = 8192; // reload
+        int num_update_ray_per_probe = 148; // max 243
+
+        float sample_bias                = 0.1f;
+        float probe_irradiance_threshold = 0.2f;
+        float probe_luminance_threshold  = 0.4f;
+    } world_cache;
 
     // If we disable importance sampling when generate update rays.
     // When enabled, rays are uniformly sampled in the hemisphere.
@@ -98,17 +100,11 @@ struct MIGIRenderOptions {
 };
 
 namespace MIGIRT {
-    static char const *kScreenCacheUpdateRaygenShaderName     = "ScreenCacheUpdateRaygen";
-    static char const *kScreenCacheUpdateMissShaderName       = "ScreenCacheUpdateMiss";
-    static char const *kScreenCacheUpdateAnyHitShaderName     = "ScreenCacheUpdateAnyHit";
-    static char const *kScreenCacheUpdateClosestHitShaderName = "ScreenCacheUpdateClosestHit";
-    static char const *kScreenCacheUpdateHitGroupName         = "ScreenCacheUpdateHitGroup";
-
-    static char const *kPopulateCellsRaygenShaderName     = "PopulateCellsRaygen";
-    static char const *kPopulateCellsMissShaderName       = "PopulateCellsMiss";
-    static char const *kPopulateCellsAnyHitShaderName     = "PopulateCellsAnyHit";
-    static char const *kPopulateCellsClosestHitShaderName = "PopulateCellsClosestHit";
-    static char const *kPopulateCellsHitGroupName         = "PopulateCellsHitGroup";
+    static char const *kMIGICacheUpdateRaygenShaderName       = "MIGI_CacheUpdateRaygen";
+    static char const *kMIGICacheUpdateMissShaderName         = "MIGI_CacheUpdateMiss";
+    static char const *kMIGICacheUpdateAnyHitShaderName       = "MIGI_CacheUpdateAnyHit";
+    static char const *kMIGICacheUpdateClosestHitShaderName   = "MIGI_CacheUpdateClosestHit";
+    static char const *kMIGICacheUpdateHitGroupName           = "MIGI_CacheUpdateHitGroup";
 }
 
 }

@@ -21,13 +21,16 @@ struct WorldCacheVisibility {
     bool IsFrontFace;
 };
 
+
+bool WorldCache_IsProbeIndexValid (uint ProbeIndex) {
+    return 0 == (ProbeIndex & 0x80000000u);
+}
+
 // The number of cache queries requested within a frame.
-RWStructuredBuffer<uint> g_RWWorldCacheQueryCountBuffer;
+RWStructuredBuffer< int> g_RWWorldCacheQueryCountBuffer;
 // Queries, packed in visibility
-RWStructuredBuffer<uint4> g_RWWorldCacheRawQueryVisibilityBuffer;
 RWStructuredBuffer<uint4> g_RWWorldCacheQueryVisibilityBuffer;
 // Queries, direction, octahedron encoded
-RWStructuredBuffer<uint> g_RWWorldCacheRawQueryDirectionBuffer;
 RWStructuredBuffer<uint> g_RWWorldCacheQueryDirectionBuffer;
 
 // World cache probe atlas
@@ -36,22 +39,22 @@ RWTexture2D<float4> g_RWWorldCacheIrradiance2PLuminanceTexture;
 Texture2D<float4> g_WorldCacheIrradiance2PLuminanceTexture;
 RWTexture2D<float2> g_RWWorldCacheMomentumTexture;
 Texture2D<float2> g_WorldCacheMomentumTexture;
-RWTexture2D<float4> g_RWWorldCacheCOVTexture;
-Texture2D<float4> g_WorldCacheCOVTexture;
-// Sum of probe irradiances in a single pixel per probe
-RWTexture2D<float4> g_RWWorldCacheProbeIrradianceTexture;
-// 3D clipmaps, -1 means empty, -2 means spawn requested 
-RWTexture3D<int> g_RWWorldCacheProbeIndexTexture[MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES];
+RWTexture2D<float2> g_RWWorldCacheCOVTexture;
+Texture2D<float2> g_WorldCacheCOVTexture;
+// 3D clipmaps, 0xffffffff means empty, 0xfffffffe means spawn requested 
+RWTexture3D<uint> g_RWWorldCacheProbeIndexTexture[MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES];
 RWStructuredBuffer<uint> g_RWWorldCacheProbeSpawnRequestBuffer;
-RWStructuredBuffer<uint> g_RWWorldCacheProbeSpawnRequestCountBuffer;
+RWStructuredBuffer< int> g_RWWorldCacheProbeSpawnRequestCountBuffer;
 // Probe headers, packed in float4
-RWStructuredBuffer<float4> g_RWWorldCacheProbeHeaderBuffer;
+RWStructuredBuffer<uint4> g_RWWorldCacheProbeHeaderBuffer;
 // Free probe indices
 RWStructuredBuffer<uint> g_RWWorldCacheFreeProbeIndexBuffer;
 // Number of active probes
-RWStructuredBuffer<uint> g_RWWorldCacheActiveProbeCountBuffer;
+RWStructuredBuffer< int> g_RWWorldCacheActiveProbeCountBuffer;
 // List of active probes, generated every frame and used for ray dispatching
 RWStructuredBuffer<uint> g_RWWorldCacheActiveProbeIndexBuffer;
+// Mark probes being touched 
+RWStructuredBuffer<uint> g_RWWorldCacheProbeTouchBuffer;
 
 uint4 WorldCache_PackQueryVisibility (WorldCacheVisibility Visibility) {
     // 1 + 15 + 16 + 32 + 32 x 2
@@ -93,32 +96,40 @@ void WorldCache_WriteQueryDirection (uint QueryIndex, float3 Direction) {
 }
 
 float WorldCache_GetGridSizeForLevel (int Level) {
-    return WorldCache.GridSize * (1 << Level);
+    return WorldCache.GridSize * (1u << Level);
 }
 
 uint WorldCache_GetActiveProbeCount () {
     return g_RWWorldCacheActiveProbeCountBuffer[0];
 }
 
-int3 WorldCache_GetAbsoluteGridCoords (int4 GridCoords) {
+int3 WorldCache_GetAbsoluteGridCoords (int4 GridCoords, bool bPrevious = false) {
     int4 Offsets = 0;
-    switch(GridCoords.w) {
-        case 0: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[0]; break;
-        case 1: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[1]; break;
-        case 2: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[2]; break;
-        case 3: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[3]; break;
+    if(bPrevious) {
+        switch(GridCoords.w) {
+            case 0: Offsets = WorldCache.PreviousVolumeCascadeGridCoordOffsets[0]; break;
+            case 1: Offsets = WorldCache.PreviousVolumeCascadeGridCoordOffsets[1]; break;
+            case 2: Offsets = WorldCache.PreviousVolumeCascadeGridCoordOffsets[2]; break;
+            case 3: Offsets = WorldCache.PreviousVolumeCascadeGridCoordOffsets[3]; break;
+        }
+    } else {
+        switch(GridCoords.w) {
+            case 0: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[0]; break;
+            case 1: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[1]; break;
+            case 2: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[2]; break;
+            case 3: Offsets = WorldCache.VolumeCascadeGridCoordOffsets[3]; break;
+        }
     }
-    return (GridCoords.xyz + Offsets.xyz) * (1 << GridCoords.w);
+    return (GridCoords.xyz + Offsets.xyz) * (1u << GridCoords.w);
 }
 
-float3 WorldCache_GetProbeWorldCenterFromGridCoords (int4 GridCoords) {
-    float GridSize = WorldCache_GetGridSizeForLevel(GridCoords.w);
-    return WorldCache.VolumeMin +
-        WorldCache_GetAbsoluteGridCoords(GridCoords) * GridSize;
+float3 WorldCache_GetProbeWorldCenterFromGridCoords (int4 GridCoords, bool bPrevious = false) {
+    return (bPrevious ? WorldCache.PreviousVolumeMin : WorldCache.VolumeMin) +
+        WorldCache_GetAbsoluteGridCoords(GridCoords, bPrevious) * WorldCache.GridSize;
 }
 
 bool WorldCache_IsProbeCoordsOutOfBounds (int4 GridCoords) {
-    if(any(GridCoords.xyz >= WorldCache.GridCoordsBound)) {
+    if(any(GridCoords.xyz) < 0 || any(GridCoords.xyz >= WorldCache.GridCoordsBound)) {
         return true;
     }
     return false;
@@ -128,7 +139,7 @@ bool WorldCache_IsProbeCoordsOverlapped (int4 GridCoords) {
     // Check if it's overlapped with finer level
     if(GridCoords.w > 0) {
         int3 LowerLevelCoords = 
-            GridCoords.xyz * 2 
+            2 * (GridCoords.xyz + WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w].xyz) 
             - WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w - 1].xyz;
         if(all(LowerLevelCoords < WorldCache.GridCoordsBound)
         && all(LowerLevelCoords >= 0)) {
@@ -167,7 +178,7 @@ WorldCacheProbeHeader WorldCache_UnpackProbeHeader (uint4 Packed) {
     );
     // Compute world position
     Header.WorldPosition = WorldCache_GetProbeWorldCenterFromGridCoords(Header.GridCoords) 
-        + Header.GridInternalNormalizedPosition * WorldCache.HalfGridSize;
+        + Header.GridInternalNormalizedPosition * WorldCache.HalfGridSize * (1u << Header.GridCoords.w);
     return Header;
 }
 
@@ -178,7 +189,7 @@ uint4 WorldCache_PackProbeHeader (WorldCacheProbeHeader Header) {
     Packed.x |= (Header.GridCoords.y & 0xff) << 8;
     Packed.x |= (Header.GridCoords.z & 0xff) << 16;
     Packed.x |= (Header.GridCoords.w & 0x7) << 24;
-    Packed.x |= Header.Score << 27;
+    Packed.x |= uint(Header.Score) << 27;
     // Encode grid internal position
     Packed.y = asuint(Header.GridInternalNormalizedPosition.x);
     Packed.z = asuint(Header.GridInternalNormalizedPosition.y);
@@ -196,18 +207,18 @@ void WorldCache_WriteProbeHeader(int Index, WorldCacheProbeHeader Header) {
 
 // Get the min probe coords of the grid that the position is in
 int4 WorldCache_GetProbeGridCoordsBase (float3 Position, bool bPrevious = false) {
-    float3 LocalPosition = Position - bPrevious ? WorldCache.PreviousVolumeMin : WorldCache.VolumeMin;
+    float3 LocalPosition = Position - (bPrevious ? WorldCache.PreviousVolumeMin : WorldCache.VolumeMin);
     float3 AbsoluteGridPosition  = LocalPosition * WorldCache.GridSizeInv;
     int ClipmapLevel = WorldCache.MaxClipmapCascades;
     // fine-to-coarse grain search
-    float3 LevelGridPosition;
-    [unroll(WORLD_CACHE_MAX_CLIPMAP_CASCADES)]
-    for(int i = 0; i < WorldCache.MaxClipmapCascades; i--) {
-        LevelGridPosition = AbsoluteGridPosition * (1.f / (1 << i)) - 
-            bPrevious ? WorldCache.PreviousVolumeCascadeGridCoordOffsets[i].xyz
-                : WorldCache.VolumeCascadeGridCoordOffsets[i].xyz;
+    float3 LevelGridPosition = -1;
+    [unroll(MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES)]
+    for(int i = 0; i < WorldCache.MaxClipmapCascades; i++) {
+        LevelGridPosition = AbsoluteGridPosition * (1.f / (1u << i)) - 
+            (bPrevious ? WorldCache.PreviousVolumeCascadeGridCoordOffsets[i].xyz
+                : WorldCache.VolumeCascadeGridCoordOffsets[i].xyz);
         if(all(LevelGridPosition >= 0)
-        && all(LevelGridPosition <= (WorldCache.GridCoordsBound - 1))) {
+        && all(LevelGridPosition < (WorldCache.GridCoordsBound - 1))) {
             ClipmapLevel = i;
             break;
         }
@@ -220,28 +231,58 @@ int4 WorldCache_GetProbeGridCoordsBase (float3 Position, bool bPrevious = false)
     );
 }
 
+float4 WorldCache_GetProbeGridCoordsFp (float3 Position, bool bPrevious = false) {
+    float3 LocalPosition = Position - (bPrevious ? WorldCache.PreviousVolumeMin : WorldCache.VolumeMin);
+    float3 AbsoluteGridPosition  = LocalPosition * WorldCache.GridSizeInv;
+    int ClipmapLevel = WorldCache.MaxClipmapCascades;
+    // fine-to-coarse grain search
+    float3 LevelGridPosition = -1;
+    [unroll(MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES)]
+    for(int i = 0; i < WorldCache.MaxClipmapCascades; i++) {
+        LevelGridPosition = AbsoluteGridPosition * (1.f / (1u << i)) - 
+            (bPrevious ? WorldCache.PreviousVolumeCascadeGridCoordOffsets[i].xyz
+                : WorldCache.VolumeCascadeGridCoordOffsets[i].xyz);
+        if(all(LevelGridPosition >= 0)
+        && all(LevelGridPosition < (WorldCache.GridCoordsBound - 1))) {
+            ClipmapLevel = i;
+            break;
+        }
+    }
+    return float4(
+        LevelGridPosition.x,
+        LevelGridPosition.y,
+        LevelGridPosition.z,
+        ClipmapLevel
+    );
+}
+
 float WorldCache_GetSampleOffsetAmount (float3 WorldPosition) {
-    int4 Coords = WorldCache_GetProbeGridCoordsBase(WorldPosition);
+    float4 Coords = WorldCache_GetProbeGridCoordsFp(WorldPosition);
     float Size = WorldCache.GridSize;;
     if(Coords.w > 0) {
-        int3 LowerLevelCoords = (Coords.xyz + WorldCache.VolumeCascadeGridCoordOffsets[Coords.w].xyz) * 2
+        float3 LowerLevelCoords = (Coords.xyz + WorldCache.VolumeCascadeGridCoordOffsets[Coords.w].xyz) * 2
             - WorldCache.VolumeCascadeGridCoordOffsets[Coords.w - 1].xyz;
-        int MaxDist = max(hmax(- LowerLevelCoords), hmax(LowerLevelCoords - WorldCache.GridCoordsBound + 2));
+        float MaxDist = max(hmax(- LowerLevelCoords), hmax(LowerLevelCoords - WorldCache.GridCoordsBound + 1));
         // 2 grids smooth transition
         Size = WorldCache_GetGridSizeForLevel(Coords.w) * lerp(0.5, 1, saturate(MaxDist / 2));
     }
-    return Size * WorldCache.SampleBias;
+    // FIXME
+    return 0.01;//Size * WorldCache.SampleBias;
 } 
 
 void WorldCache_RecycleProbe (int ProbeIndex) {
-    int FreeProbeListIndex = WorldCache.NumProbes - InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], -1);
+    int Count;
+    InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], -1, Count);
+    int FreeProbeListIndex = WorldCache.NumProbes - Count;
     g_RWWorldCacheFreeProbeIndexBuffer[FreeProbeListIndex] = ProbeIndex;
 }
 
-int WorldCache_AllocateProbe () {
-    int FreeProbeListIndex = WorldCache.NumProbes - InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], 1) - 1;
+uint WorldCache_AllocateProbe () {
+    int Count;
+    InterlockedAdd(g_RWWorldCacheActiveProbeCountBuffer[0], 1, Count);
+    int FreeProbeListIndex = WorldCache.NumProbes - Count - 1;
     if(FreeProbeListIndex < 0) {
-        return -1;
+        return 0xffffffffu;
     }
     return g_RWWorldCacheFreeProbeIndexBuffer[FreeProbeListIndex];
 }
@@ -262,7 +303,7 @@ WorldCacheProbeSpawnRequest WorldCache_UnpackProbeSpawnRequest (uint Packed) {
 }
 
 uint WorldCache_PackProbeSpawnRequest (WorldCacheProbeSpawnRequest Request) {
-    return Request.GridCoords.x & 0xff |
+    return (Request.GridCoords.x & 0xff) |
         (Request.GridCoords.y & 0xff) << 8 |
         (Request.GridCoords.z & 0xff) << 16 |
         (Request.GridCoords.w & 0x7) << 24;
@@ -273,21 +314,22 @@ WorldCacheProbeSpawnRequest WorldCache_GetProbeSpawnRequest (int RequestIndex) {
 }
 
 void WorldCache_AddProbeSpawnRequest (WorldCacheProbeSpawnRequest Request) {
-    int RequestIndex = InterlockedAdd(g_RWWorldCacheProbeSpawnRequestCountBuffer[0], 1);
+    int RequestIndex;
+    InterlockedAdd(g_RWWorldCacheProbeSpawnRequestCountBuffer[0], 1, RequestIndex);
     g_RWWorldCacheProbeSpawnRequestBuffer[RequestIndex] = WorldCache_PackProbeSpawnRequest(Request);
 }
 
-int WorldCache_GetProbeIndexFromGrid (int4 GridCoords) {
+uint WorldCache_GetProbeIndexFromGrid (int4 GridCoords) {
     switch(GridCoords.w) {
         case 0: return g_RWWorldCacheProbeIndexTexture[0][GridCoords.xyz];
         case 1: return g_RWWorldCacheProbeIndexTexture[1][GridCoords.xyz];
         case 2: return g_RWWorldCacheProbeIndexTexture[2][GridCoords.xyz];
         case 3: return g_RWWorldCacheProbeIndexTexture[3][GridCoords.xyz];
     }
-    return -1;
+    return 0xffffffffu;
 }
 
-void WorldCache_WriteProbeIndexToGrid (int4 GridCoords, int ProbeIndex) {
+void WorldCache_WriteProbeIndexToGrid (int4 GridCoords, uint ProbeIndex) {
     switch(GridCoords.w) {
         case 0: g_RWWorldCacheProbeIndexTexture[0][GridCoords.xyz] = ProbeIndex; break;
         case 1: g_RWWorldCacheProbeIndexTexture[1][GridCoords.xyz] = ProbeIndex; break;
@@ -310,7 +352,7 @@ int2 WorldCache_GetProbeAtlasBase (int ProbeIndex) {
 }
 
 struct WorldCacheSample {
-    int ProbeIndex[8];
+    uint ProbeIndex[8];
     float Weights[8];
 };
 
@@ -319,10 +361,19 @@ WorldCacheSample WorldCache_SampleProbes (
     float3 WorldPosition,
     float3 WorldPositionBiased,
     float3 WorldNormal,
-    bool bPrevious = false
+    bool bPrevious = false,
+    bool bNoNormal = false,
+    bool bRequestProbeSpawn = false
 ) {
-    WorldCacheSample Sample;
+    WorldCacheSample Sample = (WorldCacheSample)0;
+    for(int i = 0; i<8; i++) {
+        Sample.ProbeIndex[i] = 0xffffffffu;
+        Sample.Weights[i] = 0;
+    }
     int4 GridCoordsBase = WorldCache_GetProbeGridCoordsBase(WorldPositionBiased, bPrevious);
+    if(WorldCache_IsProbeCoordsOutOfBounds(GridCoordsBase)) {
+        return Sample;
+    }
     float3 Trillinear = 
         saturate((WorldPositionBiased - WorldCache_GetProbeWorldCenterFromGridCoords(GridCoordsBase))
          / WorldCache_GetGridSizeForLevel(GridCoordsBase.w));
@@ -332,15 +383,26 @@ WorldCacheSample WorldCache_SampleProbes (
             i & 1, (i >> 1) & 1, (i >> 2) & 1
         );
         int4 GridCoords = GridCoordsBase + int4(GridCoordsOffset, 0);
-        int ProbeIndex = -1;
+        uint ProbeIndex = 0xffffffffu;
         if(!WorldCache_IsProbeCoordsOutOfBounds(GridCoords)) {
             ProbeIndex = WorldCache_GetProbeIndexFromGrid(GridCoords);
+            if(bRequestProbeSpawn && ProbeIndex == 0xffffffffu) {
+                uint OldValue;
+                InterlockedCompareExchange(
+                    g_RWWorldCacheProbeIndexTexture[GridCoords.w][GridCoords.xyz],
+                    0xffffffffu, 0xfffffffeu, OldValue
+                );
+                if(OldValue == 0xffffffffu) {
+                    WorldCacheProbeSpawnRequest Request;
+                    Request.GridCoords = GridCoords;
+                    WorldCache_AddProbeSpawnRequest(Request);
+                }
+            }
         }
-        float3 ProbePosition = 0;
-        if(ProbeIndex != -1) {
-            WorldCacheProbeHeader Header = WorldCache_GetProbeHeader(ProbeIndex);
-            ProbePosition = Header.WorldPosition;
+        if(!WorldCache_IsProbeIndexValid(ProbeIndex)) {
+            continue;
         }
+        float3 ProbePosition = WorldCache_GetProbeHeader(ProbeIndex).WorldPosition;
         float3 PosToProbeN = normalize(ProbePosition - WorldPosition);
         float3 BiasedPosToAdjProbe = normalize(ProbePosition - WorldPositionBiased);
         float LinearWeight = 
@@ -349,7 +411,7 @@ WorldCacheSample WorldCache_SampleProbes (
             (GridCoordsOffset.z ? 1.f - Trillinear.z : Trillinear.z);
         float Weight = 1.f;
         float WrapShading = (dot(PosToProbeN, WorldNormal) + 1.f) * 0.5f;
-        Weight *= (WrapShading * WrapShading) + 0.2f;
+        if(!bNoNormal) Weight *= (WrapShading * WrapShading) + 0.2f;
         float2 MomentumOct01 = UnitVectorToOctahedron01(BiasedPosToAdjProbe);
         int2 ProbeCoords = WorldCache_GetProbeAtlasCoords(ProbeIndex);
         float2 MomentumAtlasUV = (ProbeCoords + MomentumOct01) * WorldCache.InvAtlasDimensions;
@@ -399,13 +461,10 @@ WorldCacheSample WorldCache_SampleProbes (
 
 void WorldCache_TouchSample (WorldCacheSample Sample) {
     for(int i = 0; i < 8; i++) {
-        if(Sample.ProbeIndex[i] != -1) {
-            int Score = WorldCache_GetProbeScore(Sample.ProbeIndex[i]);
-            Score = min(Score + WorldCache.ProbeScoreBonus, WorldCache.ProbeInitialScore);
-            WorldCache_WriteProbeScore(Sample.ProbeIndex[i], Score);
+        if(WorldCache_IsProbeIndexValid(Sample.ProbeIndex[i]) && Sample.Weights[i] > 0.01f) {
+            g_RWWorldCacheProbeTouchBuffer[Sample.ProbeIndex[i]] = 1;
         }
     }
 }
-
 
 #endif // MIGI_WORLDCACHE_HLSL

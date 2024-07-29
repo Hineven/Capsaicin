@@ -83,14 +83,27 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         kernels_.PrecomputeHiZ_max = gfxCreateComputeKernel(
             gfx_, kernels_.program, "PrecomputeHiZ", defines_c.data(), (uint32_t)defines_c.size());
 
+        kernels_.WorldCache_Reset = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_Reset", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_ResetCounters = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_ResetCounters", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_WriteSpawnDispatchParameters = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_WriteSpawnDispatchParameters", defines_c.data(), (uint32_t)defines_c.size()
+        );
+        kernels_.WorldCache_SpawnProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_SpawnProbes", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_RecycleProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_RecycleProbes", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_ClearClipmaps = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_ClearClipmaps", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_UpdateActiveListAndIndex = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_UpdateActiveListAndIndex", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_ClipCounters = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_ClipCounters", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.GenerateDispatch = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatch", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.GenerateDispatchRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "GenerateDispatchRays", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.PurgeTiles = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "PurgeTiles", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.ClearCounters = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "ClearCounters", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_ClearCounters = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ClearCounters", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_AllocateUniformProbes = gfxCreateComputeKernel(
@@ -104,36 +117,33 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
                 "SSRC_AllocateAdaptiveProbes", defines_c.data(), (uint32_t)defines_c.size());
             defines_c.pop_back();
         }
+        kernels_.WorldCache_WriteProbeDispatchParameters = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_WriteProbeDispatchParameters", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_WriteProbeDispatchParameters = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_WriteProbeDispatchParameters", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_ReprojectProbeHistory = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ReprojectProbeHistory", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_InitializeFailedProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_InitializeFailedProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_AllocateUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_AllocateUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_SetUpdateRayCount = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_SetUpdateRayCount", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_AllocateUpdateRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_AllocateUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.MIGI_SetUpdateRayCount = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "MIGI_SetUpdateRayCount", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_SampleUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_SampleUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_GenerateTraceUpdateRays = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_GenerateTraceUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        // SSRC_TraceUpdateRaysMain may be a DXR kernel, so it is created later
+        kernels_.WorldCache_SampleUpdateRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_SampleUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.MIGI_GenerateTraceUpdateRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "MIGI_GenerateTraceUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        // MIGI_TraceUpdateRaysMain may be a DXR kernel, so it is created later
         kernels_.SSRC_ReprojectPreviousUpdateError = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_ReprojectPreviousUpdateError", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.ClearReservoirs = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "ClearReservoirs", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.GenerateReservoirs = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "GenerateReservoirs", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.CompactReservoirs = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "CompactReservoirs", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.ResampleReservoirs = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "ResampleReservoirs", defines_c.data(), (uint32_t)defines_c.size());
-        // PopulateCells may be a DXR kernel, so it is created later
-        kernels_.GenerateUpdateTilesDispatch = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "GenerateUpdateTilesDispatch", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.UpdateTiles = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "UpdateTiles", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.ResolveCells = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "ResolveCells", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_ShadeQueries = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_ShadeQueries", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_UpdateProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_UpdateProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_FilterProbes = gfxCreateComputeKernel(
@@ -158,6 +168,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "DebugSSRC_VisualizeReprojectionTrust", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_VisualizeProbeColor = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_VisualizeProbeColor", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugWorldCache_GenerateDraw = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugWorldCache_GenerateDraw", defines_c.data(), (uint32_t)defines_c.size());
 
         if (options_.use_dxr10)
         {
@@ -165,28 +177,16 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             base_subobjects.push_back("MyShaderConfig");
             base_subobjects.push_back("MyPipelineConfig");
 
-            std::vector<char const *> screen_cache_update_exports;
-            screen_cache_update_exports.push_back(MIGIRT::kScreenCacheUpdateRaygenShaderName);
-            screen_cache_update_exports.push_back(MIGIRT::kScreenCacheUpdateMissShaderName);
-            screen_cache_update_exports.push_back(MIGIRT::kScreenCacheUpdateAnyHitShaderName);
-            screen_cache_update_exports.push_back(MIGIRT::kScreenCacheUpdateClosestHitShaderName);
+            std::vector<char const *> migi_cache_update_exports;
+            migi_cache_update_exports.push_back(MIGIRT::kMIGICacheUpdateRaygenShaderName);
+            migi_cache_update_exports.push_back(MIGIRT::kMIGICacheUpdateMissShaderName);
+            migi_cache_update_exports.push_back(MIGIRT::kMIGICacheUpdateAnyHitShaderName);
+            migi_cache_update_exports.push_back(MIGIRT::kMIGICacheUpdateClosestHitShaderName);
             std::vector<char const *> screen_cache_update_subobjects = base_subobjects;
-            screen_cache_update_subobjects.push_back(MIGIRT::kScreenCacheUpdateHitGroupName);
-            kernels_.SSRC_TraceUpdateRaysMain = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
-                screen_cache_update_exports.data(), (uint32_t)screen_cache_update_exports.size(),
+            screen_cache_update_subobjects.push_back(MIGIRT::kMIGICacheUpdateHitGroupName);
+            kernels_.MIGI_TraceUpdateRaysMain = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
+                migi_cache_update_exports.data(), (uint32_t)migi_cache_update_exports.size(),
                 screen_cache_update_subobjects.data(), (uint32_t)screen_cache_update_subobjects.size(),
-                defines_c.data(), (uint32_t)defines_c.size());
-
-            std::vector<char const *> populate_cells_kernel_exports;
-            populate_cells_kernel_exports.push_back(MIGIRT::kPopulateCellsRaygenShaderName);
-            populate_cells_kernel_exports.push_back(MIGIRT::kPopulateCellsMissShaderName);
-            populate_cells_kernel_exports.push_back(MIGIRT::kPopulateCellsAnyHitShaderName);
-            populate_cells_kernel_exports.push_back(MIGIRT::kPopulateCellsClosestHitShaderName);
-            std::vector<char const *> populate_cells_kernel_subobjects = base_subobjects;
-            populate_cells_kernel_subobjects.push_back(MIGIRT::kPopulateCellsHitGroupName);
-            kernels_.PopulateCellsMain = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
-                populate_cells_kernel_exports.data(), (uint32_t)populate_cells_kernel_exports.size(),
-                populate_cells_kernel_subobjects.data(), (uint32_t)populate_cells_kernel_subobjects.size(),
                 defines_c.data(), (uint32_t)defines_c.size());
 
             uint32_t entry_count[kGfxShaderGroupType_Count] {
@@ -195,15 +195,13 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
                 gfxSceneGetInstanceCount(capsaicin.getScene())
                     * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
                 capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Callable)};
-            GfxKernel sbt_kernels[] {kernels_.PopulateCellsMain, kernels_.SSRC_TraceUpdateRaysMain};
+            GfxKernel sbt_kernels[] {kernels_.MIGI_TraceUpdateRaysMain};
             sbt_ = gfxCreateSbt(gfx_, sbt_kernels, ARRAYSIZE(sbt_kernels), entry_count);
         }
         else
         {
-            kernels_.SSRC_TraceUpdateRaysMain                 = gfxCreateComputeKernel(
-                gfx_, kernels_.program, "SSRC_TraceUpdateRaysMain", defines_c.data(), (uint32_t)defines_c.size());
-            kernels_.PopulateCellsMain = gfxCreateComputeKernel(
-                gfx_, kernels_.program, "PopulateCellsMain", defines_c.data(), (uint32_t)defines_c.size());
+            kernels_.MIGI_TraceUpdateRaysMain                 = gfxCreateComputeKernel(
+                gfx_, kernels_.program, "MIGI_TraceUpdateRaysMain", defines_c.data(), (uint32_t)defines_c.size());
         }
 
     }
@@ -219,42 +217,59 @@ bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
         defines_c.push_back(i.c_str());
     }
 
-    GfxDrawState visualize_incident_radiance_draw_state {};
-    gfxDrawStateSetColorTarget(visualize_incident_radiance_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
-    gfxDrawStateSetDepthStencilTarget(visualize_incident_radiance_draw_state, tex_.depth);
-    kernels_.DebugSSRC_VisualizeIncidentRadiance = gfxCreateGraphicsKernel(
-        gfx_, kernels_.program, visualize_incident_radiance_draw_state, "DebugSSRC_VisualizeIncidentRadiance",
-        defines_c.data(), (uint32_t)defines_c.size());
+    {
+        GfxDrawState visualize_incident_radiance_draw_state {};
+        gfxDrawStateSetColorTarget(
+            visualize_incident_radiance_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetDepthStencilTarget(visualize_incident_radiance_draw_state, tex_.depth);
+        kernels_.DebugSSRC_VisualizeIncidentRadiance =
+            gfxCreateGraphicsKernel(gfx_, kernels_.program, visualize_incident_radiance_draw_state,
+                "DebugSSRC_VisualizeIncidentRadiance", defines_c.data(), (uint32_t)defines_c.size());
+    }
 
-    GfxDrawState visualize_probe_sg_direction_draw_state {};
-    gfxDrawStateSetColorTarget(visualize_probe_sg_direction_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
-    gfxDrawStateSetDepthStencilTarget(visualize_probe_sg_direction_draw_state, tex_.depth);
-    __override_primitive_topology = true;
-    __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-    kernels_.DebugSSRC_VisualizeProbeSGDirection = gfxCreateGraphicsKernel(
-        gfx_, kernels_.program, visualize_probe_sg_direction_draw_state, "DebugSSRC_VisualizeProbeSGDirection",
-        defines_c.data(), (uint32_t)defines_c.size());
-    __override_primitive_topology = false;
-    __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    {
+        GfxDrawState visualize_probe_sg_direction_draw_state {};
+        gfxDrawStateSetColorTarget(
+            visualize_probe_sg_direction_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetDepthStencilTarget(visualize_probe_sg_direction_draw_state, tex_.depth);
+        __override_primitive_topology      = true;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+        kernels_.DebugSSRC_VisualizeProbeSGDirection =
+            gfxCreateGraphicsKernel(gfx_, kernels_.program, visualize_probe_sg_direction_draw_state,
+                "DebugSSRC_VisualizeProbeSGDirection", defines_c.data(), (uint32_t)defines_c.size());
+        __override_primitive_topology      = false;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    }
 
-    GfxDrawState visualize_update_rays_draw_state {};
-    gfxDrawStateSetColorTarget(visualize_update_rays_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
-    gfxDrawStateSetDepthStencilTarget(visualize_update_rays_draw_state, tex_.depth);
-    __override_primitive_topology = true;
-    __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-    kernels_.DebugSSRC_VisualizeUpdateRays = gfxCreateGraphicsKernel(
-        gfx_, kernels_.program, visualize_update_rays_draw_state, "DebugSSRC_VisualizeUpdateRays",
-        defines_c.data(), (uint32_t)defines_c.size());
-    __override_primitive_topology = false;
-    __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    {
+        GfxDrawState visualize_update_rays_draw_state {};
+        gfxDrawStateSetColorTarget(visualize_update_rays_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetDepthStencilTarget(visualize_update_rays_draw_state, tex_.depth);
+        __override_primitive_topology      = true;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+        kernels_.DebugSSRC_VisualizeUpdateRays =
+            gfxCreateGraphicsKernel(gfx_, kernels_.program, visualize_update_rays_draw_state,
+                "DebugSSRC_VisualizeUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
+        __override_primitive_topology      = false;
+        __override_primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    }
 
-    GfxDrawState visualize_light_draw_state {};
-    gfxDrawStateSetColorTarget(visualize_light_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
-    gfxDrawStateSetDepthStencilTarget(visualize_light_draw_state, tex_.depth);
-    kernels_.DebugSSRC_VisualizeLight = gfxCreateGraphicsKernel(
-        gfx_, kernels_.program, visualize_light_draw_state, "DebugSSRC_VisualizeLight",
-        defines_c.data(), (uint32_t)defines_c.size());
+    {
+        GfxDrawState visualize_light_draw_state {};
+        gfxDrawStateSetColorTarget(visualize_light_draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetDepthStencilTarget(visualize_light_draw_state, tex_.depth);
+        kernels_.DebugSSRC_VisualizeLight =
+            gfxCreateGraphicsKernel(gfx_, kernels_.program, visualize_light_draw_state,
+                "DebugSSRC_VisualizeLight", defines_c.data(), (uint32_t)defines_c.size());
+    }
 
+    {
+        GfxDrawState draw_state {};
+        gfxDrawStateSetColorTarget(draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetDepthStencilTarget(draw_state, tex_.depth);
+        kernels_.DebugWorldCache_VisualizeProbes = gfxCreateGraphicsKernel(
+            gfx_, kernels_.program, draw_state, "DebugWorldCache_VisualizeProbes", defines_c.data(), (uint32_t)defines_c.size());
+    }
     return true;
 }
 
@@ -356,6 +371,11 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
 
     tex_.previous_global_illumination = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
     tex_.previous_global_illumination.setName("PreviousGlobalIllumination");
+
+    tex_.diffuse_GI[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.diffuse_GI[0].setName("DiffuseGI0");
+    tex_.diffuse_GI[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.diffuse_GI[1].setName("DiffuseGI1");
 
     tex_.HiZ_min = gfxCreateTexture2D(gfx_, capsaicin.getWidth() / 2, capsaicin.getHeight() / 2, DXGI_FORMAT_R32_FLOAT, SSRC_TILE_SIZE_L2);
     tex_.HiZ_min.setName("HiZMin");
@@ -461,7 +481,7 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
 
     need_reset_screen_space_cache_ = true;
     need_reset_world_space_reservoirs_ = true;
-    need_reset_hash_grid_cache_ = true;
+    need_reset_world_cache_ = true;
 
     return true;
 }
@@ -472,30 +492,34 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.PrecomputeHiZ_max);
     gfxDestroyKernel(gfx_, kernels_.GenerateDispatch);
     gfxDestroyKernel(gfx_, kernels_.GenerateDispatchRays);
-    gfxDestroyKernel(gfx_, kernels_.PurgeTiles);
-    gfxDestroyKernel(gfx_, kernels_.ClearCounters);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_Reset);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_ResetCounters);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_WriteSpawnDispatchParameters);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_SpawnProbes);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_RecycleProbes);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_ClearClipmaps);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_UpdateActiveListAndIndex);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_ClipCounters);
     gfxDestroyKernel(gfx_, kernels_.SSRC_ClearCounters);
     gfxDestroyKernel(gfx_, kernels_.SSRC_AllocateUniformProbes);
     for(int i = 0; i<SSRC_MAX_ADAPTIVE_PROBE_LAYERS; i++)
     {
         gfxDestroyKernel(gfx_, kernels_.SSRC_AllocateAdaptiveProbes[i]);
     }
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_WriteProbeDispatchParameters);
     gfxDestroyKernel(gfx_, kernels_.SSRC_WriteProbeDispatchParameters);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_InitializeFailedProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectProbeHistory);
     gfxDestroyKernel(gfx_, kernels_.SSRC_AllocateUpdateRays);
-    gfxDestroyKernel(gfx_, kernels_.SSRC_SetUpdateRayCount);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_AllocateUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.MIGI_SetUpdateRayCount);
     gfxDestroyKernel(gfx_, kernels_.SSRC_SampleUpdateRays);
-    gfxDestroyKernel(gfx_, kernels_.SSRC_GenerateTraceUpdateRays);
-    gfxDestroyKernel(gfx_, kernels_.SSRC_TraceUpdateRaysMain);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_SampleUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.MIGI_GenerateTraceUpdateRays);
+    gfxDestroyKernel(gfx_, kernels_.MIGI_TraceUpdateRaysMain);
     gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
-    gfxDestroyKernel(gfx_, kernels_.ClearReservoirs);
-    gfxDestroyKernel(gfx_, kernels_.GenerateReservoirs);
-    gfxDestroyKernel(gfx_, kernels_.CompactReservoirs);
-    gfxDestroyKernel(gfx_, kernels_.ResampleReservoirs);
-    gfxDestroyKernel(gfx_, kernels_.PopulateCellsMain);
-    gfxDestroyKernel(gfx_, kernels_.GenerateUpdateTilesDispatch);
-    gfxDestroyKernel(gfx_, kernels_.UpdateTiles);
-    gfxDestroyKernel(gfx_, kernels_.ResolveCells);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_ShadeQueries);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_FilterProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_PadProbeTextureEdges);
@@ -511,6 +535,8 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeColor);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeLight);
+    gfxDestroyKernel(gfx_, kernels_.DebugWorldCache_GenerateDraw);
+    gfxDestroyKernel(gfx_, kernels_.DebugWorldCache_VisualizeProbes);
 
     gfxDestroyProgram(gfx_, kernels_.program);
 
@@ -558,6 +584,8 @@ void MIGI::releaseResources()
     gfxDestroyTexture(gfx_, tex_.history_accumulation[0]);
     gfxDestroyTexture(gfx_, tex_.history_accumulation[1]);
     gfxDestroyTexture(gfx_, tex_.previous_global_illumination);
+    gfxDestroyTexture(gfx_, tex_.diffuse_GI[0]);
+    gfxDestroyTexture(gfx_, tex_.diffuse_GI[1]);
     gfxDestroyTexture(gfx_, tex_.HiZ_min);
     gfxDestroyTexture(gfx_, tex_.HiZ_max);
     gfxDestroyTexture(gfx_, tex_.depth);

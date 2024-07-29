@@ -29,7 +29,7 @@ namespace Capsaicin
 class TimestampQuery
 {
 public:
-    std::string_view  name; /**< The name of the time stamp */
+    std::string  name; /**< The name of the time stamp */
     GfxTimestampQuery query;
 };
 
@@ -89,6 +89,6 @@ protected:
     std::vector<TimestampQuery> queries;        /**< The array of timestamp queries. */
     uint32_t                    queryCount = 0; /**< The number of timestamp queries. */
     GfxContext                  gfx_;           /**< The rendering context to be used. */
-    std::string_view            name_;          /**< The name of the timeable. */
+    std::string                 name_;          /**< The name of the timeable. */
 };
 } // namespace Capsaicin
