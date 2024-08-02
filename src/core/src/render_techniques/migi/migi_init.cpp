@@ -144,6 +144,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "WorldCache_ShadeQueries", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_UpdateProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "WorldCache_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.WorldCache_MoveProbes = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "WorldCache_MoveProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_UpdateProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_FilterProbes = gfxCreateComputeKernel(
@@ -152,6 +154,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_PadProbeTextureEdges", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_IntegrateASG = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_IntegrateASG", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_IntegrateDDGI = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_IntegrateDDGI", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_Denoise = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_Denoise", defines_c.data(), (uint32_t)defines_c.size());
 
@@ -409,27 +413,31 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.allocated_probe_SG_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.allocated_probe_SG_count.setName("AllocatedProbeSGCount");
 
-    buf_.probe_update_ray_count = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_probe_count);
+    int max_probe_count = options_.SSRC_max_probe_count + options_.world_cache.max_probe_count;
+
+    buf_.probe_update_ray_count = gfxCreateBuffer<uint32_t>(gfx_, max_probe_count);
     buf_.probe_update_ray_count.setName("ProbeUpdateRayCount");
-    buf_.probe_update_ray_offset = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_probe_count);
+    buf_.probe_update_ray_offset = gfxCreateBuffer<uint32_t>(gfx_, max_probe_count);
     buf_.probe_update_ray_offset.setName("ProbeUpdateRayOffset");
 
     buf_.update_ray_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.update_ray_count.setName("UpdateRayCount");
 
-    buf_.update_ray_probe = gfxCreateBuffer<uint32_t>(gfx_, divideAndRoundUp(options_.SSRC_max_update_ray_count, cfg_.wave_lane_count));
+    int max_update_ray_count = options_.SSRC_max_update_ray_count + options_.world_cache.max_probe_count * options_.world_cache.num_update_ray_per_probe;
+
+    buf_.update_ray_probe = gfxCreateBuffer<uint32_t>(gfx_, divideAndRoundUp(max_update_ray_count, cfg_.wave_lane_count));
     buf_.update_ray_probe.setName("UpdateRayProbe");
-    buf_.update_ray_direction = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
+    buf_.update_ray_direction = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count);
     buf_.update_ray_direction.setName("UpdateRayDirection");
-    buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count * 2);
+    buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count * 2);
     buf_.update_ray_radiance_inv_pdf.setName("UpdateRayRadianceInvPdf");
-    buf_.update_ray_linear_depth = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_update_ray_count);
+    buf_.update_ray_linear_depth = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count);
     buf_.update_ray_linear_depth.setName("UpdateRayLinearDepth");
 
     buf_.adaptive_probe_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.adaptive_probe_count.setName("AdaptiveProbeCount");
-    buf_.probe_update_error = gfxCreateBuffer<float>(gfx_, options_.SSRC_max_probe_count);
-    buf_.probe_update_error.setName("ProbeUpdateError");
+//    buf_.probe_update_error = gfxCreateBuffer<float>(gfx_, options_.SSRC_max_probe_count);
+//    buf_.probe_update_error.setName("ProbeUpdateError");
 
     assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
 
@@ -520,10 +528,12 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_ShadeQueries);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_UpdateProbes);
+    gfxDestroyKernel(gfx_, kernels_.WorldCache_MoveProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_FilterProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_PadProbeTextureEdges);
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateDDGI);
     gfxDestroyKernel(gfx_, kernels_.SSRC_Denoise);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbePlacement);
@@ -609,7 +619,7 @@ void MIGI::releaseResources()
     gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_inv_pdf);
     gfxDestroyBuffer(gfx_, buf_.update_ray_linear_depth);
     gfxDestroyBuffer(gfx_, buf_.adaptive_probe_count);
-    gfxDestroyBuffer(gfx_, buf_.probe_update_error);
+//    gfxDestroyBuffer(gfx_, buf_.probe_update_error);
     gfxDestroyBuffer(gfx_, buf_.debug_cursor_world_pos);
     gfxDestroyBuffer(gfx_, buf_.debug_probe_world_position);
     gfxDestroyBuffer(gfx_, buf_.debug_visualize_incident_radiance);

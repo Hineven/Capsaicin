@@ -59,11 +59,16 @@ struct DebugWorldCache_Input {
 float4 DebugWorldCache_VisualizeProbes (
     in DebugWorldCache_Input Input
 ) : SV_Target {
-    float3 Direction = Input.ProbeDirection_ID.xyz;
-    int ProbeID = asint(Input.ProbeDirection_ID.w);
+    float3 Direction = normalize(Input.ProbeDirection_ID.xyz);
+    int ProbeID = round(Input.ProbeDirection_ID.w);
     int2 ProbeAtlasBase = WorldCache_GetProbeAtlasBase(ProbeID);
     float2 Oct01 = UnitVectorToOctahedron01(Direction);
     float2 ProbeAtlasUV = (ProbeAtlasBase + 1 + Oct01 * WORLD_CACHE_PROBE_RESOLUTION_INTERNAL) * WorldCache.InvAtlasDimensions;
-    float3 Color = g_WorldCacheIrradiance2PLuminanceTexture.SampleLevel(g_LinearSampler, ProbeAtlasUV, 0).xyz;
+    float3 Color = 0;
+    if(MI.DebugVisualizeChannel == 0) {
+        Color = g_WorldCacheIrradiance2PLuminanceTexture.SampleLevel(g_LinearSampler, ProbeAtlasUV, 0).xyz;
+    } else {
+        Color.r = g_WorldCacheMomentumTexture.SampleLevel(g_LinearSampler, ProbeAtlasUV, 0).y;
+    }
     return float4(Color, 1);
 }

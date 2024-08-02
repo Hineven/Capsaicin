@@ -89,6 +89,7 @@ static vector<SceneData> const scenes = {
     {"1Emitter_twisted",                                          {"assets/MIGITestMedia/1emitter_twisted/scene.gltf"},  false, 1.0f},
     {"2Emitters",                                          {"assets/MIGITestMedia/2emitters/scene.gltf"},  false, 0.5f},
     {"MovingLight",                                          {"assets/MIGITestMedia/moving-light/TestScene.gltf"},  false, 5.f},
+    {"SchoolPassage",                                      {"assets/MIGITestMedia/SchoolPassage/SchoolPassage.gltf"},   true, 3.f}
 };
 
 /** List of supported environment maps */

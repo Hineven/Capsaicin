@@ -55,14 +55,11 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     int uniform_probe_x = divideAndRoundUp(options_.width, SSRC_TILE_SIZE);
     int uniform_probe_y = divideAndRoundUp(options_.height, SSRC_TILE_SIZE);
     int uniform_probe_count = uniform_probe_x * uniform_probe_y;
-    int max_probe_count = options_.SSRC_max_adaptive_probe_count + uniform_probe_count;
-    if((int)options_.SSRC_max_probe_count != max_probe_count) {
+    int SSRC_max_probe_count = options_.SSRC_max_adaptive_probe_count + uniform_probe_count;
+    if((int)options_.SSRC_max_probe_count != SSRC_max_probe_count) {
         need_reload_memory_ = true;
     }
-    options_.SSRC_max_probe_count      = max_probe_count;
-
-    // Only SSRC update rays request ReSTIR sampling.
-    options_.restir.max_query_ray_count = options_.SSRC_max_update_ray_count;
+    options_.SSRC_max_probe_count      = SSRC_max_probe_count;
 
 
     auto new_enable_indirect = std::get<bool>(in["enable_indirect"]);
@@ -71,9 +68,11 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     }
     options_.enable_indirect = new_enable_indirect;
 
-    if(options_.world_cache.max_query_count < (int)options_.SSRC_max_update_ray_count)
+    int max_ray_count = options_.SSRC_max_update_ray_count + options_.world_cache.max_probe_count * options_.world_cache.num_update_ray_per_probe;
+
+    if(options_.world_cache.max_query_count < max_ray_count)
     {
-        options_.world_cache.max_query_count = (int)options_.SSRC_max_update_ray_count;
+        options_.world_cache.max_query_count = max_ray_count;
     }
 
     // Debugging
@@ -101,6 +100,9 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
     // The screen space cache needs to be reset if the render state changes (i.e. camera transaction).
     need_reset_screen_space_cache_ |= options_.reset_screen_space_cache || capsaicin.getFrameIndex() == 0;
     need_reset_screen_space_cache_ |= need_reload_memory_ | need_reload_kernel_;
+
+    need_reset_world_cache_ |= options_.reset_world_cache || capsaicin.getFrameIndex() == 0;
+    need_reset_world_cache_ |= need_reload_memory_ | need_reload_kernel_;
 }
 
 DebugViewList MIGI::getDebugViews() const noexcept

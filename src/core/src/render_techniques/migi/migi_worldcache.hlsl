@@ -158,6 +158,12 @@ void  WorldCache_WriteProbeScore (int ProbeIndex, uint Score) {
         (asuint(g_RWWorldCacheProbeHeaderBuffer[ProbeIndex].x) & 0x7ffffffu) | (Score << 27);
 }
 
+void WorldCache_WriteProbeGridInternalLocation (int ProbeIndex, float3 Offsets) {
+    g_RWWorldCacheProbeHeaderBuffer[ProbeIndex].y = asuint(Offsets.x);
+    g_RWWorldCacheProbeHeaderBuffer[ProbeIndex].z = asuint(Offsets.y);
+    g_RWWorldCacheProbeHeaderBuffer[ProbeIndex].w = asuint(Offsets.z);
+}
+
 WorldCacheProbeHeader WorldCache_UnpackProbeHeader (uint4 Packed) {
     WorldCacheProbeHeader Header;
     // Decode grid coords & scores from a single uint (x:8, y:8, z:8, level:3, score:5)
@@ -266,8 +272,7 @@ float WorldCache_GetSampleOffsetAmount (float3 WorldPosition) {
         // 2 grids smooth transition
         Size = WorldCache_GetGridSizeForLevel(Coords.w) * lerp(0.5, 1, saturate(MaxDist / 2));
     }
-    // FIXME
-    return 0.01;//Size * WorldCache.SampleBias;
+    return Size * WorldCache.SampleBias;
 } 
 
 void WorldCache_RecycleProbe (int ProbeIndex) {
@@ -356,11 +361,19 @@ struct WorldCacheSample {
     float Weights[8];
 };
 
+int4 WorldCache_GetLower(int4 GridCoords) {
+    return int4(
+        (GridCoords.xyz + WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w].xyz) * 2
+         - WorldCache.VolumeCascadeGridCoordOffsets[GridCoords.w - 1].xyz,
+         GridCoords.w - 1);
+}
+
 // Logic mostly comes from RTXGI-DDGI
 WorldCacheSample WorldCache_SampleProbes (
     float3 WorldPosition,
     float3 WorldPositionBiased,
     float3 WorldNormal,
+    float  RayTravelDistance,
     bool bPrevious = false,
     bool bNoNormal = false,
     bool bRequestProbeSpawn = false
@@ -375,10 +388,10 @@ WorldCacheSample WorldCache_SampleProbes (
         return Sample;
     }
     float3 Trillinear = 
-        saturate((WorldPositionBiased - WorldCache_GetProbeWorldCenterFromGridCoords(GridCoordsBase))
+        saturate((WorldPositionBiased - WorldCache_GetProbeWorldCenterFromGridCoords(GridCoordsBase, bPrevious))
          / WorldCache_GetGridSizeForLevel(GridCoordsBase.w));
     float SumWeight = 0;
-    for(int i = 0; i<8; i++) {
+    for(int i = 0; i < 8; i++) {
         int3 GridCoordsOffset = int3(
             i & 1, (i >> 1) & 1, (i >> 2) & 1
         );
@@ -386,16 +399,27 @@ WorldCacheSample WorldCache_SampleProbes (
         uint ProbeIndex = 0xffffffffu;
         if(!WorldCache_IsProbeCoordsOutOfBounds(GridCoords)) {
             ProbeIndex = WorldCache_GetProbeIndexFromGrid(GridCoords);
-            if(bRequestProbeSpawn && ProbeIndex == 0xffffffffu) {
-                uint OldValue;
-                InterlockedCompareExchange(
-                    g_RWWorldCacheProbeIndexTexture[GridCoords.w][GridCoords.xyz],
-                    0xffffffffu, 0xfffffffeu, OldValue
-                );
-                if(OldValue == 0xffffffffu) {
-                    WorldCacheProbeSpawnRequest Request;
-                    Request.GridCoords = GridCoords;
-                    WorldCache_AddProbeSpawnRequest(Request);
+            // Try to spawn a probe if it's empty & valid
+            if(bRequestProbeSpawn 
+                && ProbeIndex == 0xffffffffu) {
+                int4 SpawnGridCoords = GridCoords;
+                // Try to spawn on lower levels if ever possible
+                [unroll(MIGI_WORLDCACHE_MAX_CLIPMAP_CASCADES - 1)]
+                while(SpawnGridCoords.w > 0 && WorldCache_IsProbeCoordsOverlapped(SpawnGridCoords)) {
+                    int4 LowerGridCoords = WorldCache_GetLower(SpawnGridCoords);
+                    SpawnGridCoords = LowerGridCoords;
+                }
+                {
+                    uint OldValue;
+                    InterlockedCompareExchange(
+                        g_RWWorldCacheProbeIndexTexture[SpawnGridCoords.w][SpawnGridCoords.xyz],
+                        0xffffffffu, 0xfffffffeu, OldValue
+                    );
+                    if(OldValue == 0xffffffffu) {
+                        WorldCacheProbeSpawnRequest Request;
+                        Request.GridCoords = GridCoords;
+                        WorldCache_AddProbeSpawnRequest(Request);
+                    }
                 }
             }
         }
@@ -404,22 +428,24 @@ WorldCacheSample WorldCache_SampleProbes (
         }
         float3 ProbePosition = WorldCache_GetProbeHeader(ProbeIndex).WorldPosition;
         float3 PosToProbeN = normalize(ProbePosition - WorldPosition);
-        float3 BiasedPosToAdjProbe = normalize(ProbePosition - WorldPositionBiased);
+        float3 BiasedPosToAdjProbeN = normalize(ProbePosition - WorldPositionBiased);
         float LinearWeight = 
-            (GridCoordsOffset.x ? 1.f - Trillinear.x : Trillinear.x) *
-            (GridCoordsOffset.y ? 1.f - Trillinear.y : Trillinear.y) *
-            (GridCoordsOffset.z ? 1.f - Trillinear.z : Trillinear.z);
+            (GridCoordsOffset.x ? Trillinear.x : 1 - Trillinear.x) *
+            (GridCoordsOffset.y ? Trillinear.y : 1 - Trillinear.y) *
+            (GridCoordsOffset.z ? Trillinear.z : 1 - Trillinear.z);
         float Weight = 1.f;
         float WrapShading = (dot(PosToProbeN, WorldNormal) + 1.f) * 0.5f;
-        if(!bNoNormal) Weight *= (WrapShading * WrapShading) + 0.2f;
-        float2 MomentumOct01 = UnitVectorToOctahedron01(BiasedPosToAdjProbe);
-        int2 ProbeCoords = WorldCache_GetProbeAtlasCoords(ProbeIndex);
-        float2 MomentumAtlasUV = (ProbeCoords + MomentumOct01) * WorldCache.InvAtlasDimensions;
+        if(!bNoNormal) Weight *= (WrapShading * WrapShading) + 0.05f;
+        float2 MomentumOct01 = UnitVectorToOctahedron01(-BiasedPosToAdjProbeN);
+        int2 ProbeBaseCoords = WorldCache_GetProbeAtlasBase(ProbeIndex);
+        float2 MomentumTexPosition = 
+            ProbeBaseCoords + 1 + MomentumOct01 * WORLD_CACHE_PROBE_RESOLUTION_INTERNAL;
+        float2 MomentumAtlasUV = MomentumTexPosition * WorldCache.InvAtlasDimensions;
         float2 Momentum = g_WorldCacheMomentumTexture.SampleLevel(
             g_LinearSampler, MomentumAtlasUV, 0
         ).xy;
-        // Use absolute value in case y < x*x due to approximations
-        float Variance = abs((Momentum.x * Momentum.x) - Momentum.y);
+        // Clamp to 0 in case y < x*x due to approximations
+        float Variance = max(0, (Momentum.x * Momentum.x) - Momentum.y);
         
         // Occlusion test
         float ChebyshevWeight = 1.f;
@@ -433,7 +459,14 @@ WorldCacheSample WorldCache_SampleProbes (
             ChebyshevWeight = max((ChebyshevWeight * ChebyshevWeight * ChebyshevWeight), 0.f);
         }
         // Make sure we have a fallback value if all probes are occluded.
-        Weight *= max(0.05, ChebyshevWeight);
+        Weight *= max(0.001, ChebyshevWeight);
+        float ClampWeight = 1.f;
+        {
+            float Sgn = RayTravelDistance / max(length(ProbePosition - WorldPosition), 1e-6f);
+            ClampWeight = smoothstep(0.9f, 1.2f, Sgn);
+        }
+        // Avoid leaking
+        Weight *= ClampWeight;
         // Does this make sense?
         Weight = max(Weight, 1e-6f);
 

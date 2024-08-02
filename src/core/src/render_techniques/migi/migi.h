@@ -9,7 +9,6 @@
 
 #include <vector>
 #include <string>
-#include "world_space_restir.h"
 #include "world_cache.h"
 #include "render_technique.h"
 
@@ -131,7 +130,7 @@ public:
         GfxBuffer update_ray_radiance_inv_pdf {};
         GfxBuffer update_ray_linear_depth {};
         GfxBuffer adaptive_probe_count {};
-        GfxBuffer probe_update_error {};
+//        GfxBuffer probe_update_error {};
 
         GfxBuffer debug_cursor_world_pos {};
         GfxBuffer debug_probe_world_position {};
@@ -177,10 +176,12 @@ public:
         GfxKernel  SSRC_ReprojectPreviousUpdateError {};
         GfxKernel  WorldCache_ShadeQueries {};
         GfxKernel  WorldCache_UpdateProbes {};
+        GfxKernel  WorldCache_MoveProbes {};
         GfxKernel  SSRC_UpdateProbes {};
         GfxKernel  SSRC_FilterProbes {};
         GfxKernel  SSRC_PadProbeTextureEdges {};
         GfxKernel  SSRC_IntegrateASG {};
+        GfxKernel  SSRC_IntegrateDDGI {};
         GfxKernel  SSRC_Denoise {};
         GfxKernel  DebugSSRC_FetchCursorPos {};
         GfxKernel  DebugSSRC_VisualizeProbePlacement {};
@@ -217,8 +218,6 @@ protected:
 
     // We need to modify it in the GUI rendering
     mutable MIGIRenderOptions options_ {};
-
-    WorldSpaceReSTIR world_space_restir_;
     WorldCache       world_cache_;
 
     GfxCamera previous_camera_ {};
@@ -234,7 +233,7 @@ protected:
     // If the reservoirs need to be reset.
     bool need_reset_world_space_reservoirs_ {true};
     // If the world cache needs to be reset
-    bool need_reset_world_cache_ {true};
+    mutable bool need_reset_world_cache_ {true};
 
     bool readback_pending_ [kGfxConstant_BackBufferCount] {};
     MIGIReadBackValues readback_values_;

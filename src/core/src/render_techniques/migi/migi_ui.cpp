@@ -50,6 +50,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             debug_visualize_channel_names = {"Rays", "TracedRays", "TracedRayDepths"};
         } else if(options_.active_debug_view == "SSRC_ProbeColor") {
             debug_visualize_channel_names = {"Color", "Depth"};
+        } else if(options_.active_debug_view == "WorldCache") {
+            debug_visualize_channel_names = {"Irradiance2P", "Momentum"};
         }
         if (debug_visualize_channel_names.empty())
         {
@@ -70,9 +72,14 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             }
             ImGui::EndCombo();
         }
+        ImGui::Checkbox("DDGI Final Gather", &options_.DDGI_final_gather);
         if (ImGui::Button("Reset Screen Space Cache"))
         {
             need_reset_screen_space_cache_ = true;
+        }
+        if(ImGui::Button("Reset World Cache"))
+        {
+            need_reset_world_cache_ = true;
         }
         ImGui::Checkbox("Always Reset", &options_.reset_screen_space_cache);
         ImGui::SliderInt("Update Ray Bonus", (int*)&options_.SSRC_base_update_ray_waves, 1, SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / cfg_.wave_lane_count);

@@ -768,5 +768,31 @@ float RecoverWeight (int V) {
     return float(V) / 131072.f;
 }
 
+// Rotation 
+float3x3 RotateXY (float CosX, float SinX) {
+    return float3x3(
+        CosX, SinX,0,
+        -SinX, CosX, 0,  
+        0, 0, 1
+    );
+}
+
+// https://www.blopig.com/blog/2021/08/uniformly-sampled-3d-rotation-matrices/
+float3x3 UniformRandomRotation (float3 u) {
+    float CosX, SinX;
+    sincos(TWO_PI * u.x, SinX, CosX);
+    float3x3 R = RotateXY(CosX, SinX);
+    float V_X = cos(TWO_PI * u.y) * sqrt(u.z);
+    float V_Y = sin(TWO_PI * u.y) * sqrt(u.z);
+    float V_Z = sqrt(1.f - u.z);
+    // I - 2 * V * V^T
+    float3x3 H = float3x3(
+        1 - 2 * V_X * V_X, -2 * V_X * V_Y, -2 * V_X * V_Z,
+        -2 * V_Y * V_X, 1 - 2 * V_Y * V_Y, -2 * V_Y * V_Z,
+        -2 * V_Z * V_X, -2 * V_Z * V_Y, 1 - 2 * V_Z * V_Z
+    );
+    return -mul(R, H);
+}
+
 
 #endif // MIGI_SHARED_HLSL

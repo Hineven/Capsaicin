@@ -26,7 +26,7 @@ namespace Capsaicin
 {
 
 MIGI::MIGI()
-    : RenderTechnique("MIGI"), world_space_restir_(gfx_), world_cache_(gfx_)
+    : RenderTechnique("MIGI"), world_cache_(gfx_)
 {}
 
 MIGI::~MIGI() {terminate();}
@@ -78,7 +78,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         // Ensure our scratch memory is allocated
         world_cache_.EnsureMemoryIsAllocated(options_);
-        world_space_restir_.ensureMemoryIsAllocated(options_);
     }
 
     // ***********************************************************
@@ -198,7 +197,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileAdaptiveProbeIndexTexture", tex_.tile_adaptive_probe_index[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousTileAdaptiveProbeIndexTexture", tex_.tile_adaptive_probe_index[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWAdaptiveProbeCountBuffer", buf_.adaptive_probe_count);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateErrorBuffer", buf_.probe_update_error);
+//        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateErrorBuffer", buf_.probe_update_error);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateErrorSplatTexture", tex_.update_error_splat[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_UpdateErrorSplatTexture", tex_.update_error_splat[flip]);
@@ -347,16 +346,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxBufferGetData<WorldCacheConstants>(gfx_, world_cache_constants)[0] =
             world_cache_constant_data;
 
-        WorldSpaceReSTIRConstants world_space_restir_constant_data = {};
-        world_space_restir_constant_data.cell_size =
-            tanf(capsaicin.getCamera().fovY * options_.restir.reservoir_cache_cell_size
-                 * GFX_MAX(1.0f / options_.height,
-                     (float)options_.height / (options_.width * options_.width)));
-        world_space_restir_constant_data.num_cells            = WorldSpaceReSTIR::kConstant_NumCells;
-        world_space_restir_constant_data.num_entries_per_cell = WorldSpaceReSTIR::kConstant_NumEntriesPerCell;
-        gfxBufferGetData<WorldSpaceReSTIRConstants>(gfx_, world_space_restir_constants)[0] =
-            world_space_restir_constant_data;
-
         RTConstants rt_constant_data = {};
         if (options_.use_dxr10)
         {
@@ -393,52 +382,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_DebugTonemapExposure", exposure);
     }
 
-    // Buffers of world-space ReSTIR
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_HashBuffer",
-        world_space_restir_
-            .reservoir_hash_buffers_[world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_HashCountBuffer",
-        world_space_restir_
-            .reservoir_hash_count_buffers_[world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_HashIndexBuffer",
-        world_space_restir_
-            .reservoir_hash_index_buffers_[world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_HashValueBuffer",
-        world_space_restir_
-            .reservoir_hash_value_buffers_[world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(
-        gfx_, kernels_.program, "g_Reservoir_HashListBuffer", world_space_restir_.reservoir_hash_list_buffer_);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_HashListCountBuffer",
-        world_space_restir_.reservoir_hash_list_count_buffer_);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_PreviousHashBuffer",
-        world_space_restir_
-            .reservoir_hash_buffers_[1 - world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_PreviousHashCountBuffer",
-        world_space_restir_
-            .reservoir_hash_count_buffers_[1 - world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_PreviousHashIndexBuffer",
-        world_space_restir_
-            .reservoir_hash_index_buffers_[1 - world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_PreviousHashValueBuffer",
-        world_space_restir_
-            .reservoir_hash_value_buffers_[1 - world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_IndirectSampleBuffer",
-        world_space_restir_.reservoir_indirect_sample_buffer_);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_IndirectSampleNormalBuffer",
-        world_space_restir_.reservoir_indirect_sample_normal_buffers_
-            [world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_IndirectSampleMaterialBuffer",
-        world_space_restir_.reservoir_indirect_sample_material_buffer_);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_IndirectSampleReservoirBuffer",
-        world_space_restir_.reservoir_indirect_sample_reservoir_buffers_
-            [world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_PreviousIndirectSampleNormalBuffer",
-        world_space_restir_.reservoir_indirect_sample_normal_buffers_
-            [1 - world_space_restir_.reservoir_indirect_sample_buffer_index_]);
-    gfxProgramSetParameter(gfx_, kernels_.program, "g_Reservoir_PreviousIndirectSampleReservoirBuffer",
-        world_space_restir_.reservoir_indirect_sample_reservoir_buffers_
-            [1 - world_space_restir_.reservoir_indirect_sample_buffer_index_]);
 
     // Buffers of world cache
     world_cache_.BindResources(options_, kernels_.program);
@@ -736,6 +679,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatchIndirect(gfx_, world_cache_.WCAPIndirectBuffer());
     }
 
+    // Relocate world cache probes
+    {
+        TimedSection const timed_section(*this, "WorldCache_MoveProbes");
+        gfxCommandBindKernel(gfx_, kernels_.WorldCache_MoveProbes);
+        gfxCommandDispatchIndirect(gfx_, world_cache_.PerLaneWCAPIndirectBuffer());
+    }
+
     // Spatial filter SSRC
     {
         TimedSection const timed_section(*this, "SSRC_FilterProbes");
@@ -751,11 +701,19 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     }
 
     // Finally, integrate the ASG to produce global illumination
-    {
+    if(!options_.DDGI_final_gather) {
         // Resolving requires the wrap sampler for material textures
         gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearWrapSampler());
         const TimedSection timed_section(*this, "SSRC_IntegrateASG");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_IntegrateASG);
+        uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
+        assert(dispatch_size[0] * SSRC_TILE_SIZE == options_.width && dispatch_size[1] * SSRC_TILE_SIZE == options_.height);
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
+    } else {
+        // Resolving requires the wrap sampler for material textures
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_TextureSampler", capsaicin.getLinearWrapSampler());
+        const TimedSection timed_section(*this, "SSRC_IntegrateDDGI");
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_IntegrateDDGI);
         uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
         assert(dispatch_size[0] * SSRC_TILE_SIZE == options_.width && dispatch_size[1] * SSRC_TILE_SIZE == options_.height);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);

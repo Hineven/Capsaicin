@@ -119,9 +119,30 @@ DebugWorldCache_Output DebugWorldCache_VisualizeProbes (
 ) {
     int ProbeIndex = g_RWWorldCacheActiveProbeIndexBuffer[InstanceIndex];
     float3 ProbeWorldPosition = WorldCache_GetProbeHeader(ProbeIndex).WorldPosition;
-    float3 VertexPosition = LocalVertexPosition * 0.015 + ProbeWorldPosition;
+    float Scale = 0.015f;
+    if(MI.DebugVisualizeChannel == 1) {
+        float4 ScreenPosition_w = mul(MI.CameraProjView, float4(ProbeWorldPosition, 1.f));
+        if(ScreenPosition_w.w > 0) {
+            float ScreenDepth = ScreenPosition_w.z / ScreenPosition_w.w;
+            float2 FilmUV = NDC22UV(ScreenPosition_w.xy / ScreenPosition_w.w);
+            float FilmDepth = g_DepthTexture.SampleLevel(g_LinearSampler, FilmUV, 0).r;
+            if(0 < ScreenDepth && ScreenDepth < min(1, FilmDepth) ) {
+                int2 PixelCoords = FilmUV * float2(MI.ScreenDimensions);
+                int  Dist = dot(abs(PixelCoords - int2(MI.DebugCursorPixelCoords)), 1);
+                if(Dist < 10) {        
+                    float2 Oct01 = UnitVectorToOctahedron01(normalize(LocalVertexPosition));
+                    float2 SubTexPosition = 1 + Oct01 * WORLD_CACHE_PROBE_RESOLUTION_INTERNAL;
+                    int2 ProbeAtlasBase = WorldCache_GetProbeAtlasBase(ProbeIndex);
+                    float2 UV = (SubTexPosition + ProbeAtlasBase) * WorldCache.InvAtlasDimensions;
+                    float2 Momentum = g_WorldCacheMomentumTexture.SampleLevel(g_LinearSampler, UV, 0);
+                    Scale = Momentum.x * 0.5f;
+                }
+            }
+        }
+    }
+    float3 VertexPosition = LocalVertexPosition * Scale + ProbeWorldPosition;
     DebugWorldCache_Output Output;
     Output.Position = mul(MI.CameraProjView, float4(VertexPosition, 1.f));
-    Output.ProbeDirection_ID = float4(normalize(LocalVertexPosition), asfloat(ProbeIndex));
+    Output.ProbeDirection_ID = float4(normalize(LocalVertexPosition), ProbeIndex);
     return Output;
 }

@@ -27,6 +27,9 @@ struct MIGIRenderOptions {
     bool     debug_freeze_tile_jitter {false};
 
     bool     reset_screen_space_cache {false};
+    bool     reset_world_cache {false};
+
+    bool     DDGI_final_gather {false};
 
     uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
     uint32_t SSRC_max_adaptive_probe_count {32 * 1024};
@@ -35,23 +38,17 @@ struct MIGIRenderOptions {
     uint32_t SSRC_base_update_ray_waves {2};
 
     struct {
-        float    reservoir_cache_cell_size {16.f};
-        // This parameter is set with the screen resolution during options update every frame.
-        uint32_t max_query_ray_count {};
-    } restir;
-
-    struct {
         int max_query_count;  // reload
-        float grid_size {0.1f}; // reset
-        int   clipmap_resolution {64};  // reload
+        float grid_size {0.15f}; // reset
+        int   clipmap_resolution {32};  // reload
         int   clipmap_levels {4}; // reload
 
         int probe_initial_score {30}; // < 31
         int probe_score_decay {1};
         int probe_score_bonus {25};
 
-        int max_probe_count          = 8192; // reload
-        int num_update_ray_per_probe = 148; // max 243
+        int max_probe_count          = 4 * 16384; // reload
+        int num_update_ray_per_probe = 88;//148; // max 243
 
         float sample_bias                = 0.1f;
         float probe_irradiance_threshold = 0.2f;
