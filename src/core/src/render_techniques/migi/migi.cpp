@@ -582,7 +582,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     {
         const TimedSection timed_section(*this, "SSRC_InitializeFailedProbes");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_InitializeFailedProbes);
-        // TODO: This should be a dispatch indirect
+        gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
     {

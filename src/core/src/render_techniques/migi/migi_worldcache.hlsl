@@ -272,7 +272,7 @@ float WorldCache_GetSampleOffsetAmount (float3 WorldPosition) {
         // 2 grids smooth transition
         Size = WorldCache_GetGridSizeForLevel(Coords.w) * lerp(0.5, 1, saturate(MaxDist / 2));
     }
-    return Size * WorldCache.SampleBias;
+    return Size * 0.2;//WorldCache.SampleBias;
 } 
 
 void WorldCache_RecycleProbe (int ProbeIndex) {
@@ -435,7 +435,7 @@ WorldCacheSample WorldCache_SampleProbes (
             (GridCoordsOffset.z ? Trillinear.z : 1 - Trillinear.z);
         float Weight = 1.f;
         float WrapShading = (dot(PosToProbeN, WorldNormal) + 1.f) * 0.5f;
-        if(!bNoNormal) Weight *= (WrapShading * WrapShading) + 0.05f;
+        if(!bNoNormal) Weight *= (WrapShading * WrapShading * WrapShading) + 0.05f;
         float2 MomentumOct01 = UnitVectorToOctahedron01(-BiasedPosToAdjProbeN);
         int2 ProbeBaseCoords = WorldCache_GetProbeAtlasBase(ProbeIndex);
         float2 MomentumTexPosition = 
@@ -445,7 +445,7 @@ WorldCacheSample WorldCache_SampleProbes (
             g_LinearSampler, MomentumAtlasUV, 0
         ).xy;
         // Clamp to 0 in case y < x*x due to approximations
-        float Variance = max(0, (Momentum.x * Momentum.x) - Momentum.y);
+        float Variance = max(0.00001f, (Momentum.x * Momentum.x) - Momentum.y);
         
         // Occlusion test
         float ChebyshevWeight = 1.f;
@@ -459,7 +459,7 @@ WorldCacheSample WorldCache_SampleProbes (
             ChebyshevWeight = max((ChebyshevWeight * ChebyshevWeight * ChebyshevWeight), 0.f);
         }
         // Make sure we have a fallback value if all probes are occluded.
-        Weight *= max(0.001, ChebyshevWeight);
+        Weight *= max(0.001f, ChebyshevWeight);
         float ClampWeight = 1.f;
         {
             float Sgn = RayTravelDistance / max(length(ProbePosition - WorldPosition), 1e-6f);
@@ -485,7 +485,11 @@ WorldCacheSample WorldCache_SampleProbes (
         SumWeight += Weight;
     }
     SumWeight = max(SumWeight, 1e-6f);
-    // Normalize the weights
+    const float FlattenThreshold = 0.1f;
+    // Drop the sample if the weight is too small
+    if(SumWeight < FlattenThreshold) {
+        SumWeight = FlattenThreshold * sqrt((1.f + SumWeight / FlattenThreshold) * 0.5f);
+    }
     for(int i = 0; i < 8; i++) {
         Sample.Weights[i] /= SumWeight;
     }
