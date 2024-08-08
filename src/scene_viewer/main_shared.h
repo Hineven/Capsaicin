@@ -151,7 +151,7 @@ protected:
      * Save the currently displayed frame to disk.
      * @note Saves to default 'dump' subdirectory.
      */
-    void saveFrame() noexcept;
+    std::string saveFrame() noexcept;
 
     /**
      * Get the common base file name based on current capsaicin settings.
@@ -172,6 +172,7 @@ protected:
     EnvironmentMap   currentEnvironmentMap = defaultEnvironmentMap; /**< Currently loaded environment map */
     std::string_view programName; /**< Stored name for the current program */
     bool benchmarkMode = false;   /**< If enabled this prevents user inputs and runs a predefined benchmark */
+    bool bakingMode    = false;   /**< If enabled this prevents user inputs and runs a predefined baking */
     uint32_t benchmarkModeFrameCount =
         512; /**< The number of frames to be rendered during benchmarking mode */
     uint32_t benchmarkModeStartFrame = uint32_t(-1); /**< The first frame to start saving images at in

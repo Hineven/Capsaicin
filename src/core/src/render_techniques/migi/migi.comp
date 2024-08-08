@@ -1440,6 +1440,9 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
             OctPdf = OctPdf * (1.f / TWO_PI);
             RayPdf = OctPdf * P_SampleOctahedron
                 + SGPdfSum / max(SumSizeBasis, Epsilon) * (1.f - P_SampleOctahedron);
+                //safasdfdasfasdfjkl validate pdf!
+            // what is \int_S^2 p_sg(w) dw?
+            // if 1, then is correct, 2Pi is incorrect!
         }
         if(MI.NoImportanceSampling) {
             RayPdf = UniformSampleHemispherePdf();
@@ -1474,7 +1477,7 @@ void WorldCache_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : 
         if(RayRank < RayCount) {
             float3 RayDirection = FibonacciSphere(RayRank, RayCount);
             RayDirection = mul(Rotation, RayDirection);
-            float RayPdf = UniformSampleHemispherePdf();
+            float RayPdf = UniformSampleSpherePdf(); // Sphere pdf
             WriteUpdateRay(ProbeIndirectIndex, int2(0, 0), RayRank, RayDirection, RayPdf);
         }
     }

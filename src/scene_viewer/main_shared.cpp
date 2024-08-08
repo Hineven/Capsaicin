@@ -30,6 +30,7 @@ THE SOFTWARE.
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <ranges>
+#include <thread>
 #include <version.h>
 
 using namespace std;
@@ -789,7 +790,7 @@ bool CapsaicinMain::renderFrame() noexcept
     // Get events
     gfxWindowPumpEvents(window);
 
-    if (!benchmarkMode)
+    if (!benchmarkMode && !bakingMode)
     {
         // Update the camera
         if (!Capsaicin::GetFixedFrameRate())
@@ -1388,6 +1389,245 @@ bool CapsaicinMain::renderGUIDetails() noexcept
         ImGui::Separator();
     }
 
+    // Display camera animation benchmarking utilities
+
+    if (ImGui::CollapsingHeader("AnimBench", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        static bool recording_track = false;
+        static std::vector<glm::vec3> camera_positions;
+        static std::vector<glm::vec3> camera_lookats;
+        static std::vector<glm::vec3> camera_ups;
+        static std::vector<int> reference_frames;
+        static std::vector<std::string> reference_files;
+        static bool initial_track_loaded = false;
+        if(!initial_track_loaded) {
+            // Try to load from previously saved track upon first opening
+            std::ifstream track_file("track.txt");
+            if(track_file.is_open()) {
+                float x, y, z;
+                while(track_file >> x >> y >> z) {
+                    camera_positions.push_back(glm::vec3(x, y, z));
+                    track_file >> x >> y >> z;
+                    camera_lookats.push_back(glm::vec3(x, y, z));
+                    track_file >> x >> y >> z;
+                    camera_ups.push_back(glm::vec3(x, y, z));
+                    int has_reference;
+                    track_file >> has_reference;
+                    if(has_reference) {
+                        std::string reference_file;
+                        track_file >> reference_file;
+                        reference_files.push_back(reference_file);
+                        reference_frames.push_back((int)camera_positions.size() - 1);
+                    }
+                }
+            } else {
+                std::cout << "Failed to open track file." << std::endl;
+            }
+            initial_track_loaded = true;
+        }
+        ImGui::Text("Current Ref Frame Count: %d", (int)reference_frames.size());
+
+        if (ImGui::Button(recording_track ? "Stop Record" : "Record Track"))
+        {
+            if(recording_track) {
+                recording_track = false;
+            } else {
+                recording_track = true;
+                camera_positions.clear();
+                camera_lookats.clear();
+                reference_files.clear();
+                reference_frames.clear();
+            }
+        }
+        if(recording_track) {
+            camera_positions.push_back(Capsaicin::GetSceneCamera()->eye);
+            camera_lookats.push_back(Capsaicin::GetSceneCamera()->center);
+            camera_ups.push_back(Capsaicin::GetSceneCamera()->up);
+        }
+
+        ImGui::Text("Track Length: %d", (int)camera_positions.size());
+        static int track_span_lr[2];
+        static int bake_reference_frame_count = 0;
+        ImGui::SliderInt2("Track Span", track_span_lr, 0, std::max((int)camera_positions.size() - 1, 0));
+        ImGui::SliderInt("Ref Frame Count", &bake_reference_frame_count, 0, (int)camera_positions.size());
+        if (ImGui::Button("Save Track")) {
+            reference_files.clear();
+            reference_frames.clear();
+            std::ofstream track_file("track.txt");
+            track_span_lr[0] = std::max(track_span_lr[0], 0);
+            track_span_lr[1] = std::min(track_span_lr[1], (int)camera_positions.size() - 1);
+            for (int i = track_span_lr[0]; i <= track_span_lr[1]; i++) {
+                track_file << camera_positions[i].x << " " << camera_positions[i].y << " " << camera_positions[i].z << " ";
+                track_file << camera_lookats[i].x << " " << camera_lookats[i].y << " " << camera_lookats[i].z << " ";
+                track_file << camera_ups[i].x << " " << camera_ups[i].y << " " << camera_ups[i].z << " ";
+                // Evenly distribute reference frames
+                if(bake_reference_frame_count > 0) {
+                    if((i - track_span_lr[0]) % ((track_span_lr[1] - track_span_lr[0]) / bake_reference_frame_count) == 0) {
+                        track_file << "1 " << "track_refs/reference_" << i << ".jpeg" << std::endl;
+                        // Also update the reference frame list
+                        reference_frames.push_back(i);
+                        reference_files.push_back("track_refs/reference_" + std::to_string(i) + ".jpeg");
+                    } else {
+                        track_file << "0" << std::endl;
+                    }
+                } else {
+                    track_file << "0" << std::endl;
+                }
+            }
+            track_file.close();
+            std::cout << "Track saved." << std::endl;
+        }
+        static bool baking_track = false;
+        static bool eval_mode = false;
+        static int  baking_reference_frame_index = 0;
+        static int  baking_reference_frame_current_spp = 0;
+        static int  target_reference_frame_target_spp = 128;
+        ImGui::Checkbox("Eval Mode", &eval_mode);
+        if(!eval_mode)
+        {
+            ImGui::SliderInt("Ref SPP", &target_reference_frame_target_spp, 1, 65536);
+        }
+        static std::chrono::time_point<std::chrono::steady_clock> start_time;
+        static std::vector<std::pair<float, float> > time_progress_series;
+        if(ImGui::Button(eval_mode ? (baking_track ? "Halt Eval..." : "Eval Track") : (baking_track ? "Halt Baking..." : "Bake Track"))) {
+            if(baking_track) {
+                baking_track = false;
+                bakingMode = false;
+            } else {
+                start_time = std::chrono::steady_clock::now();
+                baking_track = true;
+                // Wait for some frames to let the cache stabilize under eval mode
+                baking_reference_frame_index = eval_mode ? -120 : 0;
+                baking_reference_frame_current_spp = 0;
+//                benchmarkMode = true;
+                bakingMode = true;
+                if(!eval_mode)
+                {
+                    // Switch to reference pt
+                    Capsaicin::SetRenderer("Reference Path Tracer");
+                }
+                Capsaicin::setOption("tonemap_exposure", 2.5f);
+                time_progress_series.clear();
+            }
+        }
+        static std::vector<std::unique_ptr<std::thread>> copy_threads;
+        static bool exit_baking = false;
+        if(exit_baking) {
+            static int exit_baking_delay_count = 0;
+            exit_baking_delay_count ++;
+            // Wait for all threads to finish after flushing buffering
+            if(exit_baking_delay_count >= 4)
+            {
+                for (auto &thread : copy_threads)
+                {
+                    thread->join();
+                }
+                copy_threads.clear();
+                exit_baking = false;
+                exit_baking_delay_count = 0;
+            }
+        }
+        if(baking_track) {
+            if((eval_mode && baking_reference_frame_index < (int)camera_positions.size())
+            || (!eval_mode && baking_reference_frame_index < (int)reference_frames.size())) {
+                if(!eval_mode) {
+                    auto camera = Capsaicin::GetSceneCamera();
+                    camera->eye = camera_positions[reference_frames[baking_reference_frame_index]];
+                    camera->center = camera_lookats[reference_frames[baking_reference_frame_index]];
+                    camera->up = camera_ups[reference_frames[baking_reference_frame_index]];
+                    baking_reference_frame_current_spp += 1;
+                } else {
+                    auto camera = Capsaicin::GetSceneCamera();
+                    int idx = std::max(baking_reference_frame_index, 0);
+                    camera->eye = camera_positions[idx];
+                    camera->center = camera_lookats[idx];
+                    camera->up = camera_ups[idx];
+                    baking_reference_frame_index ++;
+                }
+                bool should_eval_frame = false;
+                if(eval_mode) {
+                    auto it = std::lower_bound(reference_frames.begin(), reference_frames.end(), baking_reference_frame_index - 1);
+                    if(it != reference_frames.end() && *it == baking_reference_frame_index - 1) {
+                        should_eval_frame = true;
+                    }
+                }
+                if((!eval_mode && baking_reference_frame_current_spp >= target_reference_frame_target_spp)
+                || (eval_mode  && should_eval_frame)) {
+                    if(!eval_mode) baking_reference_frame_index++;
+                    baking_reference_frame_current_spp = 0;
+                    saveAsJPEG = true;
+                    auto src_path = saveFrame();
+                    int dst_index = baking_reference_frame_index - 1;
+                    if(eval_mode) {
+                        auto it = std::lower_bound(reference_frames.begin(), reference_frames.end(), baking_reference_frame_index - 1);
+                        dst_index = (int)(it - reference_frames.begin());
+                    }
+                    auto dst_path = reference_files[dst_index];
+                    if(eval_mode) {
+                        // Change the output image's directory to "track_evals"
+                        dst_path = ("track_evals" / std::filesystem::path(dst_path).filename()).string();
+                    }
+                    // Copy to reference file. Wait on the source file to be ready asynchonously
+                    auto copy_thread_ptr = std::make_unique<std::thread>([src_path, dst_path]() {
+                        // Wait for the file to be ready and not being written to
+                        bool not_ready = false;
+                        do {
+                            not_ready = true;
+                            try {
+                                std::ifstream file(src_path);
+                                not_ready = !file.good();
+                            } catch (std::exception &e) {
+                                std::cout << "Failed to open file: " << e.what() << std::endl;
+                            }
+                            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                        } while(not_ready);
+                        // Create the directory if it doesn't exist
+                        std::filesystem::create_directories(std::filesystem::path(dst_path).parent_path());
+                        try
+                        {
+                            bool res = std::filesystem::copy_file(
+                                src_path, "./" + dst_path, std::filesystem::copy_options::overwrite_existing);
+                            if(!res) {
+                                std::cout << "Failed to copy file: " << src_path << std::endl;
+                            }
+                        }
+                        catch (std::exception &e)
+                        {
+                            std::cout << "Failed to copy file: " << e.what() << std::endl;
+                        }
+                    });
+                    copy_threads.push_back(std::move(copy_thread_ptr));
+                }
+            } else {
+                baking_track = false;
+                bakingMode = false;
+                exit_baking = true;
+            }
+            ImGui::Text("Baking Reference Frame %d", baking_reference_frame_index);
+            if(!eval_mode) ImGui::Text("Current SPP: %d/%d", baking_reference_frame_current_spp, target_reference_frame_target_spp);
+            float current_frame_prog = (float)baking_reference_frame_current_spp / (float)target_reference_frame_target_spp;
+            float overall_prog = current_frame_prog / (float)reference_frames.size() + (float)baking_reference_frame_index / (float)reference_frames.size();
+            if(eval_mode) overall_prog = (float)baking_reference_frame_index / (float)camera_positions.size();
+            ImGui::Text("Overall progress: %d%%", (int)(overall_prog * 100));
+            ImGui::SameLine();
+            ImGui::ProgressBar(overall_prog);
+            float now_time = std::chrono::duration<float>(std::chrono::steady_clock::now() - start_time).count();
+            time_progress_series.push_back(std::make_pair(now_time, overall_prog));
+            if(time_progress_series.size() > 120) {
+                time_progress_series.erase(time_progress_series.begin());
+            }
+            float min_time = time_progress_series[0].first;
+            float max_time = time_progress_series[time_progress_series.size() - 1].first;
+            float min_prog = time_progress_series[0].second;
+            float max_prog = time_progress_series[time_progress_series.size() - 1].second;
+            float time_diff = max_time - min_time;
+            float prog_diff = max_prog - min_prog;
+            float time_prog_rate = time_diff / prog_diff;
+            ImGui::Text("ETA: %.2f minutes", (1.0f - overall_prog) * time_prog_rate / 60.0f);
+        }
+
+    }
+
     // Display debugging options
     if (ImGui::CollapsingHeader("Debugging", ImGuiTreeNodeFlags_DefaultOpen))
     {
@@ -1426,7 +1666,7 @@ bool CapsaicinMain::renderGUIDetails() noexcept
     return true;
 }
 
-void CapsaicinMain::saveFrame() noexcept
+std::string CapsaicinMain::saveFrame() noexcept
 {
     // Ensure output directory exists
     std::string savePath = "./dump/"s;
@@ -1466,6 +1706,7 @@ void CapsaicinMain::saveFrame() noexcept
         reenableToneMap = Capsaicin::getOption<bool>("tonemap_enable");
         Capsaicin::setOption("tonemap_enable", false);
     }
+    return savePath;
 }
 
 std::string CapsaicinMain::getSaveName() const noexcept

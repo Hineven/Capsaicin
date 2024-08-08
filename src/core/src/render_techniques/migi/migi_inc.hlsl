@@ -10,7 +10,8 @@
 
 // Use heuristic for direction update
 #define HEURISTIC_DIRECTION_UPDATE
-// Use numerical approx for color update
+// LSM (least square error) for probe update,
+// otherwise LAD (least absolute deviation), which reduces bias but needs more iterations to converge
 #define OPTIMAL_COLOR_UPDATE
 // Debug flag to fix probes on the screen and avoid SG merging
 // #define DEBUG_FIX_PROBES

@@ -23,7 +23,8 @@ THE SOFTWARE.
 #ifndef RESERVOIR_HLSL
 #define RESERVOIR_HLSL
 
-#include "../components/light_builder/light_builder.hlsl"
+//#include "../components/light_builder/light_builder.hlsl"
+#include "C:/Users/hineven/CLionProjects/Capsaicin1.1/src/core/src/components/light_builder/light_builder.hlsl"
 #include "../lights/light_sampling.hlsl"
 #include "../materials/material_evaluation.hlsl"
 #include "../math/math_constants.hlsl"
