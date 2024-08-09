@@ -623,10 +623,122 @@ float3 SGIrradianceInnerProduct(in SGData lightingLobe, in float3 normal)
     return max(SGInnerProduct(lightingLobe, cosineLobe), 0.0f);
 }
 
+SGData SGProduct(in SGData x, in SGData y)
+{
+    float3 um = (x.Lambda * x.Direction + y.Lambda * y.Direction) /
+                (x.Lambda + y.Lambda);
+    float umLength = length(um);
+    float lm = x.Lambda + y.Lambda;
+
+    SGData res;
+    res.Direction = um * (1.0f / umLength);
+    res.Lambda = lm * umLength;
+    res.Color = x.Color * y.Color *
+    exp(lm * (umLength - 1.0f));
+
+    return res;
+}
+
+SGData SGProductRaw(float3 DirectionX, float LambdaX, float3 DirectionY, float LambdaY)
+{
+    float3 um = (LambdaX * DirectionX + LambdaY * DirectionY) /
+                (LambdaX + LambdaY);
+    float umLength = length(um);
+    float lm = LambdaX + LambdaY;
+
+    SGData res;
+    res.Direction = um * (1.0f / umLength);
+    res.Lambda = lm * umLength;
+    res.Color = exp(lm * (umLength - 1.0f));
+
+    return res;
+}
+
+float erf(float x) {
+    // Early return for large |x|.
+    if (abs(x) >= 4.0) {
+        return asfloat ((asuint(x) & 0x80000000)^asuint(1.0));
+    }
+    // Polynomial approximation based on https :// forums.developer.nvidia.com/t/optimized-version-of-single-precision-error-function-erff/40977
+    if (abs(x) > 1.0) {
+        float A1 = 1.628459513;
+        float A2 = 9.15674746e-1;
+        float A3 = 1.54329389e-1;
+        float A4 = -3.51759829e-2;
+        float A5 = 5.66795561e-3;
+        float A6 = -5.64874616e-4;
+        float A7 = 2.58907676e-5;
+        float a = abs(x);
+        float y = 1.0 - exp2 (-((((((( A7 * a + A6) * a + A5) * a + A4) * a + A3) * a + A2) * a + A1) * a));
+        return asfloat (( asuint(x) & 0x80000000 )^asuint(y));
+    } else {
+        float A1 = 1.128379121;
+        float A2 = -3.76123011e-1;
+        float A3 = 1.12799220e-1;
+        float A4 = -2.67030653e-2;
+        float A5 = 4.90735564e-3;
+        float A6 = -5.58853149e-4;
+        float x2 = x * x;
+        return ((((( A6 * x2 + A5) * x2 + A4) * x2 + A3) * x2 + A2) * x2 + A1) * x;
+    }
+}
+
+float expm1_over_x (float x) {
+    float u = exp(x);
+    if (u == 1.0) {
+        return 1.0;
+    }
+    float y = u - 1.0;
+    if (abs(x) < 1.0) {
+        return y / log(u);
+    }
+    return y / x;
+}
+
+float HSGIntegral (float cosine , float sharpness ) {
+    // Our fitted steepness (Eq. 6 in the main document ).
+    float steepness = sharpness * sqrt ((0.5 * sharpness + 0.65173288269070562) / (( sharpness + 1.3418280033141288) *
+    sharpness + 7.2216687798956709) );
+    // Our approximation for the normalized hemispherical integral (Eq. 5 in the main document ).
+    float s = 0.5 + 0.5 * (erf( steepness * clamp(cosine , -1.0, 1.0)) / erf( steepness ));
+    // Interpolation between upper and lower hemispherical integrals .
+    return 2.0 * PI * lerp(exp(- sharpness ), 1.0, s) * expm1_over_x (- sharpness );
+}
+
+SGData HSGProductRaw ( float3 axis1 , float sharpness1 , float3 axis2 , float sharpness2 ) {
+    float3 axis = axis1 * sharpness1 + axis2 * sharpness2 ;
+    float sharpness = length (axis);
+    float cosine = clamp(dot(axis1 , axis2), -1.0, 1.0);
+    float sharpnessMin = min(sharpness1 , sharpness2 );
+    float sharpnessRatio = sharpnessMin / max(sharpness1 , sharpness2 );
+    float logAmplitude = 2.0 * sharpnessMin * ( cosine - 1.0) / (1.0 + sharpnessRatio + sqrt (2.0 * sharpnessRatio * cosine
+    + sharpnessRatio * sharpnessRatio + 1.0));
+    SGData result;
+    result.Direction = axis / max(sharpness , FLT_MIN );
+    result.Lambda = sharpness;
+    result.Color = exp(logAmplitude);
+    return result ;
+}
+
+// https://yusuketokuyoshi.com/papers/2022/Accurate_Diffuse_Lighting_from_Spherical_Gaussian_Lights_(supplemental).pdf
+float3 HSGCosineProductIntegral (SGData sg , float3 normal) {
+    float LAMBDA = 0.00084560872241480124;
+    float ALPHA = 1182.2467339678153;
+    SGData prodLobe = HSGProductRaw(sg.Direction , sg.Lambda , normal , LAMBDA);
+    float  p = HSGIntegral(dot(prodLobe.Direction, normal), prodLobe.Lambda) * exp(LAMBDA) * prodLobe.Color.x;
+    float  q = HSGIntegral(dot(sg.Direction, normal), sg.Lambda );
+    return sg.Color * max(ALPHA * p - ALPHA * q, 0.0);
+}
+
 float3 SGDiffuseInnerProduct(in SGData lightingLobe, in float3 normal, in float3 albedo)
 {
     float3 brdf = albedo / PI;
     return SGIrradianceInnerProduct(lightingLobe, normal) * brdf;
+}
+
+float3 SGIrradianceInnerProduct_HighPrecision (in SGData lightingLobe, in float3 normal)
+{
+    return max(HSGCosineProductIntegral(lightingLobe, normal), 0);
 }
 
 SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11, in float2 UV) {
