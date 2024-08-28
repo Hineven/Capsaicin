@@ -14,7 +14,7 @@
 // otherwise LAD (least absolute deviation), which reduces bias but needs more iterations to converge
 #define OPTIMAL_COLOR_UPDATE
 
-#define MIN_SG_LAMBDA 1.8f
+#define MIN_SG_LAMBDA 5.f
 
 
 // Debug flag to fix probes on the screen and avoid SG merging

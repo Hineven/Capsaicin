@@ -1107,6 +1107,11 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
                         if(MaxIndex != BasisRank) {
                             SGData X = LocalSGData4[BasisRank];
                             SGData Y = LocalSGData4[MaxIndex];
+                            // Here we determine if we're actually merging the SGs
+                            // SGs with too large difference in sharpness (lambda) and direction
+                            // should not be forcefully merged as they can cause darkening artifacts
+                            // in the final result.
+                            asdasdasda
                             NewSG = CombineSG(X, Y);
                         } else NewSG = LocalSGData4[BasisRank];
                         LocalSGData4New[LocalSGNewIndex[BasisRank]] = NewSG;
