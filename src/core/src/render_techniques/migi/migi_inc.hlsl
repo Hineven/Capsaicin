@@ -8,11 +8,13 @@
 // GI1.0 invalid flag (to make the copy-pasted code from GI1.0 work)
 #define kGI10_InvalidId 0xFFFFFFFFu
 
-// Use heuristic for direction update
+// Use heuristic for direction update instead of GD
 #define HEURISTIC_DIRECTION_UPDATE
 // LSM (least square error) for probe update,
 // otherwise LAD (least absolute deviation), which reduces bias but needs more iterations to converge
 #define OPTIMAL_COLOR_UPDATE
+// Whether to delay SG reprojection (history reuse) for better temporal stability
+#define DELAYED_SG_REPROJECTION
 
 #define MIN_SG_LAMBDA 5.f
 
