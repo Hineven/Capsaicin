@@ -72,7 +72,8 @@ DebugUpdateRays_Output DebugSSRC_VisualizeUpdateRays (
     float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
     float3 RayRadiance       = RayRadianceInvPdf.xyz;
     float  InvPdf            = RayRadianceInvPdf.w;
-    float  RayLinearDepth    = g_RWUpdateRayLinearDepthBuffer[RayIndex];
+    // Negative depth indicate backface hits
+    float  RayLinearDepth    = abs(g_RWUpdateRayLinearDepthBuffer[RayIndex]);
     float3 World;
     if(VertexIndex == 0) {
         World = RayOrigin;

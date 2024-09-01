@@ -377,7 +377,7 @@ float3 UniformSampleHemisphere (float2 u) {
 
 float UniformSampleHemispherePdf ()
 {
-    return 1.f / (2.f * PI);
+    return 1.f / TWO_PI;
 }
 
 float3 UniformSampleSphere(float2 u)
@@ -391,7 +391,7 @@ float3 UniformSampleSphere(float2 u)
 
 float UniformSampleSpherePdf ()
 {
-    return 1.f / (4.f * PI);
+    return 1.f / FOUR_PI;
 }
 
 float3 CosineWeightedSampleHemisphere (float2 u) {

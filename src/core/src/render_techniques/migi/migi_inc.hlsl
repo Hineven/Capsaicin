@@ -16,7 +16,16 @@
 // Whether to delay SG reprojection (history reuse) for better temporal stability
 #define DELAYED_SG_REPROJECTION
 
+// Evaluate backup radiance on probe texels instead of update rays
+// Though this heuristic is a bit strange, it mitigates the issue of
+// large backup values caused by the lack of update rays and importance sampling
+// #define BACKUP_RADIANCE_ON_PROBE_TEXELS
+
+// Fully stochastic SG selection
+// #define PURE_STOCHASTIC_SG_SELECTION
+
 #define MIN_SG_LAMBDA 5.f
+#define MAX_SG_LAMBDA 240.f
 
 
 // Debug flag to fix probes on the screen and avoid SG merging
