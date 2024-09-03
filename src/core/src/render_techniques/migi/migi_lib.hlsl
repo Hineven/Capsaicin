@@ -116,9 +116,12 @@ float2 UnitVectorToHemiOctahedron( float3 N )
 }
 float2 UnitVectorToHemiOctahedron01( float3 N )
 {
+#ifdef UE_STYLE_HEMISPHERICAL_OCT_MAPPING
     // TODO some artefacts if we use UE style mapping (commonly used mapping)
-    // return UnitVectorToHemiOctahedron(N) * 0.5 + 0.5;
+    return UnitVectorToHemiOctahedron(N) * 0.5 + 0.5;
+#else
     return mapToHemiOctahedron(N);
+#endif
 }
 
 float3 HemiOctahedronToUnitVector( float2 Oct )
@@ -129,11 +132,27 @@ float3 HemiOctahedronToUnitVector( float2 Oct )
 }
 float3 HemiOctahedron01ToUnitVector( float2 Oct )
 {
+    
+#ifdef UE_STYLE_HEMISPHERICAL_OCT_MAPPING
     // TODO some artefacts if we use UE style mapping (commonly used mapping)
-    // return HemiOctahedronToUnitVector(Oct * 2 - 1);
+    return HemiOctahedronToUnitVector(Oct * 2 - 1);
+#else
     return mapToHemiOctahedronInverse(Oct);
+#endif
 }
 
+// Get the factor to multiply when converting irradiance to radiance of a texel
+float HemiOctahedronTexelIrradianceToRadiance (int2 Coords) {
+#ifdef UE_STYLE_HEMISPHERICAL_OCT_MAPPING
+    // Lookup the correction factor from the texture
+    return TWO_PI * g_UEHemiOctahedronCorrectionLutTexture.Load(int3(Coords, 0)).x;
+#else
+    // using GI1.0's area preserving mapping
+    // Only the central disk is meaningful in this mapping, so the texture
+    // area is multiplied by PI / 4
+    return TWO_PI / (SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE * QUARTER_PI);
+#endif
+}
 
 // Project a point in screen space to world space
 // Transform: InvViewProj
@@ -462,7 +481,7 @@ float3 InitHemiDirections (int i, int n) {
 }
 
 float InitSGLambda (int Count) {
-    return 5.f;
+    return MIN_SG_LAMBDA;
 }
 
 // Replaced with the better impl from GI10 (GetOrthoVectors)
@@ -760,12 +779,28 @@ SGData CombineSG (SGData SG1, SGData SG2) {
     if(isnan(DirectionNorm) || DirectionNorm < 1e-4f || isinf(DirectionNorm)) {
         Result.Direction = W1 > W2 ? SG1.Direction : SG2.Direction;
     }
+#ifdef LOGSCALE_SG_LAMBDA_IN_MERGING
+    Result.Lambda = exp((log(SG1.Lambda) * W1 + log(SG2.Lambda) * W2) / (W1 + W2));
+#else
     Result.Lambda = (SG1.Lambda*W1 + SG2.Lambda*W2) / (W1 + W2);
+#endif
     Result.Color  = (SG1.Color*W1 + SG2.Color*W2) / (W1 + W2);
     Result.Depth  = (SG1.Depth*W1 + SG2.Depth*W2) / (W1 + W2);
     float W3 = max(SGIntegrate(Result.Lambda) * dot(Result.Color, 1.f.xxx), 0) + 1e-8f;
     Result.Color *=  (W1 + W2) / W3;
     return Result;
+}
+
+// // Merge SG to SGDst, keeping its direction and lambda unchanged.
+// void MergeSGToSG (inout SGData SGDst, SGData SG) {
+//     float W1 = max(SGIntegrate(SG1.Lambda) * dot(SG1.Color, 1.f.xxx), 0) + 1e-8f;
+//     float W2 = max(SGIntegrate(SG2.Lambda) * dot(SG2.Color, 1.f.xxx), 0) + 1e-8f;
+// }
+
+// Return value: (0, 1]
+float SGSimilarity (SGData A, SGData B) {
+    float LabmdaFactor = 1.f / (1.f + MI.SGSimilarityAlpha * log(max(A.Lambda, B.Lambda) / min(A.Lambda, B.Lambda)));
+    return EvaluateSGRaw(A, B.Direction) * EvaluateSGRaw(B, A.Direction) * LabmdaFactor;
 }
 
 // Removes NaNs from the color values.

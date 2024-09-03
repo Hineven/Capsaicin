@@ -46,10 +46,13 @@ bool MIGI::initConfig (const CapsaicinInternal & capsaicin) {
         if (features.WaveLaneCountMin != 32)
         {
             // TODO further support 64 lanes (RDNA)
+            // see shaders for more details
             std::cerr << "MIGI is designed to operate on devices with 32 lanes" << std::endl;
             return false;
         }
         cfg_.wave_lane_count = features.WaveLaneCountMin;
+        // Compute the streaming processor count
+        cfg_.multiprocessing_core_count = features.TotalLaneCount / cfg_.wave_lane_count;
     }
 
     cfg_.basis_buffer_allocation = 1024 * 1024;
@@ -158,6 +161,10 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_IntegrateDDGI", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_Denoise = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_Denoise", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.UEHemiOctahedronLutPrepare1 = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "UEHemiOctahedronLutPrepare1", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.UEHemiOctahedronLutPrepare2 = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "UEHemiOctahedronLutPrepare2", defines_c.data(), (uint32_t)defines_c.size());
 
         kernels_.DebugSSRC_FetchCursorPos = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_FetchCursorPos", defines_c.data(), (uint32_t)defines_c.size());
@@ -389,6 +396,9 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.depth = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_D32_FLOAT);
     tex_.depth.setName("Depth (MIGI)");
 
+    tex_.UE_hemi_octahedron_correction_lut = gfxCreateTexture2D(gfx_, SSRC_PROBE_TEXTURE_SIZE, SSRC_PROBE_TEXTURE_SIZE, DXGI_FORMAT_R32_FLOAT);
+    tex_.UE_hemi_octahedron_correction_lut.setName("UEHemiOctahedronCorrectionLut");
+
     // Buffers
     buf_.count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.count.setName("Count");
@@ -439,6 +449,8 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
 //    buf_.probe_update_error = gfxCreateBuffer<float>(gfx_, options_.SSRC_max_probe_count);
 //    buf_.probe_update_error.setName("ProbeUpdateError");
 
+    buf_.UE_hemi_octahedron_correction_lut_temp = gfxCreateBuffer<float>(gfx_, SSRC_PROBE_TEXTURE_TEXEL_COUNT * cfg_.multiprocessing_core_count);
+
     assert(options_.width % SSRC_TILE_SIZE == 0 && options_.height % SSRC_TILE_SIZE == 0);
 
     buf_.debug_probe_world_position = gfxCreateBuffer<float3>(gfx_, 1);
@@ -457,6 +469,7 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
         e = gfxCreateBuffer<uint32_t>(gfx_, 32, nullptr, GfxCpuAccess::kGfxCpuAccess_Read);
         e.setName((std::string("ReadbackBuffer[") + std::to_string(&e - buf_.readback) + "]").c_str());
     }
+
     return true;
 }
 
@@ -599,6 +612,7 @@ void MIGI::releaseResources()
     gfxDestroyTexture(gfx_, tex_.HiZ_min);
     gfxDestroyTexture(gfx_, tex_.HiZ_max);
     gfxDestroyTexture(gfx_, tex_.depth);
+    gfxDestroyTexture(gfx_, tex_.UE_hemi_octahedron_correction_lut);
 
     // Free buffers
     gfxDestroyBuffer(gfx_, buf_.count);
@@ -620,6 +634,7 @@ void MIGI::releaseResources()
     gfxDestroyBuffer(gfx_, buf_.update_ray_linear_depth);
     gfxDestroyBuffer(gfx_, buf_.adaptive_probe_count);
 //    gfxDestroyBuffer(gfx_, buf_.probe_update_error);
+    gfxDestroyBuffer(gfx_, buf_.UE_hemi_octahedron_correction_lut_temp);
     gfxDestroyBuffer(gfx_, buf_.debug_cursor_world_pos);
     gfxDestroyBuffer(gfx_, buf_.debug_probe_world_position);
     gfxDestroyBuffer(gfx_, buf_.debug_visualize_incident_radiance);

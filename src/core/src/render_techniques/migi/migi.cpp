@@ -64,6 +64,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             initGraphicsKernels(capsaicin);
             need_reset_world_cache_ = true;
             need_reset_world_space_reservoirs_ = true;
+            need_reset_luts_ = true;
         }
 
         need_reload_kernel_ = false;
@@ -320,6 +321,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.BaseUpdateRayWaves      = options_.SSRC_base_update_ray_waves;
         C.ProbeFiltering          = !options_.no_probe_filtering;
         C.SquaredSGDirectionalRadianceWeight = options_.SSRC_squared_SG_directional_weight;
+        C.SGMergingThreshold      = options_.SSRC_SG_merging_threshold;
+
+        C.SGSimilarityAlpha       = options_.SSRC_SG_similarity_alpha;
+        C.UEHemiOctahedronLutPrecomputeGroupCount = cfg_.multiprocessing_core_count;
 
         previous_constants_ = C;
 
@@ -365,6 +370,12 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "RayTracing", rt_constants);
     }
 
+    // Lut
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_UEHemiOctahedronCorrectionLutTexture", tex_.UE_hemi_octahedron_correction_lut);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUEHemiOctahedronCorrectionLutTexture", tex_.UE_hemi_octahedron_correction_lut);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUEHemiOctahedronCorrectionLutTempBuffer", buf_.UE_hemi_octahedron_correction_lut_temp);
+
+    // Debugging
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugCursorWorldPosBuffer",
         buf_.debug_cursor_world_pos);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugProbeWorldPositionBuffer",
@@ -397,6 +408,15 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         // Clear history accumulation texture
         gfxCommandClearTexture(gfx_, tex_.history_accumulation[0]);
         gfxCommandClearTexture(gfx_, tex_.history_accumulation[1]);
+        need_reset_luts_ = true;
+    }
+
+    if(need_reset_luts_) {
+        gfxCommandBindKernel(gfx_, kernels_.UEHemiOctahedronLutPrepare1);
+        gfxCommandDispatch(gfx_, cfg_.multiprocessing_core_count, 1, 1);
+        gfxCommandBindKernel(gfx_, kernels_.UEHemiOctahedronLutPrepare2);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        need_reset_luts_ = false;
     }
 
     // Precompute HiZ buffer for injection culling and other purposes

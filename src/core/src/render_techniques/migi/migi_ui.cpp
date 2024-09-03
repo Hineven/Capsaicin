@@ -83,7 +83,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         }
         ImGui::Checkbox("Always Reset", &options_.reset_screen_space_cache);
         ImGui::SliderInt("Update Ray Bonus", (int*)&options_.SSRC_base_update_ray_waves, 1, SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / cfg_.wave_lane_count);
-        ImGui::SliderFloat("Learning Rate", &options_.cache_update_learing_rate, 0.0f, 0.05f);
+        ImGui::SliderFloat("Min Learning Rate", &options_.cache_update_learing_rate, 0.0f, 0.05f);
         ImGui::Checkbox("Optimize SGColor", &options_.cache_update_SG_color);
         ImGui::Checkbox("Optimize SGDirection", &options_.cache_update_SG_direction);
         ImGui::Checkbox("Optimize SGLambda", &options_.cache_update_SG_lambda);
@@ -97,6 +97,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("SSGI", &options_.near_field_global_illumination);
         ImGui::Checkbox("Disable SG", &options_.disable_SG);
         ImGui::Checkbox("Squared radiance weight for SG direction", &options_.SSRC_squared_SG_directional_weight);
+        ImGui::SliderFloat("SG Merging Threshold", &options_.SSRC_SG_merging_threshold, 0.1f, 1.f);
+        ImGui::SliderFloat("SG Similarity Alpha", &options_.SSRC_SG_similarity_alpha, 0.01f, 5.f);
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);

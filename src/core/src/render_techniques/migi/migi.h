@@ -54,6 +54,8 @@ public:
         int wave_lane_count {};
         int basis_buffer_allocation {};
         int max_debug_visualize_incident_radiance_num_points {1024 * 1024};
+        // SM / CU count
+        int multiprocessing_core_count {};
     } cfg_;
     bool initConfig (const CapsaicinInternal &capsaicin);
 
@@ -110,6 +112,8 @@ public:
 
         GfxTexture   depth {};
 
+        GfxTexture   UE_hemi_octahedron_correction_lut {};
+
     } tex_ {};
 
     struct MIGIBuffers {
@@ -131,6 +135,7 @@ public:
         GfxBuffer update_ray_linear_depth {};
         GfxBuffer adaptive_probe_count {};
 //        GfxBuffer probe_update_error {};
+        GfxBuffer UE_hemi_octahedron_correction_lut_temp {};
 
         GfxBuffer debug_cursor_world_pos {};
         GfxBuffer debug_probe_world_position {};
@@ -183,6 +188,9 @@ public:
         GfxKernel  SSRC_IntegrateASG {};
         GfxKernel  SSRC_IntegrateDDGI {};
         GfxKernel  SSRC_Denoise {};
+        GfxKernel  UEHemiOctahedronLutPrepare1 {};
+        GfxKernel  UEHemiOctahedronLutPrepare2 {};
+
         GfxKernel  DebugSSRC_FetchCursorPos {};
         GfxKernel  DebugSSRC_VisualizeProbePlacement {};
         GfxKernel  DebugSSRC_PrepareProbeIncidentRadiance {};
@@ -234,6 +242,9 @@ protected:
     bool need_reset_world_space_reservoirs_ {true};
     // If the world cache needs to be reset
     mutable bool need_reset_world_cache_ {true};
+
+    // If we should recalculate internal LUTs
+    bool need_reset_luts_ {true} ;
 
     bool readback_pending_ [kGfxConstant_BackBufferCount] {};
     MIGIReadBackValues readback_values_;

@@ -1,7 +1,7 @@
 #ifndef MIGI_SHARED_PARAMETERS_HLSL
 #define MIGI_SHARED_PARAMETERS_HLSL
 
-// Common structs within RAM & VRAM
+// Shared structs within RAM & VRAM
 #include "../../gpu_shared.h"
 #include "migi_common.hlsl"
 
@@ -24,17 +24,31 @@
 // Fully stochastic SG selection
 // #define PURE_STOCHASTIC_SG_SELECTION
 
-#define MIN_SG_LAMBDA 5.f
-#define MAX_SG_LAMBDA 240.f
+#define MIN_SG_LAMBDA 6.f
+#define MAX_SG_LAMBDA 400.f
 
+// Merge SG Lambdas in log scale instead of linear
+// #define LOGSCALE_SG_LAMBDA_IN_MERGING
+
+// Clamp negative radiance values when coordinating SG and Oct
+// Gives a slightly more stable lighting but may introduce bias?
+// #define CLAMP_NEGATIVE_RADIANCE_VALUES
+
+// Use UE style hemispherical octahedron mapping
+// It's not area preserving, and correction is not done.
+#define UE_STYLE_HEMISPHERICAL_OCT_MAPPING
+
+// If we're using a more accurate (but more expensive)
+// integration approximation for SG final shading.
+#define HIGH_PRECISION_SG_INTEGRATION
 
 // Debug flag to fix probes on the screen and avoid SG merging
 // #define DEBUG_FIX_PROBES
 
 #ifndef WAVE_SIZE
-// This macro is set with the compiler flags
-// Defaults to NVIDIA
-#define WAVE_SIZE 32
+// This macro should be set correctly with the compiler flags
+#error "WAVE_SIZE is not set! Shaders will malfunction."
+// NVIDIA: 32, AMD: 64
 #endif
 
 // Descripotor contents
@@ -192,6 +206,12 @@ ConstantBuffer<MIGI_Constants>      MI;
 // LUT
 Texture2D g_LutBuffer;
 uint g_LutSize;
+
+// UE style hemi octahedron mapping correction lut
+// Stores the area percentage of each pixel occupied on the hemisphere
+Texture2D g_UEHemiOctahedronCorrectionLutTexture;
+RWTexture2D<float> g_RWUEHemiOctahedronCorrectionLutTexture;
+RWStructuredBuffer<float> g_RWUEHemiOctahedronCorrectionLutTempBuffer;
 
 // Debugging
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
