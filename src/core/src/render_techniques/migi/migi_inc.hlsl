@@ -25,7 +25,7 @@
 // #define PURE_STOCHASTIC_SG_SELECTION
 
 #define MIN_SG_LAMBDA 6.f
-#define MAX_SG_LAMBDA 400.f
+#define MAX_SG_LAMBDA 4000.f
 
 // Merge SG Lambdas in log scale instead of linear
 // #define LOGSCALE_SG_LAMBDA_IN_MERGING
@@ -36,7 +36,8 @@
 
 // Use UE style hemispherical octahedron mapping
 // It's not area preserving, and correction is not done.
-#define UE_STYLE_HEMISPHERICAL_OCT_MAPPING
+// TODO there're darkening bugs in the current implementation.
+// #define UE_STYLE_HEMISPHERICAL_OCT_MAPPING
 
 // If we're using a more accurate (but more expensive)
 // integration approximation for SG final shading.

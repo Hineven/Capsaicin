@@ -459,7 +459,8 @@ void CalculateSSRCSampleWeightsForUniformScreenProbes (
     int BilinearExpand = 0;
 #else
     // Values larger than 1 causes SG to leak into neighboring probes
-    int BilinearExpand = 0;
+    // 0903: However we just need this to fix darkening around sharp edges of geometries.
+    int BilinearExpand = 1;
 #endif
     float2 Bilinear    = 
         (ScreenCoordsProbeGrid + 0.5f - TileCoordsX00 * SSRC_TILE_SIZE + BilinearExpand) 
@@ -2686,10 +2687,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     int TexelIndex = BaseProbeTexelIndex + LocalID;
                     int2 TexelCoords = int2(TexelIndex % SSRC_PROBE_TEXTURE_SIZE, TexelIndex / SSRC_PROBE_TEXTURE_SIZE);
                     float2 Oct01 = (TexelCoords + 0.5f) * (1.f / SSRC_PROBE_TEXTURE_SIZE);
-#ifndef UE_STYLE_HEMISPHERICAL_OCT_MAPPING
-// FIXME mapping!!!!
-#error                "mapping problem!!! (current texel may be invalid with this kind of mapping)"
-#endif
                     float3 SampleDirection = HemiOctahedron01ToUnitVector(Oct01);
                     SampleDirection = SampleDirection.x * ProbeTangent + SampleDirection.y * ProbeBitangent + SampleDirection.z * Header.Normal;
                     float  SGValue  = EvaluateSGRaw(CurrentSG, SampleDirection);
@@ -2865,8 +2862,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             // Shadow-preserving biased temporal hysteresis (inspired by: https://www.youtube.com/watch?v=WzpLWzGvFK4&t=630s)
             // It darkens the scene, while not good enough providing temporal stability as a trade-off.
             float TemporalBlend = squared(clamp(max(LumaA - LumaB - min(LumaA, LumaB), 0.0f) / max(max(LumaA, LumaB), 1e-4f), 0.0f, 0.95f));
-            // We overwrite the heuristic with a fixed value for now
-            // TemporalBlend = 0.5f;
+            // We overwrite the heuristic with a fixed value for now (0904: where does bias comes from?)
+            TemporalBlend = 0.5f;
             // Clamp the lerping factor with impact factors from our pipeline
             TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
             float4 NewValue = lerp(RadianceDepthSum / Weight, OldRadianceDepth, TemporalBlend);
@@ -3218,8 +3215,12 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
         // Accumulate SH coefficients
         float  Coefficients[9];
         SH_GetCoefficients(ProbeWorldTexelDirection, Coefficients);
+        float AreaCorrection = 1.f;
+#ifdef UE_STYLE_HEMISPHERICAL_OCT_MAPPING
+        AreaCorrection = SSRC_PROBE_TEXTURE_TEXEL_COUNT * g_UEHemiOctahedronCorrectionLutTexture.Load(int3(ProbeTexelCoords, 0)).x;
+#endif
         for(int i = 0; i < 9; i++) {
-            SH_Coefficients[i] += Coefficients[i] * NewRadiance;
+            SH_Coefficients[i] += Coefficients[i] * NewRadiance * AreaCorrection;
         }
     }
 
@@ -3471,7 +3472,7 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     float3 SampleDirection = normalize(LocalRotation.inverse().transform(LocalSampleDirection));
                     for(int CornerIndex = 0; CornerIndex < 4; CornerIndex ++) {
                         if(Sample.Weights[CornerIndex] > 0.f) {
-                            convert sample direction!!!
+                            convert sample direction to probe local space!!!
                             float3 Radiance = SampleScreenProbeRadiance(Sample.Index[CornerIndex], SampleDirection);
                             LowFreq_Specular += Radiance * Sample.Weights[CornerIndex];
                         }
@@ -4057,15 +4058,32 @@ void DebugSSRC_PrepareProbeIncidentRadiance (uint DispatchID : SV_DispatchThread
         float3 EvaluatedSG   = EvaluateSG(SG, Direction);
         SumRadiance += EvaluatedSG;
     }
-    float3 SHCoefficients[9];
-    float  SH9[9];
-    GetScreenProbeSHCoefficients(ProbeIndex, SHCoefficients);
-    SH_GetCoefficients(Direction, SH9);
-    float3 SHEvaluated = 0.f;
-    for(int i = 0; i < 9; i++) {
-        SHEvaluated += SHCoefficients[i] * SH9[i];
+    float3 OctEvaluated = 0.f;
+    if(MI.DebugVisualizeChannel == 0) {
+        float3 SHCoefficients[9];
+        float  SH9[9];
+        GetScreenProbeSHCoefficients(ProbeIndex, SHCoefficients);
+        SH_GetCoefficients(Direction, SH9);
+        for(int i = 0; i < 9; i++) {
+            OctEvaluated += SHCoefficients[i] * SH9[i];
+        }
+    } else {
+        float3 Tangent, Bitangent;
+        GetOrthoVectors(Header.Normal, Tangent, Bitangent);
+        float3 LocalDirection = float3(
+            dot(Direction, Tangent),
+            dot(Direction, Bitangent),
+            dot(Direction, Header.Normal)
+        );
+        if(LocalDirection.z >= 0) {
+            float4 RadianceDepth = SampleScreenProbeRadianceDepth(ProbeIndex, LocalDirection);
+            OctEvaluated = RadianceDepth.rgb;
+        }
+        if(MI.DebugVisualizeChannel == 2) {
+            SumRadiance = 0.f;
+        }
     }
-    g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = SumRadiance + SHEvaluated;
+    g_RWDebugVisualizeIncidentRadianceBuffer[DispatchID] = SumRadiance + OctEvaluated;
 }
 
 [numthreads(1, 1, 1)]

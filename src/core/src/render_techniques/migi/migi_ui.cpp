@@ -45,7 +45,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         {
             debug_visualize_channel_names = {"Allocation"};
         } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
-            debug_visualize_channel_names = {"Probe", "Pixel"};
+            debug_visualize_channel_names = {"SH+SG", "Oct+SG", "Oct Only"};
         } else if(options_.active_debug_view == "SSRC_UpdateRays") {
             debug_visualize_channel_names = {"Rays", "TracedRays", "TracedRayDepths"};
         } else if(options_.active_debug_view == "SSRC_ProbeColor") {

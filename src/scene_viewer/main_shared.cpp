@@ -1482,6 +1482,7 @@ bool CapsaicinMain::renderGUIDetails() noexcept
         static int  baking_reference_frame_index = 0;
         static int  baking_reference_frame_current_spp = 0;
         static int  target_reference_frame_target_spp = 128;
+        static uint32_t spp_per_frame = 8;
         ImGui::Checkbox("Eval Mode", &eval_mode);
         if(!eval_mode)
         {
@@ -1507,6 +1508,10 @@ bool CapsaicinMain::renderGUIDetails() noexcept
                     Capsaicin::SetRenderer("Reference Path Tracer");
                 }
                 Capsaicin::setOption("tonemap_exposure", 2.5f);
+                Capsaicin::setOption("reference_pt_sample_count", spp_per_frame);
+                // Direct lighting only. for testing purposes
+                Capsaicin::setOption("reference_pt_bounce_count", 1u);
+                Capsaicin::setOption("reference_pt_min_rr_bounces", 1u);
                 time_progress_series.clear();
             }
         }
@@ -1535,7 +1540,7 @@ bool CapsaicinMain::renderGUIDetails() noexcept
                     camera->eye = camera_positions[reference_frames[baking_reference_frame_index]];
                     camera->center = camera_lookats[reference_frames[baking_reference_frame_index]];
                     camera->up = camera_ups[reference_frames[baking_reference_frame_index]];
-                    baking_reference_frame_current_spp += 1;
+                    baking_reference_frame_current_spp += spp_per_frame;
                 } else {
                     auto camera = Capsaicin::GetSceneCamera();
                     int idx = std::max(baking_reference_frame_index, 0);
