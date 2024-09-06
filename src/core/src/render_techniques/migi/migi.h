@@ -136,6 +136,8 @@ public:
         GfxBuffer adaptive_probe_count {};
 //        GfxBuffer probe_update_error {};
         GfxBuffer UE_hemi_octahedron_correction_lut_temp {};
+        GfxBuffer icosphere_vertices {};
+        GfxBuffer vis_vpvn {};
 
         GfxBuffer debug_cursor_world_pos {};
         GfxBuffer debug_probe_world_position {};
@@ -143,7 +145,13 @@ public:
         GfxBuffer debug_visualize_incident_radiance_sum {};
         GfxBuffer debug_probe_index {};
 
+        GfxBuffer export_binary {};
+
+        GfxBuffer probe_visualization_vert_buffer {};
+        GfxBuffer probe_visualization_index_buffer {};
+
         GfxBuffer readback[kGfxConstant_BackBufferCount] {};
+        GfxBuffer probe_export {};
     } buf_{};
 
     bool initResources (const CapsaicinInternal &capsaicin);
@@ -190,6 +198,7 @@ public:
         GfxKernel  SSRC_Denoise {};
         GfxKernel  UEHemiOctahedronLutPrepare1 {};
         GfxKernel  UEHemiOctahedronLutPrepare2 {};
+        GfxKernel  Export {};
 
         GfxKernel  DebugSSRC_FetchCursorPos {};
         GfxKernel  DebugSSRC_VisualizeProbePlacement {};
@@ -203,6 +212,11 @@ public:
         GfxKernel  DebugSSRC_VisualizeLight {};
         GfxKernel  DebugWorldCache_GenerateDraw {};
         GfxKernel  DebugWorldCache_VisualizeProbes {};
+        GfxKernel  DebugSSRC_VisualizeProbe {};
+
+        GfxKernel  DebugSSRC_EvalSHSG {};
+        GfxKernel  DebugSSRC_EvalOctSG {};
+        GfxKernel  DebugSSRC_EvalOctOnly {};
 
         GfxKernel  GenerateDispatch {};
         GfxKernel  GenerateDispatchRays {};
@@ -224,6 +238,24 @@ protected:
     void generateDispatch (GfxBuffer dispatch_count_buffer, uint threads_per_group);
     void generateDispatchRays (GfxBuffer count_buffer);
 
+    struct RayData {
+        glm::vec3 radiance;
+        glm::vec3 direction;
+        float inv_pdf;
+    };
+    struct SGData {
+        glm::vec3 color;
+        glm::vec3 direction;
+        float lambda;
+    };
+
+    std::vector<glm::vec3> icosphere_vertices_;
+    std::vector<RayData> vis_rays_;
+    std::vector<SGData> vis_sg_;
+    float vis_sh_[27];
+    glm::vec3 vis_oct_[SSRC_PROBE_TEXTURE_SIZE][SSRC_PROBE_TEXTURE_SIZE];
+    void prepareProbeVisualization(const void * exported_binary);
+
     // We need to modify it in the GUI rendering
     mutable MIGIRenderOptions options_ {};
     WorldCache       world_cache_;
@@ -242,11 +274,14 @@ protected:
     bool need_reset_world_space_reservoirs_ {true};
     // If the world cache needs to be reset
     mutable bool need_reset_world_cache_ {true};
+    // If we're going to generate data for export this frame
+    bool need_export_ {false};
 
     // If we should recalculate internal LUTs
     bool need_reset_luts_ {true} ;
 
     bool readback_pending_ [kGfxConstant_BackBufferCount] {};
+    bool export_pending_ [kGfxConstant_BackBufferCount] {};
     MIGIReadBackValues readback_values_;
 
     uint32_t internal_frame_index_ {};

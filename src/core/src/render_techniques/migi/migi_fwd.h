@@ -111,6 +111,8 @@ namespace MIGIRT {
     static char const *kMIGICacheUpdateHitGroupName           = "MIGI_CacheUpdateHitGroup";
 }
 
+constexpr uint32_t kExportBufferSize = 16 * 1024 * 1024;
+
 }
 
 #endif // CAPSAICIN_MIGI_FWD_H

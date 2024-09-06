@@ -4246,4 +4246,320 @@ void UEHemiOctahedronLutPrepare2 (int LocalID : SV_GroupThreadID) {
     }
 }
 
+[numthreads(WAVE_SIZE, 1, 1)]
+void Export (int LocalID : SV_GroupThreadID) {
+    int2 ProbeIndex = g_RWDebugProbeIndexBuffer[0];
+    // Export ray data
+    int  ProbeIndex1 = ProbeIndex.x + ProbeIndex.y * MI.TileDimensions.x;
+    int  ProbeRayCount = g_RWProbeUpdateRayCountBuffer[ProbeIndex1];
+    g_RWExportBuffer[0] = asuint(ProbeRayCount);
+    int  ProbeRayOffset = g_RWProbeUpdateRayOffsetBuffer[ProbeIndex1];
+    for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
+        int RayRank = RayRankBase + LocalID;
+        int RayIndex = ProbeRayOffset + RayRank;
+        if(RayRank < ProbeRayCount) {
+            float3 RayDirection = FetchUpdateRayDirection(RayIndex);
+            float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+            g_RWExportBuffer[RayIndex * 7 + 1] = asuint(RayDirection.x);
+            g_RWExportBuffer[RayIndex * 7 + 2] = asuint(RayDirection.y);
+            g_RWExportBuffer[RayIndex * 7 + 3] = asuint(RayDirection.z);
+            g_RWExportBuffer[RayIndex * 7 + 4] = asuint(RayRadianceInvPdf.x);
+            g_RWExportBuffer[RayIndex * 7 + 5] = asuint(RayRadianceInvPdf.y);
+            g_RWExportBuffer[RayIndex * 7 + 6] = asuint(RayRadianceInvPdf.z);
+            g_RWExportBuffer[RayIndex * 7 + 7] = asuint(RayRadianceInvPdf.w);
+        }
+    }
+    int ExportProbeDataOffset = ProbeRayCount * 7 + 1;
+    // Export probe data
+    if(WaveIsFirstLane()) {
+        ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
+        int BasisCount = GetProbeBasisCountFromClass(Header.Class);
+        g_RWExportBuffer[ExportProbeDataOffset] = asuint(BasisCount);
+        for(int i = 0; i < BasisCount; i++) {
+            int BasisIndex = i + Header.BasisOffset;
+            SGData SG = FetchBasisData(BasisIndex);
+            g_RWExportBuffer[ExportProbeDataOffset + 1 + i * 7] = asuint(SG.Color.x);
+            g_RWExportBuffer[ExportProbeDataOffset + 2 + i * 7] = asuint(SG.Color.y);
+            g_RWExportBuffer[ExportProbeDataOffset + 3 + i * 7] = asuint(SG.Color.z);
+            g_RWExportBuffer[ExportProbeDataOffset + 4 + i * 7] = asuint(SG.Direction.x);
+            g_RWExportBuffer[ExportProbeDataOffset + 5 + i * 7] = asuint(SG.Direction.y);
+            g_RWExportBuffer[ExportProbeDataOffset + 6 + i * 7] = asuint(SG.Direction.z);
+            g_RWExportBuffer[ExportProbeDataOffset + 7 + i * 7] = asuint(SG.Lambda);
+        }
+        ExportProbeDataOffset += 1 + BasisCount * 7;
+        float3 SHCoefficents[9];
+        GetScreenProbeSHCoefficients(ProbeIndex, SHCoefficents);
+        for(int i = 0; i < 9; i++) {
+            g_RWExportBuffer[ExportProbeDataOffset + i * 3] = asuint(SHCoefficents[i].x);
+            g_RWExportBuffer[ExportProbeDataOffset + i * 3 + 1] = asuint(SHCoefficents[i].y);
+            g_RWExportBuffer[ExportProbeDataOffset + i * 3 + 2] = asuint(SHCoefficents[i].z);
+        }
+        ExportProbeDataOffset += 9 * 3;
+    }
+    ExportProbeDataOffset = WaveReadLaneFirst(ExportProbeDataOffset);
+    // Export octahedron radiance
+    int2 ProbeBaseTexelCoords = ProbeIndex * SSRC_PROBE_TEXTURE_SIZE;
+    for(int TexelBase = 0; TexelBase < SSRC_PROBE_TEXTURE_TEXEL_COUNT; TexelBase += WAVE_SIZE) {
+        int TexelIndex = TexelBase + LocalID;
+        if(TexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT) {
+            int2 TexelCoords = int2(TexelIndex % SSRC_PROBE_TEXTURE_SIZE, TexelIndex / SSRC_PROBE_TEXTURE_SIZE);
+            float3 Radiance = g_RWProbeColorTexture[ProbeBaseTexelCoords + TexelCoords].xyz;
+            g_RWExportBuffer[ExportProbeDataOffset + TexelIndex * 3] = asuint(Radiance.x);
+            g_RWExportBuffer[ExportProbeDataOffset + TexelIndex * 3 + 1] = asuint(Radiance.y);
+            g_RWExportBuffer[ExportProbeDataOffset + TexelIndex * 3 + 2] = asuint(Radiance.z);
+        }
+    }
+    // Export probe normal
+    if(WaveIsFirstLane()) {
+        float3 Normal = GetScreenProbeNormal(ProbeIndex);
+        g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3] = asuint(Normal.x);
+        g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3 + 1] = asuint(Normal.y);
+        g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3 + 2] = asuint(Normal.z);
+    }
+}
+
+[numthreads(WAVE_SIZE, 1, 1)]
+void DebugSSRC_EvalSHSG (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
+    int TriangleIndex = LocalID + GroupID * WAVE_SIZE;
+    float3 A = g_IcoSphereVertexBuffer[TriangleIndex * 3];
+    float3 B = g_IcoSphereVertexBuffer[TriangleIndex * 3 + 1];
+    float3 C = g_IcoSphereVertexBuffer[TriangleIndex * 3 + 2];
+    float3 RA = 0, RB = 0, RC = 0;
+
+    int ProbeRayCount = g_RWExportBuffer[0];
+    int ExportProbeDataOffset = ProbeRayCount * 7 + 1;
+    int BasisCount = g_RWExportBuffer[ExportProbeDataOffset];
+    for(int BasisRank = 0; BasisRank < BasisCount; BasisRank ++) {
+        SGData SG;
+        SG.Color.x = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 1 + BasisRank * 7]);
+        SG.Color.y = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 2 + BasisRank * 7]);
+        SG.Color.z = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 3 + BasisRank * 7]);
+        SG.Direction.x = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 4 + BasisRank * 7]);
+        SG.Direction.y = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 5 + BasisRank * 7]);
+        SG.Direction.z = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 6 + BasisRank * 7]);
+        SG.Lambda = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 7 + BasisRank * 7]);
+        RA += EvaluateSG(SG, A);
+        RB += EvaluateSG(SG, B);
+        RC += EvaluateSG(SG, C);
+    }
+    float3 SHCoefficients[9];
+    for(int i = 0; i < 9; i++) {
+        SHCoefficients[i].x = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 1 + BasisCount * 7 + i * 3]);
+        SHCoefficients[i].y = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 2 + BasisCount * 7 + i * 3]);
+        SHCoefficients[i].z = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 3 + BasisCount * 7 + i * 3]);
+    }
+    float SH9[9];
+    SH_GetCoefficients(normalize(A), SH9);
+    for(int i = 0; i < 9; i++) {
+        RA += SHCoefficients[i] * SH9[i];
+    }
+    SH_GetCoefficients(normalize(B), SH9);
+    for(int i = 0; i < 9; i++) {
+        RB += SHCoefficients[i] * SH9[i];
+    }
+    SH_GetCoefficients(normalize(C), SH9);
+    for(int i = 0; i < 9; i++) {
+        RC += SHCoefficients[i] * SH9[i];
+    }
+    A *= dot(RA, 1.f.xxx);
+    B *= dot(RB, 1.f.xxx);
+    C *= dot(RC, 1.f.xxx);
+    float3 Normal = normalize(cross(B - A, C - A));
+    g_RWVisVPVNBuffer[TriangleIndex * 6] = A;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 1] = Normal;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 2] = B;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 3] = Normal;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 4] = C;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 5] = Normal;
+}
+
+[numthreads(WAVE_SIZE, 1, 1)]
+void DebugSSRC_EvalOctSG (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
+    int TriangleIndex = LocalID + GroupID * WAVE_SIZE;
+    float3 A = g_IcoSphereVertexBuffer[TriangleIndex * 3];
+    float3 B = g_IcoSphereVertexBuffer[TriangleIndex * 3 + 1];
+    float3 C = g_IcoSphereVertexBuffer[TriangleIndex * 3 + 2];
+    float3 RA = 0, RB = 0, RC = 0;
+
+    int ProbeRayCount = g_RWExportBuffer[0];
+    int ExportProbeDataOffset = ProbeRayCount * 7 + 1;
+    int BasisCount = g_RWExportBuffer[ExportProbeDataOffset];
+    for(int BasisRank = 0; BasisRank < BasisCount; BasisRank ++) {
+        SGData SG;
+        SG.Color.x = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 1 + BasisRank * 7]);
+        SG.Color.y = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 2 + BasisRank * 7]);
+        SG.Color.z = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 3 + BasisRank * 7]);
+        SG.Direction.x = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 4 + BasisRank * 7]);
+        SG.Direction.y = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 5 + BasisRank * 7]);
+        SG.Direction.z = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 6 + BasisRank * 7]);
+        SG.Lambda = asfloat(g_RWExportBuffer[ExportProbeDataOffset + 7 + BasisRank * 7]);
+        RA += EvaluateSG(SG, A);
+        RB += EvaluateSG(SG, B);
+        RC += EvaluateSG(SG, C);
+    }
+
+    // Read Oct Radiance
+    ExportProbeDataOffset += 1 + BasisCount * 7 + 9 * 3;
+    int2 ProbeBaseTexelCoords = g_RWDebugProbeIndexBuffer[0] * SSRC_PROBE_TEXTURE_SIZE;
+    float3 ProbeTangent, ProbeBitangent;
+    float3 ProbeNormal = float3(
+        asfloat(g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3]),
+        asfloat(g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3 + 1]),
+        asfloat(g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3 + 2])
+    );
+    GetOrthoVectors(ProbeNormal, ProbeTangent, ProbeBitangent);
+    {
+        float3 LocalDirection = float3(
+            dot(normalize(A), ProbeTangent),
+            dot(normalize(A), ProbeBitangent),
+            dot(normalize(A), ProbeNormal)
+        );
+        if(LocalDirection.z >= 0) {
+            float2 OctUV = UnitVectorToHemiOctahedron01(normalize(A));
+            int2 OctTexelCoords = int2(OctUV * SSRC_PROBE_TEXTURE_SIZE);
+            int  OctTexelIndex = OctTexelCoords.x + OctTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE;
+            float3 Radiance = float3(
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 1]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 2])
+            );
+            RA += Radiance;
+        }
+    }
+    {
+        float3 LocalDirection = float3(
+            dot(normalize(B), ProbeTangent),
+            dot(normalize(B), ProbeBitangent),
+            dot(normalize(B), ProbeNormal)
+        );
+        if(LocalDirection.z >= 0) {
+            float2 OctUV = UnitVectorToHemiOctahedron01(normalize(B));
+            int2 OctTexelCoords = int2(OctUV * SSRC_PROBE_TEXTURE_SIZE);
+            int  OctTexelIndex = OctTexelCoords.x + OctTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE;
+            float3 Radiance = float3(
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 1]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 2])
+            );
+            RB += Radiance;
+        }
+    }
+    {
+        float3 LocalDirection = float3(
+            dot(normalize(C), ProbeTangent),
+            dot(normalize(C), ProbeBitangent),
+            dot(normalize(C), ProbeNormal)
+        );
+        if(LocalDirection.z >= 0) {
+            float2 OctUV = UnitVectorToHemiOctahedron01(normalize(C));
+            int2 OctTexelCoords = int2(OctUV * SSRC_PROBE_TEXTURE_SIZE);
+            int  OctTexelIndex = OctTexelCoords.x + OctTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE;
+            float3 Radiance = float3(
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 1]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 2])
+            );
+            RC += Radiance;
+        }
+    }
+    A *= dot(RA, 1.f.xxx);
+    B *= dot(RB, 1.f.xxx);
+    C *= dot(RC, 1.f.xxx);
+    float3 Normal = normalize(cross(B - A, C - A));
+    g_RWVisVPVNBuffer[TriangleIndex * 6] = A;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 1] = Normal;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 2] = B;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 3] = Normal;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 4] = C;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 5] = Normal;
+}
+
+[numthreads(WAVE_SIZE, 1, 1)]
+void DebugSSRC_EvalOctOnly (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID) {
+    int TriangleIndex = LocalID + GroupID * WAVE_SIZE;
+    float3 A = g_IcoSphereVertexBuffer[TriangleIndex * 3];
+    float3 B = g_IcoSphereVertexBuffer[TriangleIndex * 3 + 1];
+    float3 C = g_IcoSphereVertexBuffer[TriangleIndex * 3 + 2];
+    float3 RA = 0, RB = 0, RC = 0;
+
+    int ProbeRayCount = g_RWExportBuffer[0];
+    int ExportProbeDataOffset = ProbeRayCount * 7 + 1;
+    int BasisCount = g_RWExportBuffer[ExportProbeDataOffset];
+
+    // Read Oct Radiance
+    ExportProbeDataOffset += 1 + BasisCount * 7 + 9 * 3;
+    int2 ProbeBaseTexelCoords = g_RWDebugProbeIndexBuffer[0] * SSRC_PROBE_TEXTURE_SIZE;
+    float3 ProbeTangent, ProbeBitangent;
+    float3 ProbeNormal = float3(
+        asfloat(g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3]),
+        asfloat(g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3 + 1]),
+        asfloat(g_RWExportBuffer[ExportProbeDataOffset + SSRC_PROBE_TEXTURE_TEXEL_COUNT * 3 + 2])
+    );
+    GetOrthoVectors(ProbeNormal, ProbeTangent, ProbeBitangent);
+    {
+        float3 LocalDirection = float3(
+            dot(normalize(A), ProbeTangent),
+            dot(normalize(A), ProbeBitangent),
+            dot(normalize(A), ProbeNormal)
+        );
+        if(LocalDirection.z >= 0) {
+            float2 OctUV = UnitVectorToHemiOctahedron01(normalize(A));
+            int2 OctTexelCoords = int2(OctUV * SSRC_PROBE_TEXTURE_SIZE);
+            int  OctTexelIndex = OctTexelCoords.x + OctTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE;
+            float3 Radiance = float3(
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 1]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 2])
+            );
+            RA += Radiance;
+        }
+    }
+    {
+        float3 LocalDirection = float3(
+            dot(normalize(B), ProbeTangent),
+            dot(normalize(B), ProbeBitangent),
+            dot(normalize(B), ProbeNormal)
+        );
+        if(LocalDirection.z >= 0) {
+            float2 OctUV = UnitVectorToHemiOctahedron01(normalize(B));
+            int2 OctTexelCoords = int2(OctUV * SSRC_PROBE_TEXTURE_SIZE);
+            int  OctTexelIndex = OctTexelCoords.x + OctTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE;
+            float3 Radiance = float3(
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 1]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 2])
+            );
+            RB += Radiance;
+        }
+    }
+    {
+        float3 LocalDirection = float3(
+            dot(normalize(C), ProbeTangent),
+            dot(normalize(C), ProbeBitangent),
+            dot(normalize(C), ProbeNormal)
+        );
+        if(LocalDirection.z >= 0) {
+            float2 OctUV = UnitVectorToHemiOctahedron01(normalize(C));
+            int2 OctTexelCoords = int2(OctUV * SSRC_PROBE_TEXTURE_SIZE);
+            int  OctTexelIndex = OctTexelCoords.x + OctTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE;
+            float3 Radiance = float3(
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 1]),
+                asfloat(g_RWExportBuffer[ExportProbeDataOffset + OctTexelIndex * 3 + 2])
+            );
+            RC += Radiance;
+        }
+    }
+    A *= dot(RA, 1.f.xxx);
+    B *= dot(RB, 1.f.xxx);
+    C *= dot(RC, 1.f.xxx);
+    float3 Normal = normalize(cross(B - A, C - A));
+    g_RWVisVPVNBuffer[TriangleIndex * 6] = A;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 1] = Normal;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 2] = B;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 3] = Normal;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 4] = C;
+    g_RWVisVPVNBuffer[TriangleIndex * 6 + 5] = Normal;
+}
+
 // New line required for termination.

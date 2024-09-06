@@ -8,10 +8,14 @@
 
 #include "capsaicin_internal.h"
 #include "components/blue_noise_sampler/blue_noise_sampler.h"
+#include "components/brdf_lut/brdf_lut.h"
 #include "components/light_sampler_grid_stream/light_sampler_grid_stream.h"
 #include "components/stratified_sampler/stratified_sampler.h"
-#include "components/brdf_lut/brdf_lut.h"
 #include "migi_internal.h"
+
+#include <fstream>
+#include <functional>
+#include <iostream>
 
 // Special hacking for manipulating the draw topology withing gfx
 extern bool __override_gfx_null_render_target;
@@ -866,9 +870,11 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandBindVertexBuffer(gfx_, world_cache_.UVSphereVertexBuffer());
         gfxCommandBindIndexBuffer(gfx_, world_cache_.UVSphereIndexBuffer());
         gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
+    } else if(options_.active_debug_view == "SSRC_ProbeInspection") {
+        options_sdafdkasjfklsdaf
     }
 
-    if(options_.debug_light) {
+    if(options_.debug_light && options_.active_debug_view != "SSRC_ProbeInspection") {
         const TimedSection timed_section(*this, "DebugLight");
         if(!debug_buffer_copied) {
             gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
@@ -898,6 +904,17 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 12, buf_.debug_visualize_incident_radiance_sum, 0, sizeof(float));
         readback_pending_[copy_idx] = true;
     }
+
+    if(need_export_) {
+        auto copy_idx = internal_frame_index_ % kGfxConstant_BackBufferCount;
+        export_pending_[copy_idx] = true;
+        gfxCommandBindKernel(gfx_, kernels_.Export);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+        for(auto & e : export_pending_) e = false;
+        export_pending_[copy_idx] = true;
+        need_export_ = false;
+    }
+
     {
         auto frame_index = internal_frame_index_;
         auto readback_idx = (frame_index + 1) % kGfxConstant_BackBufferCount;
@@ -909,6 +926,14 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             readback_values_.update_ray_count   = readback_values[2];
             readback_values_.debug_visualize_incident_irradiance = reinterpret_cast<float const *>(readback_values + 3)[0] / float(options_.debug_visualize_incident_radiance_num_points);
             readback_pending_[readback_idx] = false;
+        }
+        if(export_pending_[readback_idx]) {
+            auto exported_binary = gfxBufferGetData(gfx_, buf_.export_binary);
+            std::ofstream file("exported_data.bin", std::ios::binary);
+            file.write(reinterpret_cast<char const *>(exported_binary), kExportBufferSize);
+            file.close();
+            export_pending_[readback_idx] = false;
+            prepareProbeVisualization(exported_binary);
         }
     }
 
@@ -928,6 +953,34 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 #endif
 }
 #pragma warning(pop)
+
+void MIGI::prepareProbeVisualization(const void *exported_binary)
+{
+    // firstly, decode binary
+    int rd_head = 0;
+    auto rd = [&]<typename T> ()  {
+        auto ret = *reinterpret_cast<const T*>(reinterpret_cast<const uint32_t*>(exported_binary) + rd_head);
+        rd_head += sizeof(T);
+        return ret;
+    };
+#define RD(type) (rd.operator()<type>())
+    int ray_count = RD(int);
+    vis_rays_.clear();
+    for(int i = 0; i < ray_count; i++) {
+        vis_rays_.push_back(RD(RayData));
+    }
+    int SG_count = RD(int);
+    vis_sg_.clear();
+    for(int i = 0; i < SG_count; i++) {
+        vis_sg_.push_back(RD(SGData));
+    }
+    for(int i = 0; i < 27; i++) {
+        vis_sh_[i] = RD(float);
+    }
+    for(int i = 0; i < SSRC_PROBE_TEXTURE_TEXEL_COUNT; i++) {
+        vis_oct_[i/SSRC_PROBE_TEXTURE_SIZE][i%SSRC_PROBE_TEXTURE_SIZE] = RD(glm::vec3);
+    }
+}
 
 void MIGI::clearReservoirs() {
     // Do nothing.

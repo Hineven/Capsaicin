@@ -72,3 +72,19 @@ float4 DebugWorldCache_VisualizeProbes (
     }
     return float4(Color, 1);
 }
+
+
+struct DebugSSRC_ProbeInput {
+    float4 Position : SV_Position;
+    float4 Normal   : COLOR;
+};
+
+float4 DebugSSRC_VisualizeProbe (
+    in DebugSSRC_ProbeInput Input
+) {
+    float3 LightDir = normalize(float3(0.5f, 1.f, 0.5f));
+    float3 Albedo = 0.5f.xxx;
+    float3 Normal = Input.Normal.xyz;
+    float3 Color  = Albedo * saturate(dot(Normal, LightDir));
+    return float4(Color, 1);
+}

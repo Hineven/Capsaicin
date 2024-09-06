@@ -214,6 +214,14 @@ Texture2D g_UEHemiOctahedronCorrectionLutTexture;
 RWTexture2D<float> g_RWUEHemiOctahedronCorrectionLutTexture;
 RWStructuredBuffer<float> g_RWUEHemiOctahedronCorrectionLutTempBuffer;
 
+// Buffer for exporting data to CPU
+RWStructuredBuffer<uint> g_RWExportBuffer;
+
+// Buffers for visualizing probes
+StructuredBuffer<float3> g_IcoSphereVertexBuffer;
+RWStructuredBuffer<float3> g_RWVisVPVNBuffer;
+StructuredBuffer<float3 > g_VisVPVNBuffer;
+
 // Debugging
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;
 RWStructuredBuffer<float3> g_RWDebugProbeWorldPositionBuffer;

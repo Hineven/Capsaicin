@@ -3,11 +3,11 @@
  * Created: 2024/3/28
  * This program uses MulanPSL2. See LICENSE for more.
  */
-#include "migi.h"
-
 #include "../../math/math_constants.hlsl"
 #include "capsaicin_internal.h"
+#include "migi.h"
 
+#include <functional>
 #include <iostream>
 #include <wtypesbase.h>
 
@@ -166,6 +166,9 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         kernels_.UEHemiOctahedronLutPrepare2 = gfxCreateComputeKernel(
             gfx_, kernels_.program, "UEHemiOctahedronLutPrepare2", defines_c.data(), (uint32_t)defines_c.size());
 
+        kernels_.Export = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "Export", defines_c.data(), (uint32_t)defines_c.size());
+
         kernels_.DebugSSRC_FetchCursorPos = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_FetchCursorPos", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_VisualizeProbePlacement = gfxCreateComputeKernel(
@@ -181,6 +184,13 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "DebugSSRC_VisualizeProbeColor", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugWorldCache_GenerateDraw = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugWorldCache_GenerateDraw", defines_c.data(), (uint32_t)defines_c.size());
+
+        kernels_.DebugSSRC_EvalSHSG = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_EvalSHSG", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_EvalOctSG = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_EvalOctSG", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_EvalOctOnly = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_EvalOctOnly", defines_c.data(), (uint32_t)defines_c.size());
 
         if (options_.use_dxr10)
         {
@@ -279,7 +289,17 @@ bool MIGI::initGraphicsKernels (const CapsaicinInternal & capsaicin) {
         gfxDrawStateSetColorTarget(draw_state, 0, capsaicin.getAOVBuffer("Debug"));
         gfxDrawStateSetDepthStencilTarget(draw_state, tex_.depth);
         kernels_.DebugWorldCache_VisualizeProbes = gfxCreateGraphicsKernel(
-            gfx_, kernels_.program, draw_state, "DebugWorldCache_VisualizeProbes", defines_c.data(), (uint32_t)defines_c.size());
+            gfx_, kernels_.program, draw_state, "DebugWorldCache_VisualizeProbes", defines_c.data(),
+            (uint32_t)defines_c.size());
+    }
+
+    {
+        GfxDrawState draw_state {};
+        gfxDrawStateSetColorTarget(draw_state, 0, capsaicin.getAOVBuffer("Debug"));
+        gfxDrawStateSetDepthStencilTarget(draw_state, tex_.depth);
+        kernels_.DebugSSRC_VisualizeProbe = gfxCreateGraphicsKernel(
+            gfx_, kernels_.program, draw_state, "DebugSSRC_VisualizeProbe", defines_c.data(),
+            (uint32_t)defines_c.size());
     }
     return true;
 }
@@ -470,6 +490,39 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
         e.setName((std::string("ReadbackBuffer[") + std::to_string(&e - buf_.readback) + "]").c_str());
     }
 
+    buf_.export_binary = gfxCreateBuffer<uint32_t>(gfx_, kExportBufferSize);
+
+    // Generate ico sphere if it's not generated
+    if(icosphere_vertices_.empty()) {
+        std::function<void(glm::vec3,glm::vec3,glm::vec3,int)> gen = [&](glm::vec3 A, glm::vec3 B, glm::vec3 C, int remaining_depth) {
+            if(remaining_depth == 0) {
+                icosphere_vertices_.push_back(A);
+                icosphere_vertices_.push_back(B);
+                icosphere_vertices_.push_back(C);
+                glm::vec3 normal = glm::normalize(glm::cross(B - A, C - A));
+                return;
+            }
+            glm::vec3 AB = glm::normalize((A + B) / 2.f);
+            glm::vec3 BC = glm::normalize((B + C) / 2.f);
+            glm::vec3 CA = glm::normalize((C + A) / 2.f);
+            gen(A, AB, CA, remaining_depth - 1);
+            gen(AB, B, BC, remaining_depth - 1);
+            gen(CA, BC, C, remaining_depth - 1);
+            gen(AB, BC, CA, remaining_depth - 1);
+        };
+        gen(glm::vec3(0, 1, 0), glm::vec3(1, 0, 0), glm::vec3(0, 0, 1), 8);
+        gen(glm::vec3(0, 1, 0), glm::vec3(0, 0, 1), glm::vec3(-1, 0, 0), 8);
+        gen(glm::vec3(0, 1, 0), glm::vec3(-1, 0, 0), glm::vec3(0, 0, -1), 8);
+        gen(glm::vec3(0, 1, 0), glm::vec3(0, 0, -1), glm::vec3(1, 0, 0), 8);
+        gen(glm::vec3(0, -1, 0), glm::vec3(1, 0, 0), glm::vec3(0, 0, 1), 8);
+        gen(glm::vec3(0, -1, 0), glm::vec3(0, 0, 1), glm::vec3(-1, 0, 0), 8);
+        gen(glm::vec3(0, -1, 0), glm::vec3(-1, 0, 0), glm::vec3(0, 0, -1), 8);
+        gen(glm::vec3(0, -1, 0), glm::vec3(0, 0, -1), glm::vec3(1, 0, 0), 8);
+    }
+
+    buf_.icosphere_vertices = gfxCreateBuffer<float3>(gfx_, icosphere_vertices_.size());
+    buf_.vis_vpvn = gfxCreateBuffer<float4>(gfx_, icosphere_vertices_.size() * 2);
+
     return true;
 }
 
@@ -548,6 +601,8 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateDDGI);
     gfxDestroyKernel(gfx_, kernels_.SSRC_Denoise);
+    gfxDestroyKernel(gfx_, kernels_.UEHemiOctahedronLutPrepare1);
+    gfxDestroyKernel(gfx_, kernels_.UEHemiOctahedronLutPrepare2);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbePlacement);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
@@ -560,6 +615,11 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeLight);
     gfxDestroyKernel(gfx_, kernels_.DebugWorldCache_GenerateDraw);
     gfxDestroyKernel(gfx_, kernels_.DebugWorldCache_VisualizeProbes);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_EvalSHSG);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_EvalOctSG);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_EvalOctOnly);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbe);
+    gfxDestroyKernel(gfx_, kernels_.Export);
 
     gfxDestroyProgram(gfx_, kernels_.program);
 
@@ -641,6 +701,7 @@ void MIGI::releaseResources()
     gfxDestroyBuffer(gfx_, buf_.debug_visualize_incident_radiance_sum);
     gfxDestroyBuffer(gfx_, buf_.debug_probe_index);
 
+    gfxDestroyBuffer(gfx_, buf_.export_binary);
     for(const auto & i : buf_.readback)
     {
         gfxDestroyBuffer(gfx_, i);

@@ -147,3 +147,19 @@ DebugWorldCache_Output DebugWorldCache_VisualizeProbes (
     Output.ProbeDirection_ID = float4(normalize(LocalVertexPosition), ProbeIndex);
     return Output;
 }
+
+struct DebugSSRC_ProbeOutput {
+    float4 Position : SV_Position;
+    float4 Normal   : COLOR;
+};
+
+DebugSSRC_ProbeOutput DebugSSRC_VisualizeProbe (
+    in int VertexIndex : SV_VertexID
+) {
+    DebugSSRC_ProbeOutput Output;
+    float4 Position = float4(g_VisVPVNBuffer[VertexIndex * 2], 1);
+    Output.Position = mul(MI.CameraProjView, Position);
+    // Preserve world space normal
+    Output.Normal   = float4(g_VisVPVNBuffer[VertexIndex * 2 + 1], 0);
+    return Output;
+}
