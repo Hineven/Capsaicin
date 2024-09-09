@@ -146,6 +146,7 @@ public:
         GfxBuffer debug_probe_index {};
 
         GfxBuffer export_binary {};
+        GfxBuffer export_staging {};
 
         GfxBuffer probe_visualization_vert_buffer {};
         GfxBuffer probe_visualization_index_buffer {};
@@ -212,11 +213,11 @@ public:
         GfxKernel  DebugSSRC_VisualizeLight {};
         GfxKernel  DebugWorldCache_GenerateDraw {};
         GfxKernel  DebugWorldCache_VisualizeProbes {};
+        // Inspection mode
         GfxKernel  DebugSSRC_VisualizeProbe {};
+        GfxKernel  DebugSSRC_VisualizeProbeRays {};
 
-        GfxKernel  DebugSSRC_EvalSHSG {};
-        GfxKernel  DebugSSRC_EvalOctSG {};
-        GfxKernel  DebugSSRC_EvalOctOnly {};
+        GfxKernel  DebugSSRC_EvalProbe {};
 
         GfxKernel  GenerateDispatch {};
         GfxKernel  GenerateDispatchRays {};
@@ -254,7 +255,7 @@ protected:
     std::vector<SGData> vis_sg_;
     float vis_sh_[27];
     glm::vec3 vis_oct_[SSRC_PROBE_TEXTURE_SIZE][SSRC_PROBE_TEXTURE_SIZE];
-    void prepareProbeVisualization(const void * exported_binary);
+    void                   unpackExportedBinaryToMemory(const void * exported_binary);
 
     // We need to modify it in the GUI rendering
     mutable MIGIRenderOptions options_ {};
@@ -275,7 +276,10 @@ protected:
     // If the world cache needs to be reset
     mutable bool need_reset_world_cache_ {true};
     // If we're going to generate data for export this frame
-    bool need_export_ {false};
+    mutable bool need_export_ {false};
+    // If we're going to save current world camera as scene camera
+    // Inspect probes using a separate camera.
+    mutable bool need_capture_scene_camera_ {false};
 
     // If we should recalculate internal LUTs
     bool need_reset_luts_ {true} ;
@@ -287,6 +291,9 @@ protected:
     uint32_t internal_frame_index_ {};
 
     MIGI_Constants previous_constants_ {};
+
+    GfxCamera scene_camera_ {};
+
 
     GfxSamplerState clamped_point_sampler_ {};
 };

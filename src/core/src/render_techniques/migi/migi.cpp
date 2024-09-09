@@ -226,7 +226,19 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TileHiZ_Min", tex_.HiZ_min, 3);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TileHiZ_Max", tex_.HiZ_max, 3);
 
-    const auto& camera = capsaicin.getCamera();
+    auto original_camera = capsaicin.getCamera();
+
+    if(need_capture_scene_camera_) {
+        scene_camera_ = original_camera;
+        need_capture_scene_camera_ = false;
+    }
+
+    GfxCamera camera;
+    if(options_.active_debug_view == "SSRC_ProbeInspection") {
+        camera = scene_camera_;
+    } else {
+        camera = original_camera;
+    }
     // MI constant buffer
     MIGI_Constants C;
     {
@@ -329,6 +341,17 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         C.SGSimilarityAlpha       = options_.SSRC_SG_similarity_alpha;
         C.UEHemiOctahedronLutPrecomputeGroupCount = cfg_.multiprocessing_core_count;
+        C.NumIcoSphereTriangles   = (uint32_t)icosphere_vertices_.size() / 3;
+        C.LambdaLearningBonus     = options_.SSRC_SG_lambda_learning_bonus;
+
+        C.Inspection_SH           = options_.Inspection_SH;
+        C.Inspection_SG           = options_.Inspection_SG;
+        C.Inspection_Oct          = options_.Inspection_Oct;
+
+        glm::mat4 original_view_proj =
+            glm::perspective(original_camera.fovY, original_camera.aspect, original_camera.nearZ, original_camera.farZ)
+            * glm::lookAt(original_camera.eye, original_camera.center, original_camera.up);
+        C.InspectionCameraProjView = original_view_proj;
 
         previous_constants_ = C;
 
@@ -378,6 +401,14 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, kernels_.program, "g_UEHemiOctahedronCorrectionLutTexture", tex_.UE_hemi_octahedron_correction_lut);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUEHemiOctahedronCorrectionLutTexture", tex_.UE_hemi_octahedron_correction_lut);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUEHemiOctahedronCorrectionLutTempBuffer", buf_.UE_hemi_octahedron_correction_lut_temp);
+
+    // Export
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWExportBuffer", buf_.export_binary);
+
+    // Single probe visualizing
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_IcoSphereVertexBuffer", buf_.icosphere_vertices);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_RWVisVPVNBuffer", buf_.vis_vpvn);
+    gfxProgramSetParameter(gfx_, kernels_.program, "g_VisVPVNBuffer", buf_.vis_vpvn);
 
     // Debugging
     gfxProgramSetParameter(gfx_, kernels_.program, "g_RWDebugCursorWorldPosBuffer",
@@ -871,7 +902,25 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandBindIndexBuffer(gfx_, world_cache_.UVSphereIndexBuffer());
         gfxCommandMultiDrawIndexedIndirect(gfx_, buf_.draw_indexed_command, 1);
     } else if(options_.active_debug_view == "SSRC_ProbeInspection") {
-        options_sdafdkasjfklsdaf
+        // We use a separate depth buffer
+        gfxCommandClearTexture(gfx_, tex_.depth);
+        if(options_.Inspection_VisualizeProbe)
+        {
+            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_EvalProbe);
+            int num_triangles = (uint32_t)icosphere_vertices_.size() / 3;
+            gfxCommandDispatch(gfx_, divideAndRoundUp(num_triangles, cfg_.wave_lane_count), 1, 1);
+            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeProbe);
+            gfxCommandDraw(gfx_, num_triangles * 3);
+        }
+        if(options_.Inspection_VisualizeRays)
+        {
+            __override_primitive_topology = true;
+            __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeRays);
+            gfxCommandDraw(gfx_, 2, options_.SSRC_base_update_ray_waves * cfg_.wave_lane_count);
+            __override_primitive_topology = false;
+            __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        }
     }
 
     if(options_.debug_light && options_.active_debug_view != "SSRC_ProbeInspection") {
@@ -910,6 +959,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         export_pending_[copy_idx] = true;
         gfxCommandBindKernel(gfx_, kernels_.Export);
         gfxCommandDispatch(gfx_, 1, 1, 1);
+        gfxCommandCopyBuffer(gfx_, buf_.export_staging, buf_.export_binary);
         for(auto & e : export_pending_) e = false;
         export_pending_[copy_idx] = true;
         need_export_ = false;
@@ -928,12 +978,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             readback_pending_[readback_idx] = false;
         }
         if(export_pending_[readback_idx]) {
-            auto exported_binary = gfxBufferGetData(gfx_, buf_.export_binary);
+            auto exported_binary = gfxBufferGetData(gfx_, buf_.export_staging);
             std::ofstream file("exported_data.bin", std::ios::binary);
             file.write(reinterpret_cast<char const *>(exported_binary), kExportBufferSize);
             file.close();
             export_pending_[readback_idx] = false;
-            prepareProbeVisualization(exported_binary);
+            unpackExportedBinaryToMemory(exported_binary);
+            printf("Exported data written to exported_data.bin\n");
         }
     }
 
@@ -941,7 +992,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     gfxCommandCopyTexture(gfx_, tex_.previous_global_illumination, gi_output_aov);
 
     // Update camera history
-    previous_camera_ = capsaicin.getCamera();
+    previous_camera_ = camera;
     // Increment internal frame index, which is different from the frame index in Capsaicin
     internal_frame_index_ ++;
 
@@ -954,7 +1005,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 }
 #pragma warning(pop)
 
-void MIGI::prepareProbeVisualization(const void *exported_binary)
+void MIGI::unpackExportedBinaryToMemory(const void *exported_binary)
 {
     // firstly, decode binary
     int rd_head = 0;

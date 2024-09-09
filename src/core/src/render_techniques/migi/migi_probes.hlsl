@@ -76,7 +76,13 @@ void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
 }
 
 int2 GetTileJitter (bool bPrevious = false) {
-    return Hammersley16((bPrevious ? MI.PreviousTileJitterFrameSeed : MI.TileJitterFrameSeed) % 8, 8, 0) * SSRC_TILE_SIZE;
+    int JitterIndex = (bPrevious ? MI.PreviousTileJitterFrameSeed : MI.TileJitterFrameSeed) % 16;
+#ifdef MIRROR_REPEAT_TILE_JITTER_SEQUENCE
+    int FinalJitterIndex = JitterIndex >= 8 ? 15 - JitterIndex : JitterIndex;
+#else
+    int FinalJitterIndex = JitterIndex % 8;
+#endif
+    return Hammersley16(FinalJitterIndex, 8, 0) * SSRC_TILE_SIZE;
 }
 
 int2 GetScreenProbeScreenCoords (int2 ProbeIndex, bool bPrevious = false) {

@@ -13,6 +13,11 @@
 // LSM (least square error) for probe update,
 // otherwise LAD (least absolute deviation), which reduces bias but needs more iterations to converge
 #define OPTIMAL_COLOR_UPDATE
+// Use LAD when doing SG reprojection guessing the intensity
+// #define REPROJECTION_LAD
+// Do not guess a new intensity for SGs in reprojection. Use their original values
+// instead.
+// #define REPROJECTION_NO_INTENSITY_GUESSING
 // Whether to delay SG reprojection (history reuse) for better temporal stability
 #define DELAYED_SG_REPROJECTION
 
@@ -24,7 +29,7 @@
 // Fully stochastic SG selection
 // #define PURE_STOCHASTIC_SG_SELECTION
 
-#define MIN_SG_LAMBDA 6.f
+#define MIN_SG_LAMBDA 12.f
 #define MAX_SG_LAMBDA 4000.f
 
 // Merge SG Lambdas in log scale instead of linear
@@ -42,6 +47,11 @@
 // If we're using a more accurate (but more expensive)
 // integration approximation for SG final shading.
 #define HIGH_PRECISION_SG_INTEGRATION
+
+// Mirror repeat the tile jitter sequence.
+// This helps elevating regular-patterned artifacts caused by
+// biased SG reprojection
+#define MIRROR_REPEAT_TILE_JITTER_SEQUENCE
 
 // Debug flag to fix probes on the screen and avoid SG merging
 // #define DEBUG_FIX_PROBES
@@ -220,7 +230,7 @@ RWStructuredBuffer<uint> g_RWExportBuffer;
 // Buffers for visualizing probes
 StructuredBuffer<float3> g_IcoSphereVertexBuffer;
 RWStructuredBuffer<float3> g_RWVisVPVNBuffer;
-StructuredBuffer<float3 > g_VisVPVNBuffer;
+StructuredBuffer<float3> g_VisVPVNBuffer;
 
 // Debugging
 RWStructuredBuffer<float3> g_RWDebugCursorWorldPosBuffer;

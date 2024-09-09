@@ -153,13 +153,51 @@ struct DebugSSRC_ProbeOutput {
     float4 Normal   : COLOR;
 };
 
+#define PROBE_VIS_SCALE 0.002f
+
 DebugSSRC_ProbeOutput DebugSSRC_VisualizeProbe (
-    in int VertexIndex : SV_VertexID
+    in uint VertexIndex : SV_VertexID
 ) {
     DebugSSRC_ProbeOutput Output;
-    float4 Position = float4(g_VisVPVNBuffer[VertexIndex * 2], 1);
-    Output.Position = mul(MI.CameraProjView, Position);
+    float4 Position = float4(g_VisVPVNBuffer[VertexIndex * 2] * PROBE_VIS_SCALE, 1.f);
+    Output.Position = mul(MI.InspectionCameraProjView, Position);
     // Preserve world space normal
     Output.Normal   = float4(g_VisVPVNBuffer[VertexIndex * 2 + 1], 0);
+    // Output.Normal = float4(0, 1, 0, 0);
+    // Output.Position = mul(MI.InspectionCameraProjView, float4(g_IcoSphereVertexBuffer[VertexIndex], 1.f));
+    return Output;
+}
+
+struct DebugSSRC_ProbeRaysOutput {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+DebugSSRC_ProbeRaysOutput DebugSSRC_VisualizeProbeRays (
+    in uint VertexIndex : SV_VertexID,
+    in uint InstanceIndex  : SV_InstanceID
+) {
+    DebugSSRC_ProbeRaysOutput Output;
+    // Unpack ray data
+    int RayCount = g_RWExportBuffer[0];
+    int RayRank = InstanceIndex;
+    float3 RayRadiance = float3(
+        asfloat(g_RWExportBuffer[RayRank * 7 + 4]),
+        asfloat(g_RWExportBuffer[RayRank * 7 + 5]),
+        asfloat(g_RWExportBuffer[RayRank * 7 + 6])
+    );
+    if(VertexIndex == 0) {
+        Output.Position = float4(0, 0, 0, 1);
+    } else {
+        float3 RayDirection = float3(
+            asfloat(g_RWExportBuffer[RayRank * 7 + 1]),
+            asfloat(g_RWExportBuffer[RayRank * 7 + 2]),
+            asfloat(g_RWExportBuffer[RayRank * 7 + 3])
+        );
+        Output.Position = float4(RayDirection * dot(RayRadiance, 1.f.xxx) * PROBE_VIS_SCALE, 1);
+    }
+    Output.Position  = mul(MI.InspectionCameraProjView, Output.Position);
+    Output.Color     = 1.f.xxxx;//float4(RayRadiance, 1.f);
+
     return Output;
 }

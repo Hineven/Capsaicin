@@ -78,6 +78,9 @@ struct MIGIRenderOptions {
     // Larger values make the weight smaller when lambda variates
     float SSRC_SG_similarity_alpha = 0.8f;
 
+    // Accelerate learning SG lambdas
+    float SSRC_SG_lambda_learning_bonus = 25.f;
+
     bool ambient_occlusion = false;
     bool near_field_global_illumination = false;
 
@@ -98,6 +101,13 @@ struct MIGIRenderOptions {
     glm::vec3 debug_light_position {0.f, 1.f, 0.f};
     float debug_light_size {0.1f};
     glm::vec3 debug_light_color {1.f, 0.f, 0.f};
+
+    bool Inspection_VisualizeProbe {true};
+    bool Inspection_VisualizeRays {true};
+
+    bool Inspection_SH {false};
+    bool Inspection_SG {true};
+    bool Inspection_Oct {true};
 
     int fixed_tile_jitter {123 % 8};
     int fixed_frame_seed {123};

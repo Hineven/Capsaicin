@@ -53,7 +53,7 @@ struct WorldCacheConstants {
     float SampleBias;
     float ProbeIrradianceThreshold;
     float ProbeLuminanceThreshold;
-    uint   Debug_DrawProbeInstanceIndexCount;
+    uint  Debug_DrawProbeInstanceIndexCount;
 };
 
 struct WorldSpaceReSTIRConstants
@@ -176,6 +176,15 @@ struct MIGI_Constants {
 
     float  SGSimilarityAlpha;
     int    UEHemiOctahedronLutPrecomputeGroupCount;
+    uint   NumIcoSphereTriangles;
+    float  LambdaLearningBonus;
+
+    uint   Inspection_SH;
+    uint   Inspection_SG;
+    uint   Inspection_Oct;
+    uint   Padding0;
+
+    float4x4 InspectionCameraProjView;
 };
 
 

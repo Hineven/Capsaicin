@@ -79,6 +79,10 @@ void MIGI::updateRenderOptions(const CapsaicinInternal &capsaicin)
 
     options_.debug_view_switched = options_.active_debug_view != capsaicin.getCurrentDebugView();
     options_.active_debug_view = capsaicin.getCurrentDebugView();
+    if(options_.debug_view_switched && options_.active_debug_view == "SSRC_ProbeInspection") {
+        // Capture scene camera before going into probe inspection mode
+        need_capture_scene_camera_ = true;
+    }
 
     // Controls
     {
@@ -114,6 +118,7 @@ DebugViewList MIGI::getDebugViews() const noexcept
     ret.emplace_back("SSRC_ReprojectionTrust");
     ret.emplace_back("SSRC_ProbeColor");
     ret.emplace_back("WorldCache");
+    ret.emplace_back("SSRC_ProbeInspection");
     return ret;
 }
 

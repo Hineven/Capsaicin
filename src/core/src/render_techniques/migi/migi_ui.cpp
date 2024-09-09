@@ -52,6 +52,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             debug_visualize_channel_names = {"Color", "Depth"};
         } else if(options_.active_debug_view == "WorldCache") {
             debug_visualize_channel_names = {"Irradiance2P", "Momentum"};
+        } else if(options_.active_debug_view == "SSRC_ProbeInspection") {
+            debug_visualize_channel_names = {"Inspection"};
         }
         if (debug_visualize_channel_names.empty())
         {
@@ -99,6 +101,23 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Squared radiance weight for SG direction", &options_.SSRC_squared_SG_directional_weight);
         ImGui::SliderFloat("SG Merging Threshold", &options_.SSRC_SG_merging_threshold, 0.1f, 1.f);
         ImGui::SliderFloat("SG Similarity Alpha", &options_.SSRC_SG_similarity_alpha, 0.01f, 5.f);
+        ImGui::SliderFloat("SG Lambda Learning Bonus", &options_.SSRC_SG_lambda_learning_bonus, 0.1f, 50.f);
+        if(ImGui::Button("Export Probe Data")) {
+            need_export_ = true;
+        }
+        if(options_.active_debug_view == "SSRC_ProbeInspection") {
+            ImGui::Checkbox("Inspection: Probe", &options_.Inspection_VisualizeProbe);
+            if(options_.Inspection_VisualizeProbe)
+            {
+                ImGui::Checkbox("Inspection: SH", &options_.Inspection_SH);
+                ImGui::Checkbox("Inspection: SG", &options_.Inspection_SG);
+                ImGui::Checkbox("Inspection: Oct", &options_.Inspection_Oct);
+            }
+            if(options_.Inspection_SH && options_.Inspection_Oct) {
+                options_.Inspection_Oct = false;
+            }
+            ImGui::Checkbox("Inspection: Ray", &options_.Inspection_VisualizeRays);
+        }
 
         if(ImGui::CollapsingHeader("Misc")) {
             ImGui::SliderInt("IR Visualize Points", (int*)&options_.debug_visualize_incident_radiance_num_points, 1, cfg_.max_debug_visualize_incident_radiance_num_points);

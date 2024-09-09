@@ -81,10 +81,21 @@ struct DebugSSRC_ProbeInput {
 
 float4 DebugSSRC_VisualizeProbe (
     in DebugSSRC_ProbeInput Input
-) {
+) : SV_Target {
     float3 LightDir = normalize(float3(0.5f, 1.f, 0.5f));
     float3 Albedo = 0.5f.xxx;
     float3 Normal = Input.Normal.xyz;
-    float3 Color  = Albedo * saturate(dot(Normal, LightDir));
+    float3 Color  = Albedo * (0.1f + saturate(dot(Normal, LightDir)) * 0.9f);
     return float4(Color, 1);
+}
+
+struct DebugSSRC_ProbeRaysInput {
+    float4 Position : SV_Position;
+    float4 Color    : COLOR;
+};
+
+float4 DebugSSRC_VisualizeProbeRays (
+    in DebugSSRC_ProbeRaysInput Input
+) : SV_Target {
+    return Input.Color;
 }
