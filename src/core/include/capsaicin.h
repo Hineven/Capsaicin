@@ -30,6 +30,10 @@ THE SOFTWARE.
 #include <string_view>
 #include <variant>
 
+// Hacks to duplicate cameras within the framework
+CAPSAICIN_EXPORT bool IsInspectingProbe ();
+CAPSAICIN_EXPORT GfxCamera & GetInspectionCamera ();
+
 namespace Capsaicin
 {
 /**

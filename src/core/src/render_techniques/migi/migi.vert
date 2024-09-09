@@ -153,7 +153,7 @@ struct DebugSSRC_ProbeOutput {
     float4 Normal   : COLOR;
 };
 
-#define PROBE_VIS_SCALE 0.002f
+#define PROBE_VIS_SCALE 0.02f
 
 DebugSSRC_ProbeOutput DebugSSRC_VisualizeProbe (
     in uint VertexIndex : SV_VertexID

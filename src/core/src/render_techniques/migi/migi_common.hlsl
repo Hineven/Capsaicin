@@ -80,17 +80,22 @@ struct MIGI_Constants {
     // Common view parameters
     float3   CameraPosition;
     float    CameraFoVY;//
+
     float3   CameraDirection;
     float    CameraFoVY2;//
+
     float    AspectRatio;
     float    CameraNear;
     float    PreviousCameraNear;
     float    CameraFar;//
+
     float3   CameraUp;
     float    PreviousCameraFar;//
+
     float3   CameraRight;
     // The scale of a single pixel in the standard camera plane (z = 1)
     float    CameraPixelScale;//
+
     float4x4 CameraView;
     float4x4 CameraProjView;
     float4x4 CameraViewInv;
@@ -105,11 +110,11 @@ struct MIGI_Constants {
     float4x4 PrevCameraProjView;
 
     float3   PreviousCameraPosition;
-
     uint FrameIndex;//
 
     float3 PreviousCameraRight;
     uint TileJitterFrameSeed;//
+
     float3 PreviousCameraUp;
     uint PreviousTileJitterFrameSeed;//
 
@@ -124,23 +129,22 @@ struct MIGI_Constants {
     // Normally this is the same as FrameIndex, used for random number generation
     uint FrameSeed; 
     uint PreviousFrameSeed;
-
     // Screen resolution
     int2   ScreenDimensions;//
+
     float2 ScreenDimensionsInv;
     // Screen resolution, counted in tiles
     int2   TileDimensions;//
+
     float2 TileDimensionsInv;
     // Number of tiles / uniform screen probes
     int    UniformScreenProbeCount;
-
     // Budget for update rays
     int    UpdateRayBudget; //
 
     // SSRC parameters
     // Maximum number of adaptive probes to allocate
     int MaxAdaptiveProbeCount;
-
     // Misc parameters
     uint NoImportanceSampling;
     uint NoAdaptiveProbes;
@@ -155,34 +159,38 @@ struct MIGI_Constants {
     uint  DebugVisualizeMode;
     uint  DebugVisualizeChannel;
     uint  DebugVisualizeIncidentRadianceNumPoints;
-
     float DebugTonemapExposure;//
-    uint2 DebugCursorPixelCoords;
 
+    uint2 DebugCursorPixelCoords;
     // Used for single virtual emitter debugging
     uint   DebugLight;
     uint   UseAmbientOcclusion;//
+
     float3 DebugLightPosition;
     float  DebugLightSize;//
+
     float3 DebugLightColor;
     uint   UseNearFieldGI;
-    uint   NoDenoiser;
-    uint   DisableSG; //
 
+    uint   NoDenoiser;
+    uint   DisableSG; 
     uint   BaseUpdateRayWaves;
     uint   ProbeFiltering;
+
     uint   SquaredSGDirectionalRadianceWeight;
     float  SGMergingThreshold;
-
     float  SGSimilarityAlpha;
     int    UEHemiOctahedronLutPrecomputeGroupCount;
+
     uint   NumIcoSphereTriangles;
     float  LambdaLearningBonus;
-
     uint   Inspection_SH;
     uint   Inspection_SG;
+
     uint   Inspection_Oct;
     uint   Padding0;
+    uint   Padding1;
+    uint   Padding2;
 
     float4x4 InspectionCameraProjView;
 };

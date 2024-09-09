@@ -26,6 +26,15 @@ extern bool __override_primitive_topology;
 extern D3D_PRIMITIVE_TOPOLOGY __override_primitive_topology_draw;
 
 
+GfxCamera __inspection_camera;
+bool      __inspecting_probe;
+
+bool IsInspectingProbe() {
+    return __inspecting_probe;
+}
+GfxCamera & GetInspectionCamera () {
+    return __inspection_camera;
+}
 namespace Capsaicin
 {
 
@@ -226,19 +235,15 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TileHiZ_Min", tex_.HiZ_min, 3);
     gfxProgramSetParameter(gfx_, kernels_.program, "g_TileHiZ_Max", tex_.HiZ_max, 3);
 
-    auto original_camera = capsaicin.getCamera();
-
-    if(need_capture_scene_camera_) {
-        scene_camera_ = original_camera;
-        need_capture_scene_camera_ = false;
-    }
-
-    GfxCamera camera;
-    if(options_.active_debug_view == "SSRC_ProbeInspection") {
-        camera = scene_camera_;
+    GfxCamera camera = capsaicin.getCamera();
+    if(options_.active_debug_view != "SSRC_ProbeInspection")
+    {
+        __inspection_camera = camera;
+        __inspecting_probe = false;
     } else {
-        camera = original_camera;
+        __inspecting_probe = true;
     }
+
     // MI constant buffer
     MIGI_Constants C;
     {
@@ -249,13 +254,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         camera_up = normalize(cross(camera_right, camera_forward));
         // Half the height of the standard camera plane
         float scale   = tanf(camera.fovY / 2.f);
-        float aspect  = capsaicin.getCamera().aspect;
+        float aspect  = camera.aspect;
         camera_right *= scale * aspect;
         camera_up    *= scale;
         bool taa_enable = false;
         if(capsaicin.getOptions().find("taa_enable") != capsaicin.getOptions().end())
             taa_enable = std::get<bool>(capsaicin.getOptions()["taa_enable"]);
-        auto const   &camera_matrices       = capsaicin.getCameraMatrices(taa_enable);
+        CameraMatrices camera_matrices = capsaicin.getCameraMatrices(taa_enable);
         C.CameraPosition  = camera.eye;
         C.CameraFoVY      = camera.fovY;
         C.CameraDirection = camera_forward;
@@ -301,6 +306,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.TileDimensionsInv = glm::vec2(1.f / C.TileDimensions.x, 1.f / C.TileDimensions.y);
 
         C.UniformScreenProbeCount = C.TileDimensions.x * C.TileDimensions.y;
+        // Never used
         C.UpdateRayBudget         = 0;//options_.update_ray_budget;
 
         C.MaxAdaptiveProbeCount   = options_.SSRC_max_adaptive_probe_count;
@@ -348,10 +354,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.Inspection_SG           = options_.Inspection_SG;
         C.Inspection_Oct          = options_.Inspection_Oct;
 
-        glm::mat4 original_view_proj =
-            glm::perspective(original_camera.fovY, original_camera.aspect, original_camera.nearZ, original_camera.farZ)
-            * glm::lookAt(original_camera.eye, original_camera.center, original_camera.up);
-        C.InspectionCameraProjView = original_view_proj;
+        glm::mat4 original_proj_view =
+            glm::perspective(__inspection_camera.fovY, __inspection_camera.aspect, __inspection_camera.nearZ, __inspection_camera.farZ)
+            * glm::lookAt(__inspection_camera.eye, __inspection_camera.center, __inspection_camera.up);
+        C.InspectionCameraProjView = original_proj_view;
 
         previous_constants_ = C;
 
@@ -368,11 +374,11 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         GfxBuffer rt_constants = capsaicin.allocateConstantBuffer<RTConstants>(1);
 
         // Convert pixel size to view space size
-//        float          cell_size   = tanf(capsaicin.getCamera().fovY * 32
+//        float          cell_size   = tanf(camera.fovY * 32
 //                                                                         * GFX_MAX(1.0f / capsaicin.getHeight(),
 //                                                                             (float)capsaicin.getHeight() / (capsaicin.getWidth() * capsaicin.getWidth())));
         WorldCacheConstants world_cache_constant_data =
-            world_cache_.UpdateConstants(options_, capsaicin.getCamera().eye);
+            world_cache_.UpdateConstants(options_, camera.eye);
         // Debugging features are clipped for the hash grid cache
 
         gfxBufferGetData<WorldCacheConstants>(gfx_, world_cache_constants)[0] =
@@ -921,6 +927,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             __override_primitive_topology = false;
             __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         }
+
     }
 
     if(options_.debug_light && options_.active_debug_view != "SSRC_ProbeInspection") {

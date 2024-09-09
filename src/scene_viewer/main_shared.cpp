@@ -795,7 +795,10 @@ bool CapsaicinMain::renderFrame() noexcept
         // Update the camera
         if (!Capsaicin::GetFixedFrameRate())
         {
-            auto        camera       = Capsaicin::GetSceneCamera();
+            GfxCamera *  camera       = Capsaicin::GetSceneCamera().operator->();
+            if(IsInspectingProbe()) {
+                camera = &GetInspectionCamera();
+            }
             vec3 const  forward      = normalize(camera->center - camera->eye);
             vec3 const  right        = cross(forward, camera->up);
             vec3 const  up           = cross(right, forward);
@@ -881,12 +884,12 @@ bool CapsaicinMain::renderFrame() noexcept
             if (!glm::all(glm::equal(cameraTranslation, vec3(0.0f)))
                 || !glm::all(glm::equal(cameraRotation, vec2(0.0f))))
             {
-                if (Capsaicin::GetSceneCurrentCamera() != "User")
+                if (!IsInspectingProbe() && Capsaicin::GetSceneCurrentCamera() != "User")
                 {
                     // Change to the user camera
                     auto oldCamera = camera;
                     Capsaicin::SetSceneCamera("User");
-                    camera  = Capsaicin::GetSceneCamera();
+                    camera  = Capsaicin::GetSceneCamera().operator->();
                     *camera = *oldCamera;
                 }
 

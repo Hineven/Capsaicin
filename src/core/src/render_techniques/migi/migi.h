@@ -110,6 +110,7 @@ public:
         GfxTexture   HiZ_min {};
         GfxTexture   HiZ_max {};
 
+        // Depth buffer for debug rendering
         GfxTexture   depth {};
 
         GfxTexture   UE_hemi_octahedron_correction_lut {};
@@ -277,9 +278,7 @@ protected:
     mutable bool need_reset_world_cache_ {true};
     // If we're going to generate data for export this frame
     mutable bool need_export_ {false};
-    // If we're going to save current world camera as scene camera
-    // Inspect probes using a separate camera.
-    mutable bool need_capture_scene_camera_ {false};
+
 
     // If we should recalculate internal LUTs
     bool need_reset_luts_ {true} ;
@@ -291,9 +290,6 @@ protected:
     uint32_t internal_frame_index_ {};
 
     MIGI_Constants previous_constants_ {};
-
-    GfxCamera scene_camera_ {};
-
 
     GfxSamplerState clamped_point_sampler_ {};
 };

@@ -24,6 +24,7 @@ THE SOFTWARE.
 #include "capsaicin_internal.h"
 #include "thread_pool.h"
 
+
 namespace
 {
 Capsaicin::CapsaicinInternal *g_renderer = nullptr;
