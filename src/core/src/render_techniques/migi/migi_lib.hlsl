@@ -223,6 +223,10 @@ float  EvaluateSGRaw (SGData SG, float3 Direction) {
     return exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
 }
 
+float  EvaluateSGFunc (float3 SGDirection, float Lambda, float3 Direction) {
+    return exp(Lambda * (dot(SGDirection, Direction) - 1.f));
+}
+
 float EvaluateNormalizedSG (SGData SG, float3 Direction) {
     float raw = exp(SG.Lambda * (dot(SG.Direction, Direction) - 1.f));
     // Normalize the SG to make its integral equals to 1

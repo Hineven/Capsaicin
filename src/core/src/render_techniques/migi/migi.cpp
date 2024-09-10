@@ -354,6 +354,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.Inspection_SG           = options_.Inspection_SG;
         C.Inspection_Oct          = options_.Inspection_Oct;
 
+        C.SGColorLearningBonus    = options_.SSRC_SG_color_learning_bonus;
+        C.SGDirectionLearningRate = options_.SSRC_SG_direction_learing_rate;
+
         glm::mat4 original_proj_view =
             glm::perspective(__inspection_camera.fovY, __inspection_camera.aspect, __inspection_camera.nearZ, __inspection_camera.farZ)
             * glm::lookAt(__inspection_camera.eye, __inspection_camera.center, __inspection_camera.up);

@@ -2302,8 +2302,8 @@ int GetBasisRankToUpdate (int ProbeBasisCount) {
     return MI.FrameSeed % ProbeBasisCount;
 }
 
-float HeuristicSGDirectionBias (float3 SG_Direction, float3 Direction) {
-    return 0.6f + dot(SG_Direction, Direction) * 0.4f;
+float HeuristicSGDirectionBias (float3 SG_Direction, float3 Direction, float Lambda) {
+    return 0.1f + EvaluateSGFunc(SG_Direction, Lambda, Direction) * 0.9f;
 }
 
 void WriteScreenProbeSHCoefficients (int2 ProbeIndex, float3 SHCoefficients[9]) {
@@ -2513,7 +2513,11 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     // Evaluate reprojected mixed radiance for each ray
                     int2 TexCoords  = floor(UnitVectorToHemiOctahedron01(LocalRayDirection) * SSRC_PROBE_TEXTURE_SIZE);
                     int  TexelIndex = TexCoords.y * SSRC_PROBE_TEXTURE_SIZE + TexCoords.x;
+#ifndef PRIORITIZE_SG
                     float3 BaseRadiance   = LocalProbeTexels[TexelIndex];
+#else
+                    float3 BaseRadiance   = 0.f;
+#endif
                     float3 DiffRadiance   = RayRadiance - BaseRadiance;
                     float3 TargetRadiance = DiffRadiance;
                     float3 X = -2.f * DiffRadiance;
@@ -2563,7 +2567,11 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 if(InvPdf > 0 && LocalRayDirection.z >= 0) {
                     int2 TexCoords  = floor(UnitVectorToHemiOctahedron01(LocalRayDirection) * SSRC_PROBE_TEXTURE_SIZE);
                     int  TexelIndex = TexCoords.y * SSRC_PROBE_TEXTURE_SIZE + TexCoords.x;
+#ifndef PRIORITIZE_SG
                     float3 BaseRadiance = LocalProbeTexels[TexelIndex];
+#else
+                    float3 BaseRadiance = 0.f;
+#endif
                     float3 SGEvaluatedRadiance = EvaluateSGRaw(SG, RayDirection) * SGCandidateColor;
                     float3 DiffRadiance = RayRadiance - BaseRadiance - SGEvaluatedRadiance;
                     SGErrorScore += dot(DiffRadiance, DiffRadiance) * InvPdf;
@@ -2574,7 +2582,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 // Reduce the possibility of selecting SGs with tiny sample weights
                 float SGSampleWeight = LocalSGCandidateSampleWeight[BasisRank];
 //                neighbor samples may massively affect visuals here
-                float SampleCorrection = 1.f / max(sqrt(SGSampleWeight + 0.2f), 1e-6f);// asdasdasdas
+                float SampleCorrection = 1.f / max(sqrt(SGSampleWeight + 0.2f), 1e-6f);
                 float Noise = BlueNoise_Sample1D(
                     int2(ProbeIndex.x * NumBasis +  BasisRank, ProbeIndex.y),
                     MI.FrameIndex, 7
@@ -2757,7 +2765,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             for(int i = 0; i < BasisCount; i++) {
                 float Raw = EvaluateSGRaw(LocalSGData[i], RayDirection);
                 EvaluatedRadiance += Raw * LocalSGData[i].Color;
-                Coverage = max(Coverage, HeuristicSGDirectionBias(LocalSGData[i].Direction, RayDirection));
+                Coverage = max(Coverage, HeuristicSGDirectionBias(LocalSGData[i].Direction, RayDirection, LocalSGData[i].Lambda));
             }
             LocalEvaluatedRadiance[RayRank] = EvaluatedRadiance;
             LocalRayCoverage[RayRank] = Coverage;
@@ -2771,7 +2779,190 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     // TODO this must be very unstable
     float3 ImpactFactors = 1.f - ReprojectionTrust;
 
-    // 1. Update probe octahedron radiance
+    // 1.Update the SG direction first 
+    [branch]
+    if(MI.CacheUpdate_SGDirection) {
+        float3 SumDirection = 0.f;
+        // Pick one basis to update direction
+        int BasisRankToUpdate = GetBasisRankToUpdate(BasisCount);
+        SGData SG_D = LocalSGData[BasisRankToUpdate];
+        SGData SG_O;
+        [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+        for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
+            int RayRank = RayRankBase + LocalID;
+            int RayIndex = ProbeRayOffset + RayRank;
+            float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+            float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
+            float3 RayRadiance       = RayRadianceInvPdf.xyz;
+            float  InvPdf            = RayRadianceInvPdf.w;
+            if(InvPdf > 0) {
+                float  SGEvaluatedRaw      = EvaluateSGRaw(SG_D, RayDirection);
+                float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG_D.Color;
+                // Clamp DiffRadiance to prevent "direction chasing" when the direction of a basis is updated
+                // but its color is not converged to the correct result yet.
+                float3 DiffRadianceClamped = max(RayRadiance - LocalEvaluatedRadiance[RayRank], 0.f);
+                float3 TargetRadiance = DiffRadianceClamped + SGEvaluatedRadiance;
+                float  RadianceWeight    = MI.SquaredSGDirectionalRadianceWeight ? dot(TargetRadiance, TargetRadiance) : dot(TargetRadiance, 1.f.xxx);
+                // The weight for balancing sample distribution
+                float  SampleWeight      = InvPdf;
+                // 0529: Add a bias to reserve affection for closer light sources in the same direction
+                float DirectionBias = HeuristicSGDirectionBias(SG_D.Direction, RayDirection, SG_D.Lambda);
+                // Decay if it is closer to other SGs
+                float Coverage = max(LocalRayCoverage[RayRank], Epsilon);
+                float DirectionDecay =  pow(DirectionBias / Coverage, 6);
+                float TotalWeight = RadianceWeight * SampleWeight * DirectionDecay;
+                SumDirection  += RayDirection * TotalWeight;
+            }
+        }
+        // Accumulate and normalize
+        SumDirection = WaveActiveSum(SumDirection);
+        if(dot(SumDirection, SumDirection) > 1e-6f) {
+            float3 TargetDirection = normalize(SumDirection);
+            // float  SrcWeight = SGIntegrate(SG_D.Lambda) * dot(SG_D.Color, 1.f.xxx) + Epsilon;
+            // float  DstWeight = SumTotalWeight + Epsilon;
+            // float  T = SrcWeight / (SrcWeight + DstWeight);
+            float T = MI.SGDirectionLearningRate;
+            SG_O = SG_D;
+            SG_D.Direction = normalize(lerp(SG_D.Direction, TargetDirection, T));//InterpolateDirection(SG_D.Direction, TargetDirection, T);
+            if(WaveIsFirstLane()) {
+                LocalSGData[BasisRankToUpdate] = SG_D;
+            }
+            // Re-calculate the evaluated radiance for the changed basis
+            [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+            for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
+                int RayRank  = RayRankBase + LocalID;
+                int RayIndex = ProbeRayOffset + RayRank;
+                float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
+                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+                float3 RayRadiance       = RayRadianceInvPdf.xyz;
+                float  InvPdf            = RayRadianceInvPdf.w;
+                if(InvPdf > 0) {
+                    float  RawPrevious = EvaluateSGRaw(SG_O, RayDirection);
+                    float  Raw         = EvaluateSGRaw(SG_D, RayDirection);
+                    float3 Delta = Raw * SG_D.Color - RawPrevious * SG_O.Color;
+                    LocalEvaluatedRadiance[RayRank] += Delta;
+                }
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    // 2. Update SG Color and Lambda
+    for(int BasisRank = 0; BasisRank < BasisCount; BasisRank ++) {
+        SGData SG = LocalSGData[BasisRank];
+        SGGradients SumStepSize = (SGGradients)0;
+#ifndef OPTIMAL_COLOR_UPDATE
+        float3  SumAFactor = 0;
+#else
+        float   SumAFactor = 0;
+#endif
+
+        [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+        for(int RayGroupOffset = 0; RayGroupOffset < ProbeRayCount; RayGroupOffset += WAVE_SIZE) {
+            int RayRank = RayGroupOffset + LocalID;
+            if(RayRank < ProbeRayCount) {
+                int RayIndex = ProbeRayOffset + RayRank;
+#ifndef DELAYED_SG_REPROJECTION
+                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+                float  RayLinearDepth    = abs(g_RWUpdateRayLinearDepthBuffer[RayIndex]);
+                float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
+                float3 RayRadiance       = RayRadianceInvPdf.xyz;
+                float  InvPdf            = RayRadianceInvPdf.w;
+#else
+                // Ray data has been loaded to shared memory earlier
+                float3 RayDirection      = LocalUpdateRayDirection[RayRank];
+                float3 RayRadiance       = LocalUpdateRayRadiance[RayRank];
+                float  InvPdf            = LocalUpdateRayInvPdf[RayRank];
+                float  RayLinearDepth    = abs(LocalUpdateRayDepth[RayRank]);
+#endif
+
+                if(InvPdf > 0) {
+                    float  SGEvaluatedRaw      = EvaluateSGRaw(SG, RayDirection);
+                    float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG.Color;
+
+                    float3 dColorExtra;
+                    SGGradients Gradients;
+                    EvaluateSG_Gradients(SG, RayDirection, Gradients, dColorExtra);
+                    float3 DiffRadiance   = RayRadiance - LocalEvaluatedRadiance[RayRank];
+                    float3 TargetRadiance = DiffRadiance + SGEvaluatedRadiance;
+                    float3 X = -2.f * DiffRadiance;
+                    float  Y = dot(X, 1.f.xxx);
+
+                    // The weight for balancing sample distribution
+                    float  SampleWeight     = InvPdf;
+#ifndef OPTIMAL_COLOR_UPDATE
+                    if(SGEvaluatedRaw > 1e-2f || dot(TargetRadiance, 1.f.xxx) < dot(SGEvaluatedRadiance, 1.f.xxx)) {
+                        // least absolute deviation method using IRLS
+                        // https://en.wikipedia.org/wiki/Iteratively_reweighted_least_squares
+                        // SampleWeight canceled out.
+                        float3 W = 1.f / max(abs(DiffRadiance)/* * SampleWeight */, 1e-3f);
+                        SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw /* * SampleWeight */ * SampleWeight * W;
+                        SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw /* * SampleWeight */ * SampleWeight * W;
+                    }
+#else
+                    // least squares method
+                    // Clip rays that only evaluates to a tiny value on SG to prevent outflares
+                    if(SGEvaluatedRaw > 1e-2f || dot(TargetRadiance, 1.f.xxx) < dot(SGEvaluatedRadiance, 1.f.xxx)) {
+                        SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight;
+                        SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
+                    }
+#endif
+                    SumStepSize.dLambda    -= Y * Gradients.dLambda    * SampleWeight;
+                }
+            }
+        }
+
+        // Accumulate weights
+        SumAFactor = WaveActiveSum(SumAFactor);
+        SumStepSize.dColor  = WaveActiveSum(SumStepSize.dColor);
+        SumStepSize.dLambda = WaveActiveSum(SumStepSize.dLambda);
+        GroupMemoryBarrierWithGroupSync();
+        // The chosen thread for updating each basis
+        if(WaveIsFirstLane()) {
+            // It's possible for SumAFactor to be very tiny (because of large SG Lambdas), so we clamp it to prevent outflares
+            SumStepSize.dColor     /= max(SumAFactor, Epsilon);
+
+            if(MI.CacheUpdate_SGColor) {
+                // TODO Clamping is not the smartest choice for outflares
+                // it relates to lambda and importance sampling
+                float Factor = min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f);
+                // Allow the color of the SG with updated direction to change violently
+                // if(MI.CacheUpdate_SGDirection && BasisRank == GetBasisRankToUpdate(BasisCount)) {
+                //     Factor = max(Factor, 0.2f);
+                // }
+                float SGRawSize = SGIntegrate(SG.Lambda);
+                float MaxIrradianceChange = max(0.5f, SGRawSize * dot(SG.Color, 1.f.xxx) * 0.1f);
+                Factor = clamp(Factor * MI.SGColorLearningBonus, 0.01f, 1.f);
+                float IrradianceChange = MaxIrradianceChange * Factor;
+                float3 NewColor = SumStepSize.dColor;
+                float3 DeltaColor = NewColor - SG.Color;
+                float  DeltaColorLength = dot(abs(DeltaColor), 1.f.xxx);
+                float  ClampedDeltaColorLength = min(DeltaColorLength, IrradianceChange / SGRawSize);
+                float3 FinalColor = SG.Color + DeltaColor * (ClampedDeltaColorLength / max(DeltaColorLength, 1e-6f));
+                SG.Color = max(FinalColor, 0.00001f.xxx); // Color is in [0.001, inf)
+            }
+            if(MI.CacheUpdate_SGLambda) {
+                float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
+                // FIXME better lambda update
+                float Factor = exp(Step * MI.LambdaLearningBonus);
+                Factor = clamp(Factor, 0.5f, 2.f);
+                float OldLambda = SG.Lambda;
+                SG.Lambda *= Factor;
+                SG.Lambda    = clamp(SG.Lambda, MIN_SG_LAMBDA, MAX_SG_LAMBDA); // Lambda is in [MIN_SG_LAMBDA, 200.f]
+                float NewLambda = SG.Lambda;
+                // if(OldLambda >= 10 && NewLambda >= 10) {
+                //     // Preserve irradiance
+                //     SG.Color = max(SG.Color * (NewLambda / OldLambda), 0.00001f.xxx);
+                // }
+            }
+            // FIXME SG depth is never updated
+
+            // Write back
+            WriteBasisData(Header.BasisOffset + BasisRank, SG);
+        }
+    }
+
+    // 3. Update probe octahedron radiance
     {
         // Enumerate rays and accumulate
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
@@ -2880,211 +3071,34 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
     }
     // Barrier updates on LocalProbeTexels
-    GroupMemoryBarrierWithGroupSync();
+    // GroupMemoryBarrierWithGroupSync();
     // Accumulate octahedron radiance into evaluated ray radiances for
     // further SG updates.
-    [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
-    for(int BaseUpdateRayRank = 0; BaseUpdateRayRank < ProbeRayCount; BaseUpdateRayRank += WAVE_SIZE) {
-        int RayRank = BaseUpdateRayRank + LocalID;
-        int UpdateRayIndex = ProbeRayOffset + RayRank;
-        float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[UpdateRayIndex]);
-        float3 Radiance = RadianceInvPdf.xyz;
-        float  InvPdf   = RadianceInvPdf.w;
-        if(InvPdf > 0) {
-            float3 RayDirection = FetchUpdateRayDirection(UpdateRayIndex);
-            float3 LocalRayDirection = float3(
-                dot(ProbeTangent,   RayDirection),
-                dot(ProbeBitangent, RayDirection),
-                dot(Header.Normal,  RayDirection)
-            );
-            if(LocalRayDirection.z > 0) {
-                float2 OctahedronUV = UnitVectorToHemiOctahedron01(LocalRayDirection);
-                int2 OctahedronTexelCoords = clamp(int2(
-                    int(OctahedronUV.x * SSRC_PROBE_TEXTURE_SIZE),
-                    int(OctahedronUV.y * SSRC_PROBE_TEXTURE_SIZE)
-                    ), 0, SSRC_PROBE_TEXTURE_SIZE - 1);
-                int  OctahedronTexelIndex = OctahedronTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE + OctahedronTexelCoords.x;
-                LocalEvaluatedRadiance[RayRank] += LocalProbeTexels[OctahedronTexelIndex];
-            }
-        }
-    }
-    // Barrier updates on LocalEvaluatedRadiance
-    GroupMemoryBarrierWithGroupSync();
-    // 2.Update the SG direction first 
-    [branch]
-    if(MI.CacheUpdate_SGDirection) {
-        float3 SumDirection = 0.f;
-        // Pick one basis to update direction
-        int BasisRankToUpdate = GetBasisRankToUpdate(BasisCount);
-        SGData SG_D = LocalSGData[BasisRankToUpdate];
-        SGData SG_O;
-        [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
-        for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
-            int RayRank = RayRankBase + LocalID;
-            int RayIndex = ProbeRayOffset + RayRank;
-            float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-            float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
-            float3 RayRadiance       = RayRadianceInvPdf.xyz;
-            float  InvPdf            = RayRadianceInvPdf.w;
-            if(InvPdf > 0) {
-                float  SGEvaluatedRaw      = EvaluateSGRaw(SG_D, RayDirection);
-                float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG_D.Color;
-                // Clamp DiffRadiance to prevent "direction chasing" when the direction of a basis is updated
-                // but its color is not converged to the correct result yet.
-                float3 DiffRadianceClamped = max(RayRadiance - LocalEvaluatedRadiance[RayRank], 0.f);
-                float3 TargetRadiance = DiffRadianceClamped + SGEvaluatedRadiance;
-                float  RadianceWeight    = MI.SquaredSGDirectionalRadianceWeight ? dot(TargetRadiance, TargetRadiance) : dot(TargetRadiance, 1.f.xxx);
-                // The weight for balancing sample distribution
-                float  SampleWeight      = InvPdf;
-                // 0529: Add a bias to reserve affection for closer light sources in the same direction
-                float DirectionBias = HeuristicSGDirectionBias(SG_D.Direction, RayDirection);
-                // Decay if it is closer to other SGs
-                float Coverage = max(LocalRayCoverage[RayRank], Epsilon);
-                float DirectionDecay =  pow(DirectionBias / Coverage, 6);
-                float TotalWeight = RadianceWeight * SampleWeight * DirectionDecay;
-                SumDirection  += RayDirection * TotalWeight;
-            }
-        }
-        // Accumulate and normalize
-        SumDirection = WaveActiveSum(SumDirection);
-        if(dot(SumDirection, SumDirection) > 1e-6f) {
-            float3 TargetDirection = normalize(SumDirection);
-            // float  SrcWeight = SGIntegrate(SG_D.Lambda) * dot(SG_D.Color, 1.f.xxx) + Epsilon;
-            // float  DstWeight = SumTotalWeight + Epsilon;
-            // float  T = SrcWeight / (SrcWeight + DstWeight);
-            float T = 0.15f;
-            SG_O = SG_D;
-            SG_D.Direction = normalize(lerp(SG_D.Direction, TargetDirection, T));//InterpolateDirection(SG_D.Direction, TargetDirection, T);
-            if(WaveIsFirstLane()) {
-                LocalSGData[BasisRankToUpdate] = SG_D;
-            }
-            // Re-calculate the evaluated radiance for the changed basis
-            [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
-            for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
-                int RayRank  = RayRankBase + LocalID;
-                int RayIndex = ProbeRayOffset + RayRank;
-                float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
-                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-                float3 RayRadiance       = RayRadianceInvPdf.xyz;
-                float  InvPdf            = RayRadianceInvPdf.w;
-                if(InvPdf > 0) {
-                    float  RawPrevious = EvaluateSGRaw(SG_O, RayDirection);
-                    float  Raw         = EvaluateSGRaw(SG_D, RayDirection);
-                    float3 Delta = Raw * SG_D.Color - RawPrevious * SG_O.Color;
-                    LocalEvaluatedRadiance[RayRank] += Delta;
-                }
-            }
-        }
-        GroupMemoryBarrierWithGroupSync();
-    }
-
-    // Update Color and Lambda
-
-    for(int BasisRank = 0; BasisRank < BasisCount; BasisRank ++) {
-        SGData SG = LocalSGData[BasisRank];
-        SGGradients SumStepSize = (SGGradients)0;
-#ifndef OPTIMAL_COLOR_UPDATE
-        float3  SumAFactor = 0;
-#else
-        float   SumAFactor = 0;
-#endif
-
-        [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
-        for(int RayGroupOffset = 0; RayGroupOffset < ProbeRayCount; RayGroupOffset += WAVE_SIZE) {
-            int RayRank = RayGroupOffset + LocalID;
-            if(RayRank < ProbeRayCount) {
-                int RayIndex = ProbeRayOffset + RayRank;
-#ifndef DELAYED_SG_REPROJECTION
-                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-                float  RayLinearDepth    = abs(g_RWUpdateRayLinearDepthBuffer[RayIndex]);
-                float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
-                float3 RayRadiance       = RayRadianceInvPdf.xyz;
-                float  InvPdf            = RayRadianceInvPdf.w;
-#else
-                // Ray data has been loaded to shared memory earlier
-                float3 RayDirection      = LocalUpdateRayDirection[RayRank];
-                float3 RayRadiance       = LocalUpdateRayRadiance[RayRank];
-                float  InvPdf            = LocalUpdateRayInvPdf[RayRank];
-                float  RayLinearDepth    = abs(LocalUpdateRayDepth[RayRank]);
-#endif
-
-                if(InvPdf > 0) {
-                    float  SGEvaluatedRaw      = EvaluateSGRaw(SG, RayDirection);
-                    float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG.Color;
-
-                    float3 dColorExtra;
-                    SGGradients Gradients;
-                    EvaluateSG_Gradients(SG, RayDirection, Gradients, dColorExtra);
-                    float3 DiffRadiance   = RayRadiance - LocalEvaluatedRadiance[RayRank];
-                    float3 TargetRadiance = DiffRadiance + SGEvaluatedRadiance;
-                    float3 X = -2.f * DiffRadiance;
-                    float  Y = dot(X, 1.f.xxx);
-
-                    // The weight for balancing sample distribution
-                    float  SampleWeight     = InvPdf;
-#ifndef OPTIMAL_COLOR_UPDATE
-                    if(SGEvaluatedRaw > 1e-2f || dot(TargetRadiance, 1.f.xxx) < dot(SGEvaluatedRadiance, 1.f.xxx)) {
-                        // least absolute deviation method using IRLS
-                        // https://en.wikipedia.org/wiki/Iteratively_reweighted_least_squares
-                        // SampleWeight canceled out.
-                        float3 W = 1.f / max(abs(DiffRadiance)/* * SampleWeight */, 1e-3f);
-                        SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw /* * SampleWeight */ * SampleWeight * W;
-                        SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw /* * SampleWeight */ * SampleWeight * W;
-                    }
-#else
-                    // least squares method
-                    // Clip rays that only evaluates to a tiny value on SG to prevent outflares
-                    if(SGEvaluatedRaw > 1e-2f || dot(TargetRadiance, 1.f.xxx) < dot(SGEvaluatedRadiance, 1.f.xxx)) {
-                        SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight;
-                        SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
-                    }
-#endif
-                    // 0529: Add a bias to reserve affection for closer light sources in the same direction
-                    float  HeuristicBias = HeuristicSGDirectionBias(SG.Direction, RayDirection);
-                    float  DirectionalDecay  = 1.f;//pow(HeuristicBias / LocalRayCoverage[RayRank], 6);
-                    SumStepSize.dLambda    -= Y * Gradients.dLambda    * SampleWeight * DirectionalDecay;
-                }
-            }
-        }
-
-        // Accumulate weights
-        SumAFactor = WaveActiveSum(SumAFactor);
-        SumStepSize.dColor  = WaveActiveSum(SumStepSize.dColor);
-        SumStepSize.dLambda = WaveActiveSum(SumStepSize.dLambda);
-        GroupMemoryBarrierWithGroupSync();
-        // The chosen thread for updating each basis
-        if(WaveIsFirstLane()) {
-            // It's possible for SumAFactor to be very tiny (because of large SG Lambdas), so we clamp it to prevent outflares
-            SumStepSize.dColor     /= max(SumAFactor, Epsilon);
-
-            if(MI.CacheUpdate_SGColor) {
-                // TODO Clamping is not the smartest choice for outflares
-                // it relates to lambda and importance sampling
-                float Factor = min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f);
-                // Allow the color of the SG with updated direction to change violently
-                // if(MI.CacheUpdate_SGDirection && BasisRank == GetBasisRankToUpdate(BasisCount)) {
-                //     Factor = max(Factor, 0.2f);
-                // }
-                float3 NewColor = lerp(SG.Color, SumStepSize.dColor, Factor);
-                float3 DeltaColor = NewColor - SG.Color;
-                SG.Color += DeltaColor;
-                SG.Color = max(SG.Color, 0.00001f.xxx); // Color is in [0.001, inf)
-            }
-            if(MI.CacheUpdate_SGLambda) {
-                float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
-                // FIXME better lambda update
-                float Factor = exp(Step * MI.LambdaLearningBonus);
-                Factor = clamp(Factor, 0.5f, 2.f);
-                SG.Lambda *= Factor;
-                // SG.Lambda    += Step;
-                SG.Lambda    = clamp(SG.Lambda, MIN_SG_LAMBDA, MAX_SG_LAMBDA); // Lambda is in [MIN_SG_LAMBDA, 200.f]
-            }
-            // FIXME SG depth is never updated
-
-            // Write back
-            WriteBasisData(Header.BasisOffset + BasisRank, SG);
-        }
-    }
+    // [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+    // for(int BaseUpdateRayRank = 0; BaseUpdateRayRank < ProbeRayCount; BaseUpdateRayRank += WAVE_SIZE) {
+    //     int RayRank = BaseUpdateRayRank + LocalID;
+    //     int UpdateRayIndex = ProbeRayOffset + RayRank;
+    //     float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[UpdateRayIndex]);
+    //     float3 Radiance = RadianceInvPdf.xyz;
+    //     float  InvPdf   = RadianceInvPdf.w;
+    //     if(InvPdf > 0) {
+    //         float3 RayDirection = FetchUpdateRayDirection(UpdateRayIndex);
+    //         float3 LocalRayDirection = float3(
+    //             dot(ProbeTangent,   RayDirection),
+    //             dot(ProbeBitangent, RayDirection),
+    //             dot(Header.Normal,  RayDirection)
+    //         );
+    //         if(LocalRayDirection.z > 0) {
+    //             float2 OctahedronUV = UnitVectorToHemiOctahedron01(LocalRayDirection);
+    //             int2 OctahedronTexelCoords = clamp(int2(
+    //                 int(OctahedronUV.x * SSRC_PROBE_TEXTURE_SIZE),
+    //                 int(OctahedronUV.y * SSRC_PROBE_TEXTURE_SIZE)
+    //                 ), 0, SSRC_PROBE_TEXTURE_SIZE - 1);
+    //             int  OctahedronTexelIndex = OctahedronTexelCoords.y * SSRC_PROBE_TEXTURE_SIZE + OctahedronTexelCoords.x;
+    //             LocalEvaluatedRadiance[RayRank] += LocalProbeTexels[OctahedronTexelIndex];
+    //         }
+    //     }
+    // }
 }
 
 // From Lumen

@@ -51,7 +51,7 @@
 // Mirror repeat the tile jitter sequence.
 // This helps elevating regular-patterned artifacts caused by
 // biased SG reprojection
-#define MIRROR_REPEAT_TILE_JITTER_SEQUENCE
+// #define MIRROR_REPEAT_TILE_JITTER_SEQUENCE
 
 // Debug flag to fix probes on the screen and avoid SG merging
 // #define DEBUG_FIX_PROBES

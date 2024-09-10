@@ -102,6 +102,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::SliderFloat("SG Merging Threshold", &options_.SSRC_SG_merging_threshold, 0.1f, 1.f);
         ImGui::SliderFloat("SG Similarity Alpha", &options_.SSRC_SG_similarity_alpha, 0.01f, 5.f);
         ImGui::SliderFloat("SG Lambda Learning Bonus", &options_.SSRC_SG_lambda_learning_bonus, 0.1f, 50.f);
+        ImGui::SliderFloat("SG Color  Learning Bonus", &options_.SSRC_SG_color_learning_bonus, 0.05f, 5.f);
+        ImGui::SliderFloat("SG Direction Learing Rate", &options_.SSRC_SG_direction_learing_rate, 0.01f, 0.3f);
         if(ImGui::Button("Export Probe Data")) {
             need_export_ = true;
         }

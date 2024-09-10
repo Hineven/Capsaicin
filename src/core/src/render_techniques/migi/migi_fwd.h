@@ -80,6 +80,8 @@ struct MIGIRenderOptions {
 
     // Accelerate learning SG lambdas
     float SSRC_SG_lambda_learning_bonus = 25.f;
+    float SSRC_SG_color_learning_bonus   = 0.25f;
+    float SSRC_SG_direction_learing_rate = 0.12f;
 
     bool ambient_occlusion = false;
     bool near_field_global_illumination = false;
