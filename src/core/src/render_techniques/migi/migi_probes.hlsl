@@ -96,9 +96,7 @@ int2 GetScreenProbeScreenCoords (int2 ProbeIndex, bool bPrevious = false) {
 }
 
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
-    // TODO: Implement this function
-    // FIXME
-    // 2 causes MORE outflares
+    // TODO: Implement this function and get adaptive number of basis
     return MI.DisableSG ? 0 : 1;
 }
 

@@ -2923,16 +2923,16 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             SumStepSize.dColor     /= max(SumAFactor, Epsilon);
 
             if(MI.CacheUpdate_SGColor) {
-                // TODO Clamping is not the smartest choice for outflares
-                // it relates to lambda and importance sampling
                 float Factor = min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f);
                 // Allow the color of the SG with updated direction to change violently
                 // if(MI.CacheUpdate_SGDirection && BasisRank == GetBasisRankToUpdate(BasisCount)) {
                 //     Factor = max(Factor, 0.2f);
                 // }
                 float SGRawSize = SGIntegrate(SG.Lambda);
-                float MaxIrradianceChange = max(0.5f, SGRawSize * dot(SG.Color, 1.f.xxx) * 0.1f);
+                // FIXME change to a variable
+                float MaxIrradianceChange = max(0.1f, SGRawSize * dot(SG.Color, 1.f.xxx) * 0.1f);
                 Factor = clamp(Factor * MI.SGColorLearningBonus, 0.01f, 1.f);
+                // Clamp the overall irradiance change when updating colors
                 float IrradianceChange = MaxIrradianceChange * Factor;
                 float3 NewColor = SumStepSize.dColor;
                 float3 DeltaColor = NewColor - SG.Color;
