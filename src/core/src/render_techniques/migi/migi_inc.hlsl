@@ -53,6 +53,10 @@
 // biased SG reprojection
 // #define MIRROR_REPEAT_TILE_JITTER_SEQUENCE
 
+// Preserve irradiance by adjusting SG color when updating lambda
+// Helps mitigate noise when lambda is unstable
+#define SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
+
 // Debug flag to fix probes on the screen and avoid SG merging
 // #define DEBUG_FIX_PROBES
 
