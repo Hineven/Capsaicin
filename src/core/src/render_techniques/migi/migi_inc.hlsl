@@ -17,7 +17,11 @@
 // #define REPROJECTION_LAD
 // Do not guess a new intensity for SGs in reprojection. Use their original values
 // instead.
-// #define REPROJECTION_NO_INTENSITY_GUESSING
+#define REPROJECTION_NO_INTENSITY_GUESSING
+// Do not take probe sample weight into consideration when performing SG picking
+// while doing reprojection.
+// #define REPROJECTION_NO_SAMPLE_WEIGHT
+
 // Whether to delay SG reprojection (history reuse) for better temporal stability
 #define DELAYED_SG_REPROJECTION
 
@@ -29,11 +33,18 @@
 // Fully stochastic SG selection
 // #define PURE_STOCHASTIC_SG_SELECTION
 
+// Do not considerate octahedron radiance when selecting SGs for reprojection
+#define REPROJECTION_PRIORITIZE_SG
+
 #define MIN_SG_LAMBDA 12.f
-#define MAX_SG_LAMBDA 4000.f
+#define MAX_SG_LAMBDA 500.f
+
+// Rays that have raw evaluated SG values less than this won't be taken into account
+// for the SG during update.
+#define SG_CLIP_VALUE 1e-3f
 
 // Merge SG Lambdas in log scale instead of linear
-// #define LOGSCALE_SG_LAMBDA_IN_MERGING
+#define LOGSCALE_SG_LAMBDA_IN_MERGING
 
 // Clamp negative radiance values when coordinating SG and Oct
 // Gives a slightly more stable lighting but may introduce bias?
@@ -46,7 +57,7 @@
 
 // If we're using a more accurate (but more expensive)
 // integration approximation for SG final shading.
-#define HIGH_PRECISION_SG_INTEGRATION
+// #define HIGH_PRECISION_SG_INTEGRATION
 
 // Mirror repeat the tile jitter sequence.
 // This helps elevating regular-patterned artifacts caused by
@@ -57,8 +68,22 @@
 // Helps mitigate noise when lambda is unstable
 #define SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
 
-// Debug flag to fix probes on the screen and avoid SG merging
-// #define DEBUG_FIX_PROBES
+// Always accumulate gradients of SGs when it evaluates above the target value
+// Darkens? the scene but may helps with fireflies
+// #define ALWAYS_ACCUMULATE_SG_GRADIENTS_IF_IT_IS_ABOVE_TARGET_VALUE
+
+// Favor sharp and bright SGs pointing at potentially small and bright light sources
+// to prevent losing them when reprojecting and bring artifacts.
+// #define SG_REPPROJECTION_FAVOR_SHARP_BRIGHT_ONES
+
+// Do not consider probe sample weights when doing SG reprojection
+// #define REPROJECTION_NO_PROBE_SAMPLE_WEIGHT
+
+// Jitter the probe position for stochastic reprojection (2x2 -> 3x3)
+#define SCREEN_PROBE_TINY_STOCHASTIC_JITTER
+
+// Debug flag to minimize the impact of SG blending & merging due to probe reprojection
+#define DEBUG_MIN_PROBE_REPROJECTION
 
 #ifndef WAVE_SIZE
 // This macro should be set correctly with the compiler flags

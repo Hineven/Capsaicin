@@ -169,6 +169,9 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         kernels_.Export = gfxCreateComputeKernel(
             gfx_, kernels_.program, "Export", defines_c.data(), (uint32_t)defines_c.size());
 
+        kernels_.DebugSSRC_SetSelectedProbe = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_SetSelectedProbe", defines_c.data(), (uint32_t)defines_c.size());
+
         kernels_.DebugSSRC_FetchCursorPos = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_FetchCursorPos", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.DebugSSRC_VisualizeProbePlacement = gfxCreateComputeKernel(
@@ -495,7 +498,7 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
 
     for(auto & e : buf_.readback)
     {
-        e = gfxCreateBuffer<uint32_t>(gfx_, 32, nullptr, GfxCpuAccess::kGfxCpuAccess_Read);
+        e = gfxCreateBuffer<uint32_t>(gfx_, 512, nullptr, GfxCpuAccess::kGfxCpuAccess_Read);
         e.setName((std::string("ReadbackBuffer[") + std::to_string(&e - buf_.readback) + "]").c_str());
     }
 
@@ -636,6 +639,7 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbe);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeRays);
     gfxDestroyKernel(gfx_, kernels_.Export);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_SetSelectedProbe);
 
     gfxDestroyProgram(gfx_, kernels_.program);
 

@@ -20,6 +20,30 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::LabelText("SG Allocation", "%d (%.2f)", readback_values_.allocated_probe_SG_count, (float)readback_values_.allocated_probe_SG_count / probe_count);
             ImGui::LabelText("Allocated Rays", "%d", readback_values_.update_ray_count);
             ImGui::LabelText("Irradiance (Debug)", "%.4f", readback_values_.debug_visualize_incident_irradiance);
+            ImGui::LabelText("Reprojection Sample Probe Weights", "(%.2f, %.2f, %.2f, %.2f)",
+                readback_values_.reprojection_sample_probe_weights[0],
+                readback_values_.reprojection_sample_probe_weights[1],
+                readback_values_.reprojection_sample_probe_weights[2],
+                readback_values_.reprojection_sample_probe_weights[3]
+            );
+            ImGui::LabelText("Fpv(0123)", "(%.2f, %.2f, %.2f, %.2f)",
+                readback_values_.anyvalues[0],
+                readback_values_.anyvalues[1],
+                readback_values_.anyvalues[2],
+                readback_values_.anyvalues[3]
+            );
+            ImGui::LabelText("Fpv(4567)", "(%.2f, %.2f, %.2f, %.2f)",
+                readback_values_.anyvalues[4],
+                readback_values_.anyvalues[5],
+                readback_values_.anyvalues[6],
+                readback_values_.anyvalues[7]
+            );
+            ImGui::LabelText("Fpv(89ab)", "(%.2f, %.2f, %.2f, %.2f)",
+                readback_values_.anyvalues[8],
+                readback_values_.anyvalues[9],
+                readback_values_.anyvalues[10],
+                readback_values_.anyvalues[11]
+            );
         }
         std::vector<std::string> debug_views = {"None"};
         auto migi_debug_views = getDebugViews();
@@ -104,9 +128,13 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::SliderFloat("SG Lambda Learning Bonus", &options_.SSRC_SG_lambda_learning_bonus, 0.1f, 50.f);
         ImGui::SliderFloat("SG Color  Learning Bonus", &options_.SSRC_SG_color_learning_bonus, 0.05f, 5.f);
         ImGui::SliderFloat("SG Direction Learing Rate", &options_.SSRC_SG_direction_learing_rate, 0.01f, 0.3f);
-        if(ImGui::Button("Export Probe Data")) {
-            need_export_ = true;
-        }
+        ImGui::Checkbox("Always Export", &options_.always_export);
+        if(!options_.always_export) {
+            if (ImGui::Button("Export Probe Data"))
+            {
+                need_export_ = true;
+            }
+        } else need_export_ = true;
         if(options_.active_debug_view == "SSRC_ProbeInspection") {
             ImGui::Checkbox("Inspection: Probe", &options_.Inspection_VisualizeProbe);
             if(options_.Inspection_VisualizeProbe)

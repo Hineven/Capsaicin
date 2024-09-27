@@ -162,4 +162,34 @@ int SSRC_GetTotalUpdateRayCount () {
     return g_RWProbeUpdateRayOffsetBuffer[SSRC_GetTotalProbeCount()];
 }
 
+bool DebugSSRC_IsProbeSelected (int2 ProbeIndex) {
+    return all(g_RWDebugProbeIndexBuffer[0] == ProbeIndex);
+}
+
+ProbeHeader Debug_GetSelectedProbeHeader (out int2 ProbeIndex) {
+    float3 DebugWorldPos  = g_RWDebugCursorWorldPosBuffer[0];
+    float3 Homogeneous    = transformPointProjection(DebugWorldPos, MI.CameraProjView);
+    float2 UV             = NDC22UV(Homogeneous.xy);
+    int2   TexCoords      = int2(UV * MI.ScreenDimensions);
+    
+    int2   TileIndex       = int2(TexCoords.x / SSRC_TILE_SIZE, TexCoords.y / SSRC_TILE_SIZE);
+    ProbeIndex             = TileIndex;
+    
+    ProbeHeader Header     = GetScreenProbeHeader(ProbeIndex);
+    float  MinScreenDistance = Header.bValid ? length(UV - Header.ScreenCoords - 0.5) : 1e6f;
+    int AdaptiveProbeCount = g_RWTileAdaptiveProbeCountTexture[TileIndex];
+    for(int AdaptiveProbeRank = 0; AdaptiveProbeRank < AdaptiveProbeCount; AdaptiveProbeRank++) {
+        int ScreenProbeIndex1 = GetAdaptiveProbeIndex(ProbeIndex, AdaptiveProbeRank) + MI.UniformScreenProbeCount;
+        int2 ScreenProbeIndex = int2(ScreenProbeIndex1 % MI.TileDimensions.x, ScreenProbeIndex1 / MI.TileDimensions.x);
+        ProbeHeader AdaptiveHeader = GetScreenProbeHeader(ScreenProbeIndex);
+        float ScreenDistance  = length(UV - AdaptiveHeader.ScreenCoords - 0.5);
+        if(!Header.bValid || ScreenDistance < MinScreenDistance) {
+            ProbeIndex = ScreenProbeIndex;
+            Header = AdaptiveHeader;
+            MinScreenDistance = ScreenDistance;
+        }
+    }
+    return Header;
+}
+
 #endif // MIGI_PROBES_HLSL

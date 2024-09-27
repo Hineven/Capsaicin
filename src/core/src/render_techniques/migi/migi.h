@@ -20,6 +20,8 @@ struct MIGIReadBackValues {
     uint32_t allocated_probe_SG_count {};
     uint32_t update_ray_count {};
     float    debug_visualize_incident_irradiance {};
+    float    reprojection_sample_probe_weights[4] {};
+    float    anyvalues[12] {};
 };
 
 class MIGI : public RenderTechnique
@@ -202,6 +204,8 @@ public:
         GfxKernel  UEHemiOctahedronLutPrepare2 {};
         GfxKernel  Export {};
 
+        GfxKernel  DebugSSRC_SetSelectedProbe {};
+
         GfxKernel  DebugSSRC_FetchCursorPos {};
         GfxKernel  DebugSSRC_VisualizeProbePlacement {};
         GfxKernel  DebugSSRC_PrepareProbeIncidentRadiance {};
@@ -219,6 +223,7 @@ public:
         GfxKernel  DebugSSRC_VisualizeProbeRays {};
 
         GfxKernel  DebugSSRC_EvalProbe {};
+
 
         GfxKernel  GenerateDispatch {};
         GfxKernel  GenerateDispatchRays {};

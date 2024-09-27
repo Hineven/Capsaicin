@@ -505,6 +505,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         }
     }
 
+    // Reconstruct cursor world pos for debugging purposes
+    if(options_.cursor_dragging)
+    {
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+    }
+
     if(need_reset_world_cache_) {
         TimedSection const timed_section(*this, "WorldCache_Reset");
         gfxCommandBindKernel(gfx_, kernels_.WorldCache_Reset);
@@ -617,6 +624,13 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     {
         const TimedSection timed_section(*this, "WorldCache_WriteProbeDispatchParameters");
         gfxCommandBindKernel(gfx_, kernels_.WorldCache_WriteProbeDispatchParameters);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+    }
+
+    // Select a probe according to cursor position for debugging purposes
+    {
+        const TimedSection timed_section(*this, "DebugSSRC_SetSelectedProbe");
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_SetSelectedProbe);
         gfxCommandDispatch(gfx_, 1, 1, 1);
     }
 
@@ -837,11 +851,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 //        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
         const TimedSection timed_section(*this, "SSRC_IncidentRadiance");
-        if(options_.cursor_dragging)
-        {
-            gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_FetchCursorPos);
-            gfxCommandDispatch(gfx_, 1, 1, 1);
-        }
         gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
         auto threads = gfxKernelGetNumThreads(gfx_, kernels_.DebugSSRC_PrepareProbeIncidentRadiance);
         gfxCommandDispatch(gfx_, divideAndRoundUp(options_.debug_visualize_incident_radiance_num_points, threads[0]), 1, 1);
@@ -961,12 +970,14 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 4, buf_.allocated_probe_SG_count, 0, sizeof(float));
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 8, buf_.update_ray_count, 0, sizeof(uint32_t));
         gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 12, buf_.debug_visualize_incident_radiance_sum, 0, sizeof(float));
+        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 16, buf_.export_binary, MIGI_DEBUG_EXPORT_OFFSET_WORD * sizeof(uint32_t), sizeof(float) * 4);
+        // Any values
+        gfxCommandCopyBuffer(gfx_, buf_.readback[copy_idx], 32, buf_.export_binary, MIGI_DEBUG_EXPORT_OFFSET_WORD * sizeof(uint32_t) + sizeof(float) * 4, sizeof(float) * 12);
         readback_pending_[copy_idx] = true;
     }
 
     if(need_export_) {
         auto copy_idx = internal_frame_index_ % kGfxConstant_BackBufferCount;
-        export_pending_[copy_idx] = true;
         gfxCommandBindKernel(gfx_, kernels_.Export);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandCopyBuffer(gfx_, buf_.export_staging, buf_.export_binary);
@@ -985,6 +996,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             readback_values_.allocated_probe_SG_count = readback_values[1];
             readback_values_.update_ray_count   = readback_values[2];
             readback_values_.debug_visualize_incident_irradiance = reinterpret_cast<float const *>(readback_values + 3)[0] / float(options_.debug_visualize_incident_radiance_num_points);
+            for(int i = 0; i < 4; i++)
+                readback_values_.reprojection_sample_probe_weights[i] = reinterpret_cast<float const *>(readback_values + 4)[i];
+            for(int i = 0; i < 12; i++)
+                readback_values_.anyvalues[i] = reinterpret_cast<float const *>(readback_values + 8)[i];
             readback_pending_[readback_idx] = false;
         }
         if(export_pending_[readback_idx]) {

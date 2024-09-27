@@ -226,6 +226,10 @@ static_assert((1 << SSRC_TILE_SIZE_L2) == SSRC_TILE_SIZE, "SSRC_TILE_SIZE != 1<<
 
 #define SSRC_PROBE_NORMAL_OFFSET (1e-4f)
 
+// Offset into the export buffer for random feedback stuff to display on the UI
+// (unit: word)
+#define MIGI_DEBUG_EXPORT_OFFSET_WORD (64 * 1024)
+
 #ifdef __cplusplus
 }// namespace Capsaicin
 #endif

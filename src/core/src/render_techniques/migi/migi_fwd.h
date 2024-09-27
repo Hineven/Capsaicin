@@ -69,7 +69,7 @@ struct MIGIRenderOptions {
     // Whether to disable SGs for caching (use irradiance only)
     bool disable_SG = false;
     // Whether to use square weighted radiance for SG direction update
-    bool SSRC_squared_SG_directional_weight = false;
+    bool SSRC_squared_SG_directional_weight = true;
 
     // Merging threshold required when doing frame-to-frame SG reprojection
     float SSRC_SG_merging_threshold = 0.5f;
@@ -80,7 +80,7 @@ struct MIGIRenderOptions {
 
     // Accelerate learning SG lambdas
     float SSRC_SG_lambda_learning_bonus = 25.f;
-    float SSRC_SG_color_learning_bonus   = 0.25f;
+    float SSRC_SG_color_learning_bonus   = 1.05f;
     float SSRC_SG_direction_learing_rate = 0.12f;
 
     bool ambient_occlusion = false;
@@ -90,6 +90,8 @@ struct MIGIRenderOptions {
     bool  cache_update_SG_color {true};
     bool  cache_update_SG_direction {true};
     bool  cache_update_SG_lambda {true};
+
+    bool  always_export {false};
 
     std::string active_debug_view {};
     bool debug_view_switched {false};
