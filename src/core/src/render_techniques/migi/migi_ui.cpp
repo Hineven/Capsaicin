@@ -15,35 +15,54 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         (void)capsaicin;
         if (ImGui::CollapsingHeader("MIGI Statistics", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::LabelText("Adaptive Probe", "%d", readback_values_.adaptive_probe_count);
-            int probe_count = (int)readback_values_.adaptive_probe_count + (int)(options_.width * options_.height) / (SSRC_TILE_SIZE * SSRC_TILE_SIZE);
-            ImGui::LabelText("SG Allocation", "%d (%.2f)", readback_values_.allocated_probe_SG_count, (float)readback_values_.allocated_probe_SG_count / probe_count);
-            ImGui::LabelText("Allocated Rays", "%d", readback_values_.update_ray_count);
-            ImGui::LabelText("Irradiance (Debug)", "%.4f", readback_values_.debug_visualize_incident_irradiance);
-            ImGui::LabelText("Reprojection Sample Probe Weights", "(%.2f, %.2f, %.2f, %.2f)",
-                readback_values_.reprojection_sample_probe_weights[0],
-                readback_values_.reprojection_sample_probe_weights[1],
-                readback_values_.reprojection_sample_probe_weights[2],
-                readback_values_.reprojection_sample_probe_weights[3]
+            static MIGIReadBackValues kept_readback_values = readback_values_;
+            static bool always_reset = false;
+            ImGui::Checkbox("Always Readback", &always_reset);
+            if (ImGui::Button("Reread Statistics") || always_reset)
+            {
+                kept_readback_values = readback_values_;
+            }
+            ImGui::LabelText("Adaptive Probe", "%d", kept_readback_values.adaptive_probe_count);
+            int probe_count = (int)kept_readback_values.adaptive_probe_count + (int)(options_.width * options_.height) / (SSRC_TILE_SIZE * SSRC_TILE_SIZE);
+            ImGui::LabelText("SG Allocation", "%d (%.2f)", kept_readback_values.allocated_probe_SG_count, (float)kept_readback_values.allocated_probe_SG_count / probe_count);
+            ImGui::LabelText("Allocated Rays", "%d", kept_readback_values.update_ray_count);
+            ImGui::LabelText("Irradiance (Debug)", "%.4f", kept_readback_values.debug_visualize_incident_irradiance);
+            ImGui::LabelText("Reprojection Sample Probe Weights", "(%02.2f, %02.2f, %02.2f, %02.2f)",
+                kept_readback_values.reprojection_sample_probe_weights[0],
+                kept_readback_values.reprojection_sample_probe_weights[1],
+                kept_readback_values.reprojection_sample_probe_weights[2],
+                kept_readback_values.reprojection_sample_probe_weights[3]
             );
-            ImGui::LabelText("Fpv(0123)", "(%.2f, %.2f, %.2f, %.2f)",
-                readback_values_.anyvalues[0],
-                readback_values_.anyvalues[1],
-                readback_values_.anyvalues[2],
-                readback_values_.anyvalues[3]
+            char buffer1[256], buffer2[256], buffer3[256], buffer4[256];
+            sprintf(buffer1, "(%05.2f, %05.2f, %05.2f, %05.2f)",
+                kept_readback_values.anyvalues[0],
+                kept_readback_values.anyvalues[1],
+                kept_readback_values.anyvalues[2],
+                kept_readback_values.anyvalues[3]
             );
-            ImGui::LabelText("Fpv(4567)", "(%.2f, %.2f, %.2f, %.2f)",
-                readback_values_.anyvalues[4],
-                readback_values_.anyvalues[5],
-                readback_values_.anyvalues[6],
-                readback_values_.anyvalues[7]
+            sprintf(buffer2, "(%05.2f, %05.2f, %05.2f, %05.2f)",
+                kept_readback_values.anyvalues[4],
+                kept_readback_values.anyvalues[5],
+                kept_readback_values.anyvalues[6],
+                kept_readback_values.anyvalues[7]
             );
-            ImGui::LabelText("Fpv(89ab)", "(%.2f, %.2f, %.2f, %.2f)",
-                readback_values_.anyvalues[8],
-                readback_values_.anyvalues[9],
-                readback_values_.anyvalues[10],
-                readback_values_.anyvalues[11]
+            sprintf(buffer3, "(%05.2f, %05.2f, %05.2f, %05.2f)",
+                kept_readback_values.anyvalues[8],
+                kept_readback_values.anyvalues[9],
+                kept_readback_values.anyvalues[10],
+                kept_readback_values.anyvalues[11]
             );
+            sprintf(buffer4, "(%05.2f, %05.2f, %05.2f, %05.2f)",
+                kept_readback_values.anyvalues[12],
+                kept_readback_values.anyvalues[13],
+                kept_readback_values.anyvalues[14],
+                kept_readback_values.anyvalues[15]
+            );
+
+            ImGui::LabelText("Fpv(0123)", "%s", buffer1);
+            ImGui::LabelText("Fpv(4567)", "%s", buffer2);
+            ImGui::LabelText("Fpv(89ab)", "%s", buffer3);
+            ImGui::LabelText("Fpv(cdef)", "%s", buffer4);
         }
         std::vector<std::string> debug_views = {"None"};
         auto migi_debug_views = getDebugViews();
@@ -99,6 +118,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::EndCombo();
         }
         ImGui::Checkbox("DDGI Final Gather", &options_.DDGI_final_gather);
+        ImGui::Checkbox("SG Lighting Only", &options_.show_SG_lighting_only);
         if (ImGui::Button("Reset Screen Space Cache"))
         {
             need_reset_screen_space_cache_ = true;

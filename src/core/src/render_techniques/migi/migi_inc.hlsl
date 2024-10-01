@@ -37,7 +37,7 @@
 #define REPROJECTION_PRIORITIZE_SG
 
 #define MIN_SG_LAMBDA 12.f
-#define MAX_SG_LAMBDA 500.f
+#define MAX_SG_LAMBDA 4000.f
 
 // Rays that have raw evaluated SG values less than this won't be taken into account
 // for the SG during update.
@@ -66,7 +66,9 @@
 
 // Preserve irradiance by adjusting SG color when updating lambda
 // Helps mitigate noise when lambda is unstable
-#define SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
+// 1001: However, this will introduce unlimited growth in SG color under certain conditions.
+// Massive degrading the quality of the result. Need a better way to ensure stability.
+// #define SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
 
 // Always accumulate gradients of SGs when it evaluates above the target value
 // Darkens? the scene but may helps with fireflies

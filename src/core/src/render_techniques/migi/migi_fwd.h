@@ -30,6 +30,7 @@ struct MIGIRenderOptions {
     bool     reset_world_cache {false};
 
     bool     DDGI_final_gather {false};
+    bool     show_SG_lighting_only {false};
 
     uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
     uint32_t SSRC_max_adaptive_probe_count {32 * 1024};

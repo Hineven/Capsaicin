@@ -356,6 +356,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         C.SGColorLearningBonus    = options_.SSRC_SG_color_learning_bonus;
         C.SGDirectionLearningRate = options_.SSRC_SG_direction_learing_rate;
+        C.ShowSGLightingOnly      = options_.show_SG_lighting_only;
 
         glm::mat4 original_proj_view =
             glm::perspective(__inspection_camera.fovY, __inspection_camera.aspect, __inspection_camera.nearZ, __inspection_camera.farZ)
@@ -998,7 +999,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             readback_values_.debug_visualize_incident_irradiance = reinterpret_cast<float const *>(readback_values + 3)[0] / float(options_.debug_visualize_incident_radiance_num_points);
             for(int i = 0; i < 4; i++)
                 readback_values_.reprojection_sample_probe_weights[i] = reinterpret_cast<float const *>(readback_values + 4)[i];
-            for(int i = 0; i < 12; i++)
+            for(int i = 0; i < 16; i++)
                 readback_values_.anyvalues[i] = reinterpret_cast<float const *>(readback_values + 8)[i];
             readback_pending_[readback_idx] = false;
         }

@@ -21,7 +21,7 @@ struct MIGIReadBackValues {
     uint32_t update_ray_count {};
     float    debug_visualize_incident_irradiance {};
     float    reprojection_sample_probe_weights[4] {};
-    float    anyvalues[12] {};
+    float    anyvalues[16] {};
 };
 
 class MIGI : public RenderTechnique
