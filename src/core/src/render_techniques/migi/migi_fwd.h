@@ -30,7 +30,8 @@ struct MIGIRenderOptions {
     bool     reset_world_cache {false};
 
     bool     DDGI_final_gather {false};
-    bool     show_SG_lighting_only {false};
+    bool     exclude_oct_lighting {false};
+    bool     exclude_SG_lighting {false};
 
     uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
     uint32_t SSRC_max_adaptive_probe_count {32 * 1024};
@@ -77,7 +78,7 @@ struct MIGIRenderOptions {
 
     // Alpha for measuring SG similarities when comparing lambdas
     // Larger values make the weight smaller when lambda variates
-    float SSRC_SG_similarity_alpha = 0.8f;
+    float SSRC_SG_similarity_alpha = 0.05f;
 
     // Accelerate learning SG lambdas
     float SSRC_SG_lambda_learning_bonus = 25.f;

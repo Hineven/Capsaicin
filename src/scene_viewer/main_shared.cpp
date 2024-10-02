@@ -1438,6 +1438,7 @@ bool CapsaicinMain::renderGUIDetails() noexcept
                 recording_track = true;
                 camera_positions.clear();
                 camera_lookats.clear();
+                camera_ups.clear();
                 reference_files.clear();
                 reference_frames.clear();
             }

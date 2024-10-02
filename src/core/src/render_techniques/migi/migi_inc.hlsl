@@ -17,17 +17,16 @@
 // #define REPROJECTION_LAD
 // Do not guess a new intensity for SGs in reprojection. Use their original values
 // instead.
-#define REPROJECTION_NO_INTENSITY_GUESSING
+// #define REPROJECTION_NO_INTENSITY_GUESSING
 // Do not take probe sample weight into consideration when performing SG picking
 // while doing reprojection.
-// #define REPROJECTION_NO_SAMPLE_WEIGHT
+#define REPROJECTION_NO_SAMPLE_WEIGHT
 
 // Whether to delay SG reprojection (history reuse) for better temporal stability
 #define DELAYED_SG_REPROJECTION
 
 // Evaluate backup radiance on probe texels instead of update rays
-// Though this heuristic is a bit strange, it mitigates the issue of
-// large backup values caused by the lack of update rays and importance sampling
+// This heuristic is a bit strange, but it seems to work and is proven by GI10
 // #define BACKUP_RADIANCE_ON_PROBE_TEXELS
 
 // Fully stochastic SG selection
@@ -68,7 +67,8 @@
 // Helps mitigate noise when lambda is unstable
 // 1001: However, this will introduce unlimited growth in SG color under certain conditions.
 // Massive degrading the quality of the result. Need a better way to ensure stability.
-// #define SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
+// 1002: clamping the color multiplier to [0, 1] mitigates the issue.
+#define SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
 
 // Always accumulate gradients of SGs when it evaluates above the target value
 // Darkens? the scene but may helps with fireflies
@@ -78,14 +78,11 @@
 // to prevent losing them when reprojecting and bring artifacts.
 // #define SG_REPPROJECTION_FAVOR_SHARP_BRIGHT_ONES
 
-// Do not consider probe sample weights when doing SG reprojection
-// #define REPROJECTION_NO_PROBE_SAMPLE_WEIGHT
-
 // Jitter the probe position for stochastic reprojection (2x2 -> 3x3)
-#define SCREEN_PROBE_TINY_STOCHASTIC_JITTER
+// #define SCREEN_PROBE_TINY_STOCHASTIC_JITTER
 
 // Debug flag to minimize the impact of SG blending & merging due to probe reprojection
-#define DEBUG_MIN_PROBE_REPROJECTION
+// #define DEBUG_MIN_PROBE_REPROJECTION
 
 #ifndef WAVE_SIZE
 // This macro should be set correctly with the compiler flags

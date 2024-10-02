@@ -2479,8 +2479,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 SampleLocation = (LocalID < PrevBasisCount[0]) ? 0 : 1;
                 PrevCount = (LocalID < PrevBasisCount[0]) ? 0 : PrevBasisCount[0];
             } else {
-                SampleLocation = (LocalID - NumBasis0 < PrevBasisCount[2]) ? 2 : 3;
-                PrevCount = ((LocalID - NumBasis0 < PrevBasisCount[2]) ? 0 :  PrevBasisCount[2]) + NumBasis0;
+                SampleLocation = ((LocalID - NumBasis0) < PrevBasisCount[2]) ? 2 : 3;
+                PrevCount = (((LocalID - NumBasis0) < PrevBasisCount[2]) ? 0 :  PrevBasisCount[2]) + NumBasis0;
             }
             SGData SG = FetchBasisData(BasisOffsets[SampleLocation] + LocalID - PrevCount, true);
             LocalSGData[LocalID] = SG;
@@ -2590,24 +2590,24 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 }
             }
             SGErrorScore = WaveActiveSum(SGErrorScore);
+            // TODO SGErrorScore = SGErrorScore - MinSGErrorScore; for more resonable multi-SG selection
             if(WaveIsFirstLane()) {
                 // Reduce the possibility of selecting SGs with tiny sample weights
                 float SGSampleWeight = LocalSGCandidateSampleWeight[BasisRank];
-#ifndef REPROJECTION_NO_PROBE_SAMPLE_WEIGHT
                 float SampleCorrection = (SGSampleWeight == 0) ? 0.f : (1.f / max(sqrt(SGSampleWeight + 0.2f), 1e-6f));
-#else
-                float SampleCorrection = 1.f;
-#endif
                 float Noise = BlueNoise_Sample1D(
                     int2(ProbeIndex.x * NumBasis +  BasisRank, ProbeIndex.y),
                     MI.FrameIndex, 7
                 );
                 // Jitter the score with noise to mitigate regular patterns upon selection
                 float NoiseFactor = sqrt(0.001f + Noise);
-                float FinalScore  = SGErrorScore * SampleCorrection;// * NoiseFactor;
+                float FinalScore;
 #ifdef DEBUG_MIN_PROBE_REPROJECTION
                 FinalScore = 1.f - SGSampleWeight;
 #else
+#ifdef REPROJECTION_NO_SAMPLE_WEIGHT
+                SampleCorrection = 1.f;
+#endif
 #ifdef PURE_STOCHASTIC_SG_SELECTION
                 FinalScore = NoiseFactor;//SGErrorScore * SampleCorrection * NoiseFactor;
 #else 
@@ -2627,16 +2627,16 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         for(; PickingBasisRank < BasisCount; PickingBasisRank ++) {
             int BestBasisRank = -1;
             float BestScore = 1e8f;
+            // TODO wave op this?
             if(WaveIsFirstLane()) {
                 [unroll(SSRC_MAX_NUM_BASIS_TO_SAMPLE_PER_PROBE)]
-                for(int BasisRank = 0; BasisRank < NumBasis; BasisRank ++) {
+                for(int BasisRank = PickingBasisRank; BasisRank < NumBasis; BasisRank ++) {
                     if(LocalSGCandidateScore[BasisRank] < BestScore) {
                         BestScore = LocalSGCandidateScore[BasisRank];
                         BestBasisRank = BasisRank;
                     }
                 }
             }
-            GroupMemoryBarrierWithGroupSync();
             BestBasisRank = WaveReadLaneFirst(BestBasisRank);
             if(BestBasisRank != -1) {
                 SGData BestSG = LocalSGData[BestBasisRank];
@@ -2746,7 +2746,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     float3 TexelIrradiance = Fraction * Irradiance;
                     int  TexelIndex  = i * WAVE_SIZE + LocalID;
                     int2 TexelCoords = int2(TexelIndex % SSRC_PROBE_TEXTURE_SIZE, TexelIndex / SSRC_PROBE_TEXTURE_SIZE);
-                    float3 Radiance = TexelIrradiance * HemiOctahedronTexelIrradianceToRadiance(TexelCoords);
+                    float3 Radiance = TexelIrradiance * HemiOctahedronIrradianceToTexelRadiance(TexelCoords);
                     TexelRadianceValues[i] += Radiance;
                 }
             }
@@ -2793,7 +2793,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
             for(int i = 0; i < BasisCount; i++) {
                 float Raw = EvaluateSGRaw(LocalSGData[i], RayDirection);
-                EvaluatedRadiance += Raw * LocalSGData[i].Color;
+                if(Raw > SG_CLIP_VALUE) {
+                    EvaluatedRadiance += Raw * LocalSGData[i].Color;
+                }
                 Coverage = max(Coverage, HeuristicSGDirectionBias(LocalSGData[i].Direction, RayDirection, LocalSGData[i].Lambda));
             }
             LocalEvaluatedRadiance[RayRank] = EvaluatedRadiance;
@@ -2869,6 +2871,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     if(InvPdf > 0) {
                         float  RawPrevious = EvaluateSGRaw(SG_O, RayDirection);
                         float  Raw         = EvaluateSGRaw(SG_D, RayDirection);
+                        if(RawPrevious <= SG_CLIP_VALUE) RawPrevious = 0.f;
+                        if(Raw         <= SG_CLIP_VALUE) Raw         = 0.f;
                         float3 Delta = Raw * SG_D.Color - RawPrevious * SG_O.Color;
                         LocalEvaluatedRadiance[RayRank] += Delta;
                     }
@@ -2961,6 +2965,24 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         // The chosen thread for updating each basis
         if(WaveIsFirstLane()) {
             float3 EstimatedColor = ComputeEstimatedSGColor(SumAFactor, SumStepSize.dColor, Maximums);
+            if(MI.CacheUpdate_SGLambda) {
+                float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
+                // TODO better lambda update
+                float Factor = exp(Step * MI.LambdaLearningBonus);
+                Factor = clamp(Factor, 0.75f, 1.3334f);
+                float OldLambda = SG.Lambda;
+                SG.Lambda *= Factor;
+                SG.Lambda    = clamp(SG.Lambda, MIN_SG_LAMBDA, MAX_SG_LAMBDA); // Lambda is in [MIN_SG_LAMBDA, 200.f]
+                float NewLambda = SG.Lambda;
+#ifdef SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
+                float OldRawSize = SGIntegrate(OldLambda);
+                float NewRawSize = SGIntegrate(NewLambda);
+                // Preserve irradiance, but do not massive increase color to ensure stability.
+                float ColorMultiplier = clamp(OldRawSize / NewRawSize, 0, 1);
+                SG.Color = max(SG.Color * ColorMultiplier, 0.00001f.xxx);
+#endif
+            }
+
             if(MI.CacheUpdate_SGColor) {
                 float Factor = min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f);
                 // Allow the color of the SG with updated direction to change violently
@@ -2980,22 +3002,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float3 FinalColor = SG.Color + DeltaColor * (ClampedDeltaColorLength / max(DeltaColorLength, 1e-6f));
                 SG.Color = max(FinalColor, 0.00001f.xxx); // Color is in [0.001, inf)
             }
-            if(MI.CacheUpdate_SGLambda) {
-                float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
-                // TODO better lambda update
-                float Factor = exp(Step * MI.LambdaLearningBonus);
-                Factor = clamp(Factor, 0.75f, 1.3334f);
-                float OldLambda = SG.Lambda;
-                SG.Lambda *= Factor;
-                SG.Lambda    = clamp(SG.Lambda, MIN_SG_LAMBDA, MAX_SG_LAMBDA); // Lambda is in [MIN_SG_LAMBDA, 200.f]
-                float NewLambda = SG.Lambda;
-#ifdef SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
-                float OldRawSize = SGIntegrate(OldLambda);
-                float NewRawSize = SGIntegrate(NewLambda);
-                // Preserve irradiance
-                SG.Color = max(SG.Color * (OldRawSize / NewRawSize), 0.00001f.xxx);
-#endif
-            }
+
             // FIXME SG depth is never updated
 
             if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
@@ -3553,9 +3560,13 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                 LowFreq_Specular = SpecularAlbedo * LowFreq_Specular;
 
 #endif
-                if(MI.ShowSGLightingOnly) {
+                if(MI.ExcludeOctLighting) {
                     LowFreq_Specular = 0.f.xxx;
                     LowFreq_Diffuse = 0.f.xxx;
+                }
+                if(MI.ExcludeSGLighting) {
+                    HighFreq_Diffuse = 0.f.xxx;
+                    HighFreq_Glossy = 0.f.xxx;
                 }
 
                 // Composite final lighting

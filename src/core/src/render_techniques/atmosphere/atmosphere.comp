@@ -64,7 +64,7 @@ void DrawAtmosphere(in uint2 did : SV_DispatchThreadID)
 
     float3 sun_color = max(dot(ray_direction, g_LightDirection) - 0.993f, 0.f) * 50.f * g_LightColor;
 
-    color = sun_color;
+    color = color + sun_color;
 
     g_OutEnvironmentBuffer[uint3(did, g_FaceIndex)] = float4(color, 1.0f);
 }

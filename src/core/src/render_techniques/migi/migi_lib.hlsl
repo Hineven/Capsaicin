@@ -142,15 +142,13 @@ float3 HemiOctahedron01ToUnitVector( float2 Oct )
 }
 
 // Get the factor to multiply when converting irradiance to radiance of a texel
-float HemiOctahedronTexelIrradianceToRadiance (int2 Coords) {
+float HemiOctahedronIrradianceToTexelRadiance (int2 Coords) {
 #ifdef UE_STYLE_HEMISPHERICAL_OCT_MAPPING
     // Lookup the correction factor from the texture
-    return TWO_PI * g_UEHemiOctahedronCorrectionLutTexture.Load(int3(Coords, 0)).x;
+    return 1.f / (g_UEHemiOctahedronCorrectionLutTexture.Load(int3(Coords, 0)).x * TWO_PI);
 #else
     // using GI1.0's area preserving mapping
-    // Only the central disk is meaningful in this mapping, so the texture
-    // area is multiplied by PI / 4
-    return TWO_PI / (SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE * QUARTER_PI);
+    return  SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE / TWO_PI;
 #endif
 }
 

@@ -118,7 +118,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::EndCombo();
         }
         ImGui::Checkbox("DDGI Final Gather", &options_.DDGI_final_gather);
-        ImGui::Checkbox("SG Lighting Only", &options_.show_SG_lighting_only);
+        ImGui::Checkbox("Exclude Oct Lighting", &options_.exclude_oct_lighting);
+        ImGui::Checkbox("Exclude SG Lighting", &options_.exclude_SG_lighting);
         if (ImGui::Button("Reset Screen Space Cache"))
         {
             need_reset_screen_space_cache_ = true;
@@ -144,7 +145,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Disable SG", &options_.disable_SG);
         ImGui::Checkbox("Squared radiance weight for SG direction", &options_.SSRC_squared_SG_directional_weight);
         ImGui::SliderFloat("SG Merging Threshold", &options_.SSRC_SG_merging_threshold, 0.1f, 1.f);
-        ImGui::SliderFloat("SG Similarity Alpha", &options_.SSRC_SG_similarity_alpha, 0.01f, 5.f);
+        ImGui::SliderFloat("SG Similarity Alpha", &options_.SSRC_SG_similarity_alpha, 0.002f, 0.5f);
         ImGui::SliderFloat("SG Lambda Learning Bonus", &options_.SSRC_SG_lambda_learning_bonus, 0.1f, 50.f);
         ImGui::SliderFloat("SG Color  Learning Bonus", &options_.SSRC_SG_color_learning_bonus, 0.05f, 5.f);
         ImGui::SliderFloat("SG Direction Learing Rate", &options_.SSRC_SG_direction_learing_rate, 0.01f, 0.3f);

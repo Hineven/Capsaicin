@@ -190,10 +190,14 @@ struct MIGI_Constants {
     uint   Inspection_Oct;
     float  SGColorLearningBonus;
     float  SGDirectionLearningRate;
-    uint   ShowSGLightingOnly;
+    uint   ExcludeOctLighting;
 
     float4x4 InspectionCameraProjView;
-
+    
+    uint   ExcludeSGLighting;
+    uint   Padding0;
+    uint   Padding1;
+    uint   Padding2;
 };
 
 
