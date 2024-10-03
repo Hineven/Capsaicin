@@ -370,8 +370,8 @@ void SSRC_ClearCounters() {
 }
 
 float3 GetProbeOffsetAdaptiveNormal (int2 ScreenCoords, float3 GeometryNormal, float3 ViewDirection) {
-    float3 AdaptiveNormal = GeometryNormal;//normalize(ViewDirection + GeometryNormal);
-#if true
+    float3 AdaptiveNormal = ViewDirection;//normalize(ViewDirection + GeometryNormal);
+#if false
     // Fine-tune the normal to bent normal when close to occluded regions
     float4 BentNormalOcc  = g_BentNormalAndOcclusionTexture.Load(int3(ScreenCoords, 0));
     float  Occlusion      = BentNormalOcc.w;
@@ -3135,7 +3135,7 @@ void GatherProbeRadiance (
     int2   NeighborProbeIndex,
     inout float3 SumRadiance,
     inout float  SumWeight,
-    float MaxWeight
+    inout float MaxWeight
 ) {
     if(all(NeighborProbeIndex >= 0) && all(NeighborProbeIndex < MI.TileDimensions)) {
         float NeighborLinearDepth = GetScreenProbeLinearDepth(NeighborProbeIndex);
@@ -3163,7 +3163,7 @@ void GatherProbeRadiance (
                     float  DepthWeight = 1 - abs(NeighborDepth - ToNeighborLength) / max(1e-3f, max(NeighborDepth, ToNeighborLength));
                     DepthWeight = pow(saturate(DepthWeight), 6);
                     float  Weight = PositionWeight * DepthWeight;
-                    Weight = min(Weight, MaxWeight);
+                    MaxWeight = max(Weight, MaxWeight);
                     SumRadiance += NeighborRadiance * Weight;
                     SumWeight   += Weight;
                 }
@@ -3206,12 +3206,9 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
         float4  TexelRadianceDepth = GetScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords);
         float3 HitPosition = Header.Position + ProbeWorldTexelDirection * TexelRadianceDepth.w;
 
-        float  MaxWeight = 1.f;
-        if(ReprojectionTrust < 0.8f) {
-            MaxWeight = 0.5f;
-        }
-        float3 SumRadiance = TexelRadianceDepth.xyz * MaxWeight;
-        float  SumWeight   = MaxWeight;
+        float  MaxWeight = 0.1f;
+        float3 SumRadiance = 0.f;
+        float  SumWeight   = 0.f;
 
         if(MI.ProbeFiltering) {
             
@@ -3257,6 +3254,9 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
                 );
             }
         }
+
+        SumRadiance += TexelRadianceDepth.xyz * MaxWeight;
+        SumWeight   += MaxWeight;
     
         float3 NewRadiance = SumRadiance / SumWeight;
         float4 NewRadianceDepth = float4(NewRadiance, TexelRadianceDepth.w);
@@ -3692,7 +3692,7 @@ void SSRC_IntegrateDDGI (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThread
     }
 }
 
-#define MAX_TEMPORAL_ACCUMULATION 10
+#define MAX_TEMPORAL_ACCUMULATION 19
 
 // https://www.gdcvault.com/play/1022970/Temporal-Reprojection-Anti-Aliasing-in
 float2 GetClosestVelocity(in float2 uv, in float2 texel_size, out bool is_sky_pixel)
