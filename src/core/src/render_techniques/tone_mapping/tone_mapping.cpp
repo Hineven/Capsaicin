@@ -94,6 +94,19 @@ void ToneMapping::render(CapsaicinInternal &capsaicin) noexcept
     GfxTexture output     = input;
     auto       debug_view = capsaicin.getCurrentDebugView();
 
+    auto blue_noise_sampler = capsaicin.getComponent<BlueNoiseSampler>();
+    blue_noise_sampler->addProgramParameters(capsaicin, tone_mapping_program_);
+
+    gfxProgramSetParameter(gfx_, tone_mapping_program_, "g_InputBuffer", input);
+    gfxProgramSetParameter(gfx_, tone_mapping_program_, "g_OutputBuffer", output);
+
+    uint32_t const *num_threads  = gfxKernelGetNumThreads(gfx_, tone_mapping_kernel_);
+    uint32_t const  num_groups_x = (buffer_dimensions[0] + num_threads[0] - 1) / num_threads[0];
+    uint32_t const  num_groups_y = (buffer_dimensions[1] + num_threads[1] - 1) / num_threads[1];
+
+    gfxCommandBindKernel(gfx_, tone_mapping_kernel_);
+    gfxCommandDispatch(gfx_, num_groups_x, num_groups_y, 1);
+
     if (!debug_view.empty() && debug_view != "None")
     {
         // Tone map the debug buffer if we are using a debug view
@@ -114,20 +127,15 @@ void ToneMapping::render(CapsaicinInternal &capsaicin) noexcept
             input  = capsaicin.getAOVBuffer("Debug");
             output = input;
         }
+        {
+
+            gfxProgramSetParameter(gfx_, tone_mapping_program_, "g_InputBuffer", input);
+            gfxProgramSetParameter(gfx_, tone_mapping_program_, "g_OutputBuffer", output);
+
+            gfxCommandBindKernel(gfx_, tone_mapping_kernel_);
+            gfxCommandDispatch(gfx_, num_groups_x, num_groups_y, 1);
+        }
     }
-
-    auto blue_noise_sampler = capsaicin.getComponent<BlueNoiseSampler>();
-    blue_noise_sampler->addProgramParameters(capsaicin, tone_mapping_program_);
-
-    gfxProgramSetParameter(gfx_, tone_mapping_program_, "g_InputBuffer", input);
-    gfxProgramSetParameter(gfx_, tone_mapping_program_, "g_OutputBuffer", output);
-
-    uint32_t const *num_threads  = gfxKernelGetNumThreads(gfx_, tone_mapping_kernel_);
-    uint32_t const  num_groups_x = (buffer_dimensions[0] + num_threads[0] - 1) / num_threads[0];
-    uint32_t const  num_groups_y = (buffer_dimensions[1] + num_threads[1] - 1) / num_threads[1];
-
-    gfxCommandBindKernel(gfx_, tone_mapping_kernel_);
-    gfxCommandDispatch(gfx_, num_groups_x, num_groups_y, 1);
 }
 
 void ToneMapping::terminate() noexcept

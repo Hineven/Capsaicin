@@ -29,6 +29,7 @@ THE SOFTWARE.
 #include "taa/update_history.h"
 #include "tone_mapping/tone_mapping.h"
 #include "visibility_buffer/visibility_buffer.h"
+#include "evaluate/evaluate.h"
 
 namespace Capsaicin
 {
@@ -61,6 +62,7 @@ public:
         render_techniques.emplace_back(std::make_unique<UpdateHistory>());
         render_techniques.emplace_back(std::make_unique<TAA>());
         render_techniques.emplace_back(std::make_unique<ToneMapping>());
+        render_techniques.emplace_back(std::make_unique<Evaluate>());
         return render_techniques;
     }
 };

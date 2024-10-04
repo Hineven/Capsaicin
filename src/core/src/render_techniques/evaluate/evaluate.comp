@@ -1,0 +1,75 @@
+RWTexture2D<float4> g_RWColor;
+RWTexture2D<float4> g_RWDebug;
+Texture2D<float4> g_Reference;
+uint g_Mode;
+RWStructuredBuffer<float> g_RWPixelSEBuffer;
+RWStructuredBuffer<float> g_RWPixelPEBuffer;
+
+float g_Shift;
+float g_Angle; 
+
+// Color mapping for debugging
+// Map 1 channel to heat (R - G - B)
+float3 ColorHeatMap (float h) {
+    float H = saturate(1.0f - h) * 5.0f;
+    float R = saturate(min(H - 1.5f, 4.5f - H));
+    float G = saturate(min(H - 0.5f, 3.5f - H));
+    float B = saturate(min(H + 0.5f, 2.5f - H));
+    return float3(R, G, B);
+}
+
+[numthreads(8, 8, 1)]
+void Evaluate(int2 DispatchID : SV_DispatchThreadID)
+{
+    int2 Dimensions;
+    g_RWColor.GetDimensions(Dimensions.x, Dimensions.y);
+    if(any(DispatchID.xy >= Dimensions))
+    {
+        return;
+    }
+    int PixelIndex = DispatchID.y * Dimensions.x + DispatchID.x;
+    float3 RefColor = g_Reference[DispatchID].rgb;
+    float3 Color = g_RWColor[DispatchID].rgb;
+    float3 Diff = RefColor - Color;
+    float PixelSE = dot(Diff, Diff);
+    float PixelPE = dot(1.f.xxx, abs(Diff) / max(max(RefColor, Color), 1e-4f.xxx));
+    g_RWPixelSEBuffer[PixelIndex] = PixelSE;
+    g_RWPixelPEBuffer[PixelIndex] = PixelPE;
+}
+
+[numthreads(8, 8, 1)]
+void Visualize(int2 DispatchID : SV_DispatchThreadID)
+{
+    int2 Dimensions;
+    g_RWColor.GetDimensions(Dimensions.x, Dimensions.y);
+    if(any(DispatchID.xy >= Dimensions))
+    {
+        return;
+    }
+    float2 Vec = DispatchID - Dimensions / 2;
+    float2 NormVec = Vec / min(Dimensions.x, Dimensions.y);
+    float2 DirectionVec = float2(cos(g_Angle), sin(g_Angle));
+    float DotProduct = dot(NormVec, DirectionVec);
+    bool  ShowData = DotProduct >= g_Shift;
+
+    int PixelIndex = DispatchID.y * Dimensions.x + DispatchID.x;
+    float3 RefColor = g_Reference[DispatchID].rgb;
+    float PixelSE = g_RWPixelSEBuffer[PixelIndex];
+    float PixelPE = g_RWPixelPEBuffer[PixelIndex];
+    float3 DataColor = float3(0.0f, 0.0f, 0.0f);
+    if(g_Mode == 0)
+    {
+        DataColor = ColorHeatMap(PixelSE);
+    }
+    else if(g_Mode == 1)
+    {
+        DataColor = ColorHeatMap(PixelPE);
+    }
+    else if(g_Mode == 2)
+    {
+        DataColor = float3(RefColor);
+    }
+    float3 RenderColor = g_RWColor[DispatchID].rgb;
+    float3 DebugColor = ShowData ? DataColor : RenderColor;
+    g_RWDebug[DispatchID] = float4(DebugColor, 1.0f);
+}

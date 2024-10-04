@@ -27,17 +27,30 @@
 
         void renderGUI(CapsaicinInternal &capsaicin) const noexcept override;
 
+        DebugViewList getDebugViews() const noexcept;
+
     protected:
 
         GfxBuffer pixel_mse_buffer_;
         GfxBuffer pixel_mape_buffer_;
         GfxBuffer mse_buffer_;
         GfxBuffer mape_buffer_;
+        GfxTexture reference_;
 
         GfxBuffer readback_buffers_[kGfxConstant_BackBufferCount];
+        bool      readback_pending_[kGfxConstant_BackBufferCount];
 
         GfxProgram program_;
-        GfxKernel  compute_kernel_;
+        GfxKernel  evaluate_kernel_;
+        GfxKernel  visualize_kernel_;
+
+        int readback_index_{};
+        float mse_{};
+        float mape_{};
+
+        mutable int mode_ {};
+        mutable float shift_ {};
+        mutable float angle_ {};
     };
 }
 
