@@ -193,8 +193,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeSGBuffer", buf_.probe_SG[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWAllocatedProbeSGCountBuffer", buf_.allocated_probe_SG_count);
 
-
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeHistoryTrustTexture", tex_.probe_history_trust);
+
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeCompensationTexture", tex_.probe_compensation);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayCountBuffer", buf_.probe_update_ray_count);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayOffsetBuffer", buf_.probe_update_ray_offset);

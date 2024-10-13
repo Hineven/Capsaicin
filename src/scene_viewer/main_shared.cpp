@@ -90,7 +90,8 @@ static vector<SceneData> const scenes = {
     {"1Emitter_twisted",                                          {"assets/MIGITestMedia/1emitter_twisted/scene.gltf"},  false, 1.0f},
     {"2Emitters",                                          {"assets/MIGITestMedia/2emitters/scene.gltf"},  false, 0.5f},
     {"MovingLight",                                          {"assets/MIGITestMedia/moving-light/TestScene.gltf"},  false, 5.f},
-    {"SchoolPassage",                                      {"assets/MIGITestMedia/SchoolPassage/SchoolPassage.gltf"},   true, 3.f}
+    {"SchoolPassage",                                      {"assets/MIGITestMedia/SchoolPassage/SchoolPassage.gltf"},   true, 3.f},
+    {"BiasTest",                                           {"assets/MIGITestMedia/BiasTest/scene.gltf"}, true, 2.f}
 };
 
 /** List of supported environment maps */
@@ -102,7 +103,7 @@ static vector<pair<string_view, string_view>> const sceneEnvironmentMaps = {
     {        "Spaichingen Hill",       "assets/CapsaicinTestMedia/environment_maps/SpaichingenHill.hdr"},
     {            "Studio Small",           "assets/CapsaicinTestMedia/environment_maps/StudioSmall.hdr"},
     {                   "White",                 "assets/CapsaicinTestMedia/environment_maps/White.hdr"},
-    {              "Atmosphere",                                                                     ""},
+    {              "Atmosphere",                                                                     ""}
 };
 
 /** List of executable relative file paths to search for scene files */

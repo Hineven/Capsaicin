@@ -40,7 +40,12 @@
 
 // Rays that have raw evaluated SG values less than this won't be taken into account
 // for the SG during update.
-#define SG_CLIP_VALUE 1e-3f
+// This can cause bias (brighter in some areas)
+#define SG_CLIP_VALUE 0 //1e-3f
+
+// Darkens the target radiance SGs trying to emulate. 
+// Spare some space for unbiased SH compensation
+#define SG_DARKEN_MULTIPLIER 1.f //0.8f
 
 // Merge SG Lambdas in log scale instead of linear
 #define LOGSCALE_SG_LAMBDA_IN_MERGING
@@ -56,7 +61,7 @@
 
 // If we're using a more accurate (but more expensive)
 // integration approximation for SG final shading.
-// #define HIGH_PRECISION_SG_INTEGRATION
+#define HIGH_PRECISION_SG_INTEGRATION
 
 // Mirror repeat the tile jitter sequence.
 // This helps elevating regular-patterned artifacts caused by
@@ -83,6 +88,8 @@
 
 // Debug flag to minimize the impact of SG blending & merging due to probe reprojection
 // #define DEBUG_MIN_PROBE_REPROJECTION
+
+#define MIN_SG_COLOR (1e-6f)
 
 #ifndef WAVE_SIZE
 // This macro should be set correctly with the compiler flags
@@ -184,6 +191,9 @@ RWStructuredBuffer<uint>   g_RWAllocatedProbeSGCountBuffer;
 // The estimated accuracy of the current probe from temporal reprojection
 // [0, 1], used to guide update ratio
 RWTexture2D<float>  g_RWProbeHistoryTrustTexture;
+
+// The amount of estimated bias that SGs introduced for each probe. (irradiance)
+RWTexture2D<float4> g_RWProbeCompensationTexture;
 
 // Number of update rays allocated for each probe
 // Must be a multiple of WAVE_SIZE

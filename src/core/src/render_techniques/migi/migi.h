@@ -87,6 +87,8 @@ public:
         GfxTexture   probe_irradiance;
         // Used to measure the trust of reprojected result from last frame [0, 1]
         GfxTexture   probe_history_trust;
+        // Used to compensate SGs to mitigate bias in the final gather step
+        GfxTexture   probe_compensation;
 
         // Tile adaptive probe count  uint32 (Don't use R16, there are silent bugs)
         GfxTexture   tile_adaptive_probe_count [2];

@@ -1179,7 +1179,7 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
 #endif // DELAYED_SG_REPROJECTION
 }
 
-#define SCREEN_PROBE_TRUST_THRESHOLD 0.2f
+#define SCREEN_PROBE_TRUST_THRESHOLD 0.5f
 // Initialize screen probes that failed in reprojection with world cache.
 // Trust < SCREEN_PROBE_TRUST_THRESHOLD, we blend in more secondary cache if the trust is smaller than that.
 [numthreads(WAVE_SIZE, 1, 1)]
@@ -1188,7 +1188,8 @@ void SSRC_InitializeFailedProbes (int LocalID : SV_GroupThreadID, int GroupID : 
     ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
     float ProbeTrust = g_RWProbeHistoryTrustTexture[ProbeIndex];
     bool IsProbeTrusted = ProbeTrust >= SCREEN_PROBE_TRUST_THRESHOLD;
-    if(MI.ResetCache || IsProbeTrusted) {
+    // FIXME initializing failed probes downgrades the quality ?
+    if(true || MI.ResetCache || IsProbeTrusted) {
         // Do nothing when resetting the cache or the probe is semi-trusted
         return ;
     }
@@ -2452,12 +2453,12 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     SSRC_SampleData Sample = (SSRC_SampleData)0;
     [branch]
     if(ReprojectionTrust != 0 && GetProbeReprojectionSample(Header.Normal, ProbeTangent, ProbeBitangent, Header.Position, Header.LinearDepth, ProbeIndex, false, Sample)) {
-        if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
-            g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 4] = asuint(Sample.Weights.x);
-            g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 5] = asuint(Sample.Weights.y);
-            g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 6] = asuint(Sample.Weights.z);
-            g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 7] = asuint(Sample.Weights.w);
-        }
+        // if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
+        //     g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 4] = asuint(Sample.Weights.x);
+        //     g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 5] = asuint(Sample.Weights.y);
+        //     g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 6] = asuint(Sample.Weights.z);
+        //     g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 7] = asuint(Sample.Weights.w);
+        // }
         int BasisOffsets[4];
         BasisOffsets[0] = GetScreenProbeBasisOffset(Sample.Index[0], true);
         BasisOffsets[1] = GetScreenProbeBasisOffset(Sample.Index[1], true);
@@ -2726,6 +2727,16 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 if(all(CurrentSG.Color == 0)) continue ;
                 float3 Irradiance = SGIntegrate(CurrentSG.Lambda) * CurrentSG.Color;
                 // Distribute irradiance onto the sphere
+                float3 LocalSGDirection = float3(
+                    dot(CurrentSG.Direction, ProbeTangent),
+                    dot(CurrentSG.Direction, ProbeBitangent),
+                    dot(CurrentSG.Direction, Header.Normal)
+                );
+                float2 FallInOct01 = LocalSGDirection.z >= 0 ? UnitVectorToHemiOctahedron01(LocalSGDirection) : -1.xx;
+                int2   FallInTexel = int2(
+                    FallInOct01.x * SSRC_PROBE_TEXTURE_SIZE,
+                    FallInOct01.y * SSRC_PROBE_TEXTURE_SIZE
+                );
                 float SGValues[SSRC_PROBE_TEXTURE_TEXEL_COUNT / WAVE_SIZE];
                 for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
                     int TexelIndex = BaseProbeTexelIndex + LocalID;
@@ -2733,7 +2744,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     float2 Oct01 = (TexelCoords + 0.5f) * (1.f / SSRC_PROBE_TEXTURE_SIZE);
                     float3 SampleDirection = HemiOctahedron01ToUnitVector(Oct01);
                     SampleDirection = SampleDirection.x * ProbeTangent + SampleDirection.y * ProbeBitangent + SampleDirection.z * Header.Normal;
-                    float  SGValue  = EvaluateSGRaw(CurrentSG, SampleDirection);
+                    // Bias the texel which SG direction falls into in case the SG is so sharp
+                    // that the sum of SGValues approximates to zero.
+                    float  Bias = all(FallInTexel == TexelCoords) ? 1e-6f : 0.f;
+                    float  SGValue  = EvaluateSGRaw(CurrentSG, SampleDirection) + Bias;
                     SGValues[BaseProbeTexelIndex / WAVE_SIZE] = SGValue;
                 }
                 float Sum = 0.f;
@@ -2742,7 +2756,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 }
                 Sum = WaveActiveSum(Sum);
                 for(int i = 0; i < SSRC_PROBE_TEXTURE_TEXEL_COUNT / WAVE_SIZE; i++) {
-                    float  Fraction = SGValues[i] / max(1e-5f, Sum);
+                    float  Fraction = SGValues[i] / max(1e-6f, Sum);
                     float3 TexelIrradiance = Fraction * Irradiance;
                     int  TexelIndex  = i * WAVE_SIZE + LocalID;
                     int2 TexelCoords = int2(TexelIndex % SSRC_PROBE_TEXTURE_SIZE, TexelIndex / SSRC_PROBE_TEXTURE_SIZE);
@@ -2979,7 +2993,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float NewRawSize = SGIntegrate(NewLambda);
                 // Preserve irradiance, but do not massive increase color to ensure stability.
                 float ColorMultiplier = clamp(OldRawSize / NewRawSize, 0, 1);
-                SG.Color = max(SG.Color * ColorMultiplier, 0.00001f.xxx);
+                SG.Color = max(SG.Color * ColorMultiplier, MIN_SG_COLOR);
 #endif
             }
 
@@ -3000,21 +3014,21 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float  DeltaColorLength = dot(abs(DeltaColor), 1.f.xxx);
                 float  ClampedDeltaColorLength = min(DeltaColorLength, IrradianceChange / SGRawSize);
                 float3 FinalColor = SG.Color + DeltaColor * (ClampedDeltaColorLength / max(DeltaColorLength, 1e-6f));
-                SG.Color = max(FinalColor, 0.00001f.xxx); // Color is in [0.001, inf)
+                SG.Color = max(FinalColor, MIN_SG_COLOR); // Color is in [0.001, inf)
             }
 
             // FIXME SG depth is never updated
 
             if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
-                SGData SG = LocalSGData[0];
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 8] = asuint(SG.Lambda);
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 9] = asuint(SumStepSize.dLambda);
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 10] = asuint(dot(SG.Color, 1.f.xxx));
             }
             
-
             // Write back
             WriteBasisData(Header.BasisOffset + BasisRank, SG);
+            // Also write back to shared memory for later use
+            LocalSGData[BasisRank] = SG;
         }
     }
 
@@ -3120,19 +3134,19 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float  empty_cell_count = NumUntracedTexels;
             BackupRadiance = BackupRadiance / max(NumUntracedTexels, 1.0f);
         }
+        float3 CompensationIrradiance = 0.f;
+        float  CompensationWeightSum  = 0.f;
         [unroll(SSRC_PROBE_TEXTURE_TEXEL_COUNT / WAVE_SIZE)]
         for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
             int  ProbeTexelIndex = BaseProbeTexelIndex + LocalID;
             int2 ProbeTexelCoords = int2(ProbeTexelIndex % SSRC_PROBE_TEXTURE_SIZE, ProbeTexelIndex / SSRC_PROBE_TEXTURE_SIZE);
             int4  Quantilized = LocalProbeTexelsQuantilized[ProbeTexelIndex];
             float4 RadianceDepthSum = RecoverRadiance(Quantilized.xyzw);
-            // Clamp to zero for negative radiance
-            RadianceDepthSum.rgb = max(RadianceDepthSum.rgb, 0.f.xxx);
             float4 OldRadianceDepth;
 #ifndef DELAYED_SG_REPROJECTION
             OldRadianceDepth = GetScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords);
 #else
-            // In this case old radiance and depth are loaded to shared memory earlier
+            // In this case old radiance and depth have been loaded to shared memory earlier
             OldRadianceDepth = float4(
                 LocalProbeTexels[ProbeTexelIndex],
                 LocalReprojectedOctDepth[ProbeTexelIndex]
@@ -3142,7 +3156,13 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float  Weight   = QuantilizedWeight == 0 ? 1.f : RecoverWeight(QuantilizedWeight);
             // Overwrite the radiance depth with backup values if the texel is not traced in current update
             if(QuantilizedWeight == 0) RadianceDepthSum = float4(BackupRadiance, MI.CameraFar);
-            float  LumaA = luminance(RadianceDepthSum.xyz);
+            float4 RadianceDepth = RadianceDepthSum / Weight;
+            // Accumulate the compensation radiance for over-lit caused by LSM method.
+            float3 TexelCompensation = min(RadianceDepth.xyz, 0);
+            // Clamp to zero for negative radiance
+            RadianceDepth.rgb = max(RadianceDepth.rgb, 0.f.xxx);
+
+            float  LumaA = luminance(RadianceDepth.xyz);
             float  LumaB = luminance(OldRadianceDepth.xyz);
             // Copy-pasted from GI1.0
             // Shadow-preserving biased temporal hysteresis (inspired by: https://www.youtube.com/watch?v=WzpLWzGvFK4&t=630s)
@@ -3152,10 +3172,31 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             TemporalBlend = 0.75f;
             // Clamp the lerping factor with impact factors from our pipeline
             TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
-            float4 NewValue = lerp(RadianceDepthSum / Weight, OldRadianceDepth, TemporalBlend);
-            LocalProbeTexels[ProbeTexelIndex] = NewValue.xyz;
+            float4 NewValue = lerp(RadianceDepth, OldRadianceDepth, TemporalBlend);
+            NewValue = max(NewValue, 0.f.xxxx);
             WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, NewValue);
+            float CompensationWeight = 1.f - TemporalBlend;
+            CompensationIrradiance += CompensationWeight * TexelCompensation / HemiOctahedronIrradianceToTexelRadiance(ProbeTexelCoords);
+            CompensationWeightSum  += CompensationWeight;
         }
+        CompensationIrradiance = WaveActiveSum(CompensationIrradiance);
+        CompensationWeightSum  = WaveActiveSum(CompensationWeightSum);
+        CompensationIrradiance /= max(CompensationWeightSum, 1e-4f);
+        CompensationWeightSum *= (1.f / SSRC_PROBE_TEXTURE_TEXEL_COUNT);
+        // Write back compensation for the probe
+        if(WaveIsFirstLane()) {
+            // float3 OldCompensation = g_RWProbeCompensationTexture[ProbeIndex].xyz;
+            // CompensationIrradiance = lerp(OldCompensation, CompensationIrradiance, CompensationWeightSum);
+            g_RWProbeCompensationTexture[ProbeIndex] = float4(CompensationIrradiance, 0.f);
+        }
+        // if(WaveIsFirstLane()) {
+        //     if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
+        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 4] = asuint(CompensationCosineWeightedIrradiance.x);
+        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 5] = asuint(CompensationCosineWeightedIrradiance.y);
+        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 6] = asuint(CompensationCosineWeightedIrradiance.z);
+        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 7] = asuint(-1.f);
+        //     }
+        // }
     }
 }
 
@@ -3245,7 +3286,7 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
         float4  TexelRadianceDepth = GetScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords);
         float3 HitPosition = Header.Position + ProbeWorldTexelDirection * TexelRadianceDepth.w;
 
-        float  MaxWeight = 0.1f;
+        float  MaxWeight = max(ReprojectionTrust, 0.1f);
         float3 SumRadiance = 0.f;
         float  SumWeight   = 0.f;
 
@@ -3401,6 +3442,12 @@ float4 SampleScreenProbeRadianceDepth (int2 ProbeIndex, float3 LocalDirection) {
     return g_ProbeSampleColorTexture.SampleLevel(g_LinearSampler, AtlasUV, 0);
 }
 
+void CompensateSG (inout SGData SG, float3 Compensation) {
+    float  SGRawInt = SGIntegrate(SG.Lambda);
+    float3 DeltaColor = Compensation / SGRawInt;
+    SG.Color = max(SG.Color + DeltaColor, MIN_SG_COLOR);
+}
+
 
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
@@ -3501,6 +3548,10 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
 
                 float3 HighFreq_Diffuse = 0.f.xxx;
                 float3 HighFreq_Glossy  = 0.f.xxx;
+                float3 Compensations[4];
+                for(int i = 0; i < 4; i++) {
+                    Compensations[i] = g_RWProbeCompensationTexture[Sample.Index[i]].rgb;
+                }
                 // HighFreq-AllFreq shading
                 [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * 4)]
                 for(int BasisRank = 0; BasisRank < BasisCount; BasisRank++) {
@@ -3515,6 +3566,9 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     }
                     int BasisIndex = Headers[ProbeRank].BasisOffset + ProbeBasisIndex;
                     SGData SG = FetchBasisData(BasisIndex);
+                    // Correct the SG's irradiance with compensation previously calculated
+                    float3 Compensation = Compensations[ProbeRank];
+                    CompensateSG(SG, Compensation);
                     float3 LightDirection = SG.Direction;                    
                     float3 HalfVector = normalize(LightDirection + ViewDirection);
                     float dotNL = saturate(dot(LightDirection, ShadingNormal));
@@ -3735,7 +3789,7 @@ void SSRC_IntegrateDDGI (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThread
     }
 }
 
-#define MAX_TEMPORAL_ACCUMULATION 19
+#define MAX_TEMPORAL_ACCUMULATION 8
 
 // https://www.gdcvault.com/play/1022970/Temporal-Reprojection-Anti-Aliasing-in
 float2 GetClosestVelocity(in float2 uv, in float2 texel_size, out bool is_sky_pixel)
