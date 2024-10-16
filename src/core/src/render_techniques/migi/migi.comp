@@ -2874,23 +2874,23 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     LocalSGData[BasisRankToUpdate] = SG_D;
                 }
                 // Re-calculate the evaluated radiance for the changed basis
-                // [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
-                // for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
-                //     int RayRank  = RayRankBase + LocalID;
-                //     int RayIndex = ProbeRayOffset + RayRank;
-                //     float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
-                //     float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-                //     float3 RayRadiance       = RayRadianceInvPdf.xyz;
-                //     float  InvPdf            = RayRadianceInvPdf.w;
-                //     if(InvPdf > 0) {
-                //         float  RawPrevious = EvaluateSGRaw(SG_O, RayDirection);
-                //         float  Raw         = EvaluateSGRaw(SG_D, RayDirection);
-                //         if(RawPrevious <= SG_CLIP_VALUE) RawPrevious = 0.f;
-                //         if(Raw         <= SG_CLIP_VALUE) Raw         = 0.f;
-                //         float3 Delta = Raw * SG_D.Color - RawPrevious * SG_O.Color;
-                //         LocalEvaluatedRadiance[RayRank] += Delta;
-                //     }
-                // }
+                [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+                for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
+                    int RayRank  = RayRankBase + LocalID;
+                    int RayIndex = ProbeRayOffset + RayRank;
+                    float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
+                    float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+                    float3 RayRadiance       = RayRadianceInvPdf.xyz;
+                    float  InvPdf            = RayRadianceInvPdf.w;
+                    if(InvPdf > 0) {
+                        float  RawPrevious = EvaluateSGRaw(SG_O, RayDirection);
+                        float  Raw         = EvaluateSGRaw(SG_D, RayDirection);
+                        if(RawPrevious <= SG_CLIP_VALUE) RawPrevious = 0.f;
+                        if(Raw         <= SG_CLIP_VALUE) Raw         = 0.f;
+                        float3 Delta = Raw * SG_D.Color - RawPrevious * SG_O.Color;
+                        LocalEvaluatedRadiance[RayRank] += Delta;
+                    }
+                }
             }
             GroupMemoryBarrierWithGroupSync();
         }
@@ -3014,6 +3014,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float  DeltaColorLength = dot(abs(DeltaColor), 1.f.xxx);
                 float  ClampedDeltaColorLength = min(DeltaColorLength, IrradianceChange / SGRawSize);
                 float3 FinalColor = SG.Color + DeltaColor * (ClampedDeltaColorLength / max(DeltaColorLength, 1e-6f));
+                
+                // Overwrite the final color (this seems to work a lot better than the previous heuristics...)
+                FinalColor = lerp(SG.Color, EstimatedColor, 0.25f);
+
                 SG.Color = max(FinalColor, MIN_SG_COLOR); // Color is in [0.001, inf)
             }
 

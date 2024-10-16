@@ -45,7 +45,7 @@
 
 // Darkens the target radiance SGs trying to emulate. 
 // Spare some space for unbiased SH compensation
-#define SG_DARKEN_MULTIPLIER 1.f //0.8f
+#define SG_DARKEN_MULTIPLIER 1.f
 
 // Merge SG Lambdas in log scale instead of linear
 #define LOGSCALE_SG_LAMBDA_IN_MERGING
