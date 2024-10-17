@@ -375,8 +375,10 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.probe_history_trust = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_FLOAT);
     tex_.probe_history_trust.setName("ProbeHistoryTrust");
 
-    tex_.probe_compensation = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    tex_.probe_compensation.setName("ProbeCompensation");
+    tex_.probe_compensation[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_compensation[0].setName("ProbeCompensation0");
+    tex_.probe_compensation[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    tex_.probe_compensation[1].setName("ProbeCompensation1");
 
     int tile_texture_width = divideAndRoundUp(capsaicin.getWidth(), SSRC_TILE_SIZE);
     int tile_texture_height = divideAndRoundUp(capsaicin.getHeight(), SSRC_TILE_SIZE);
@@ -680,7 +682,8 @@ void MIGI::releaseResources()
     gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_B);
     gfxDestroyTexture(gfx_, tex_.probe_irradiance);
     gfxDestroyTexture(gfx_, tex_.probe_history_trust);
-    gfxDestroyTexture(gfx_, tex_.probe_compensation);
+    gfxDestroyTexture(gfx_, tex_.probe_compensation[0]);
+    gfxDestroyTexture(gfx_, tex_.probe_compensation[1]);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[0]);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[1]);
     gfxDestroyTexture(gfx_, tex_.next_tile_adaptive_probe_count);

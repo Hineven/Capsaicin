@@ -72,6 +72,8 @@ struct MIGIRenderOptions {
     bool disable_SG = false;
     // Whether to use square weighted radiance for SG direction update
     bool SSRC_squared_SG_directional_weight = true;
+    // Whether to compensate over lit SGs to mitigate bias
+    bool SSRC_SG_no_compensation = false;
 
     // Merging threshold required when doing frame-to-frame SG reprojection
     float SSRC_SG_merging_threshold = 0.5f;

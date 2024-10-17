@@ -195,7 +195,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeHistoryTrustTexture", tex_.probe_history_trust);
 
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeCompensationTexture", tex_.probe_compensation);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeCompensationTexture", tex_.probe_compensation[flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeCompensationTexture", tex_.probe_compensation[1-flip]);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayCountBuffer", buf_.probe_update_ray_count);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayOffsetBuffer", buf_.probe_update_ray_offset);
@@ -359,6 +360,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.SGDirectionLearningRate = options_.SSRC_SG_direction_learing_rate;
         C.ExcludeOctLighting      = options_.exclude_oct_lighting;
         C.ExcludeSGLighting       = options_.exclude_SG_lighting;
+
+        C.NoCompensation          = options_.SSRC_SG_no_compensation;
 
         glm::mat4 original_proj_view =
             glm::perspective(__inspection_camera.fovY, __inspection_camera.aspect, __inspection_camera.nearZ, __inspection_camera.farZ)

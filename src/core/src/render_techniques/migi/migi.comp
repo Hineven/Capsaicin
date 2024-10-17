@@ -953,6 +953,20 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
         }
     }
 
+    // Reproject compensation values
+    {
+        float3 PreviousCompensation = 0.f;
+        for(int CornerIndex = 0; CornerIndex < 4; CornerIndex ++) {
+            if(Sample.Weights[CornerIndex] > 0) {
+                int2 SrcProbeIndex = Sample.Index[CornerIndex];
+                float3 Compensation = g_RWPreviousProbeCompensationTexture[SrcProbeIndex].rgb;
+                PreviousCompensation += Sample.Weights[CornerIndex] * Compensation;
+            }
+        }
+        float3 Compensation = PreviousCompensation;
+        g_RWProbeCompensationTexture[ProbeIndex] = float4(Compensation, all(Compensation == 0) ? 0 : 1);
+    }
+
 // We may delay the SG reprojection to later shaders for better reprojection quality
 #ifndef DELAYED_SG_REPROJECTION
     // Reproject SG
@@ -2369,6 +2383,8 @@ float3 ComputeEstimatedSGColor (
     // to prevent the SG from being too bright and explode.
 // #define SG_UPDATE_ADEQUATE_RAY_WEIGHT_SUM 0.005f
     float3 Result = SumBFactor / max(SumAFactor, 1e-6f);
+    // Darken the biased SG color to spare space for octahedron radiance
+    Result *= SG_DARKEN_MULTIPLIER;
     // Clamp by maximum value to avoid outflares caused by too few rays
     return min(Result, ChannelMaximums);
 }
@@ -2982,7 +2998,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             if(MI.CacheUpdate_SGLambda) {
                 float Step = SumStepSize.dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
                 // TODO better lambda update
-                float Factor = exp(Step * MI.LambdaLearningBonus);
+                float Factor = exp(Step * MI.LambdaLearningBonus);// * 0.99f;
                 Factor = clamp(Factor, 0.75f, 1.3334f);
                 float OldLambda = SG.Lambda;
                 SG.Lambda *= Factor;
@@ -3016,7 +3032,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float3 FinalColor = SG.Color + DeltaColor * (ClampedDeltaColorLength / max(DeltaColorLength, 1e-6f));
                 
                 // Overwrite the final color (this seems to work a lot better than the previous heuristics...)
-                FinalColor = lerp(SG.Color, EstimatedColor, 0.25f);
+                // 1017: nop
+                // FinalColor = lerp(SG.Color, EstimatedColor, 0.25f);
 
                 SG.Color = max(FinalColor, MIN_SG_COLOR); // Color is in [0.001, inf)
             }
@@ -3181,7 +3198,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, NewValue);
             float CompensationWeight = 1.f - TemporalBlend;
             CompensationIrradiance += CompensationWeight * TexelCompensation / HemiOctahedronIrradianceToTexelRadiance(ProbeTexelCoords);
-            CompensationWeightSum  += CompensationWeight;
+            // We want the weighted sum of all texels, not the weighted average.
+            CompensationWeightSum  += CompensationWeight / SSRC_PROBE_TEXTURE_TEXEL_COUNT;
         }
         CompensationIrradiance = WaveActiveSum(CompensationIrradiance);
         CompensationWeightSum  = WaveActiveSum(CompensationWeightSum);
@@ -3189,18 +3207,25 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         CompensationWeightSum *= (1.f / SSRC_PROBE_TEXTURE_TEXEL_COUNT);
         // Write back compensation for the probe
         if(WaveIsFirstLane()) {
-            // float3 OldCompensation = g_RWProbeCompensationTexture[ProbeIndex].xyz;
-            // CompensationIrradiance = lerp(OldCompensation, CompensationIrradiance, CompensationWeightSum);
-            g_RWProbeCompensationTexture[ProbeIndex] = float4(CompensationIrradiance, 0.f);
+            float4 OldCompensationW = g_RWProbeCompensationTexture[ProbeIndex];
+            float3 OldCompensation = OldCompensationW.xyz;
+            float Alpha = CompensationWeightSum;
+            // If reprojection failed, we should just replace the old compensation with the new one.
+            if(OldCompensationW.w == 0) Alpha = 1;
+            CompensationIrradiance = lerp(OldCompensation, CompensationIrradiance, CompensationWeightSum);
+            if(MI.NoCompensation) {
+                CompensationIrradiance = 0.f;
+            }
+            g_RWProbeCompensationTexture[ProbeIndex] = float4(CompensationIrradiance, 1.f);
         }
-        // if(WaveIsFirstLane()) {
-        //     if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
-        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 4] = asuint(CompensationCosineWeightedIrradiance.x);
-        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 5] = asuint(CompensationCosineWeightedIrradiance.y);
-        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 6] = asuint(CompensationCosineWeightedIrradiance.z);
-        //         g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 7] = asuint(-1.f);
-        //     }
-        // }
+        if(WaveIsFirstLane()) {
+            if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
+                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 4] = asuint(CompensationIrradiance.x);
+                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 5] = asuint(CompensationIrradiance.y);
+                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 6] = asuint(CompensationIrradiance.z);
+                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 7] = asuint(-1.f);
+            }
+        }
     }
 }
 

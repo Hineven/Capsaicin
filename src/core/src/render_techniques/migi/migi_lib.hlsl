@@ -148,7 +148,7 @@ float HemiOctahedronIrradianceToTexelRadiance (int2 Coords) {
     return 1.f / (g_UEHemiOctahedronCorrectionLutTexture.Load(int3(Coords, 0)).x * TWO_PI);
 #else
     // using GI1.0's area preserving mapping
-    return  SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE / TWO_PI;
+    return SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE / TWO_PI;
 #endif
 }
 

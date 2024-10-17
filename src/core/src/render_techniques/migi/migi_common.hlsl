@@ -195,7 +195,7 @@ struct MIGI_Constants {
     float4x4 InspectionCameraProjView;
     
     uint   ExcludeSGLighting;
-    uint   Padding0;
+    uint   NoCompensation;
     uint   Padding1;
     uint   Padding2;
 };

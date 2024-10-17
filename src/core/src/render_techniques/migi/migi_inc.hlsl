@@ -43,7 +43,7 @@
 // This can cause bias (brighter in some areas)
 #define SG_CLIP_VALUE 0 //1e-3f
 
-// Darkens the target radiance SGs trying to emulate. 
+// Darkens the target radiance SGs trying to compensate for the bias
 // Spare some space for unbiased SH compensation
 #define SG_DARKEN_MULTIPLIER 1.f
 
@@ -194,6 +194,7 @@ RWTexture2D<float>  g_RWProbeHistoryTrustTexture;
 
 // The amount of estimated bias that SGs introduced for each probe. (irradiance)
 RWTexture2D<float4> g_RWProbeCompensationTexture;
+RWTexture2D<float4> g_RWPreviousProbeCompensationTexture;
 
 // Number of update rays allocated for each probe
 // Must be a multiple of WAVE_SIZE

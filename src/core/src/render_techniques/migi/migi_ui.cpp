@@ -142,6 +142,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Freeze Tile Jitter", &options_.debug_freeze_tile_jitter);
         ImGui::Checkbox("Ambient Occlusion", &options_.ambient_occlusion);
         ImGui::Checkbox("SSGI", &options_.near_field_global_illumination);
+        ImGui::Checkbox("No Compensation", &options_.SSRC_SG_no_compensation);
         ImGui::Checkbox("Disable SG", &options_.disable_SG);
         ImGui::Checkbox("Squared radiance weight for SG direction", &options_.SSRC_squared_SG_directional_weight);
         ImGui::SliderFloat("SG Merging Threshold", &options_.SSRC_SG_merging_threshold, 0.1f, 1.f);
