@@ -35,13 +35,13 @@
 // Do not considerate octahedron radiance when selecting SGs for reprojection
 #define REPROJECTION_PRIORITIZE_SG
 
-#define MIN_SG_LAMBDA 12.f
+#define MIN_SG_LAMBDA 48.f
 #define MAX_SG_LAMBDA 4000.f
 
 // Rays that have raw evaluated SG values less than this won't be taken into account
 // for the SG during update.
 // This can cause bias (brighter in some areas)
-#define SG_CLIP_VALUE 0 //1e-3f
+#define SG_CLIP_VALUE 2e-3f
 
 // Darkens the target radiance SGs trying to compensate for the bias
 // Spare some space for unbiased SH compensation

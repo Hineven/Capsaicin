@@ -2912,15 +2912,17 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
     }
 
-    // 2. Update SG Color and Lambda
+    // 2. Update SG Color/Depth and Lambda
     for(int BasisRank = 0; BasisRank < BasisCount; BasisRank ++) {
         SGData SG = LocalSGData[BasisRank];
         SGGradients SumStepSize = (SGGradients)0;
 #ifndef OPTIMAL_COLOR_UPDATE
-        float3  SumAFactor = 0;
+        float3 SumAFactor = 0;
 #else
-        float   SumAFactor = 0;
+        float  SumAFactor = 0;
 #endif
+        float  SumWeightedDepth   = 0;
+        float  SumWeight          = 0;
         float3 Maximums = 0.f.xxx;
 
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
@@ -2970,6 +2972,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                         float3 W = 1.f / (abs(DiffRadiance) + 1e-5f);
                         SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight * W;
                         SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight * W;
+                        SumWeightedDepth          += RayLinearDepth * SampleWeight * SGEvaluatedRaw;
+                        SumWeight                 += SampleWeight * SGEvaluatedRaw;
                         Maximums = max(Maximums, TargetRadiance);
                     }
 #else
@@ -2978,6 +2982,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     if(SGEvaluatedRaw > SG_CLIP_VALUE || SmallerTarget) {
                         SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight;
                         SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
+                        SumWeightedDepth          += RayLinearDepth * SampleWeight * SGEvaluatedRaw;
+                        SumWeight                 += SampleWeight * SGEvaluatedRaw;
                         Maximums = max(Maximums, TargetRadiance);
                     }
 #endif
@@ -2990,6 +2996,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         SumAFactor = WaveActiveSum(SumAFactor);
         SumStepSize.dColor  = WaveActiveSum(SumStepSize.dColor);
         SumStepSize.dLambda = WaveActiveSum(SumStepSize.dLambda);
+        SumWeightedDepth    = WaveActiveSum(SumWeightedDepth);
+        SumWeight           = WaveActiveSum(SumWeight);
         Maximums = WaveActiveMax(Maximums);
         GroupMemoryBarrierWithGroupSync();
         // The chosen thread for updating each basis
@@ -3038,7 +3046,12 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 SG.Color = max(FinalColor, MIN_SG_COLOR); // Color is in [0.001, inf)
             }
 
-            // FIXME SG depth is never updated
+            // Update Depth
+            {
+                float EstimatedDepth = SumWeightedDepth / max(SumWeight, 1e-6f);
+                float Factor = min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f);
+                SG.Depth = EstimatedDepth;//lerp(SG.Depth, EstimatedDepth, Factor);
+            }
 
             if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 8] = asuint(SG.Lambda);

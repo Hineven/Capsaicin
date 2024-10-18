@@ -128,6 +128,7 @@ void Evaluate::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, program_, "g_RWPixelPEBuffer", pixel_mape_buffer_);
     gfxProgramSetParameter(gfx_, program_, "g_Shift", shift_);
     gfxProgramSetParameter(gfx_, program_, "g_Angle", angle_);
+    gfxProgramSetParameter(gfx_, program_, "g_Exposure", exposure_);
 
     gfxCommandBindKernel(gfx_, evaluate_kernel_);
     auto threads          = gfxKernelGetNumThreads(gfx_, evaluate_kernel_);
@@ -173,6 +174,7 @@ void Evaluate::renderGUI([[maybe_unused]] CapsaicinInternal &capsaicin) const no
         ImGui::SliderInt("Mode", &mode_, 0, 2);
         ImGui::SliderFloat("Shift", &shift_, -1.0f, 1.0f);
         ImGui::SliderFloat("Angle", &angle_, 0.0f, 3.1415f * 2.f);
+        ImGui::SliderFloat("Error Exposure", &exposure_, 1.f, 100.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
     }
 }
 

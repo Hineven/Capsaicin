@@ -51,6 +51,7 @@
         mutable int mode_ {};
         mutable float shift_ {};
         mutable float angle_ {};
+        mutable float exposure_ {10.f};
     };
 }
 

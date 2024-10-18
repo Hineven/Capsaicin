@@ -7,6 +7,7 @@ RWStructuredBuffer<float> g_RWPixelPEBuffer;
 
 float g_Shift;
 float g_Angle; 
+float g_Exposure;
 
 // Color mapping for debugging
 // Map 1 channel to heat (R - G - B)
@@ -59,7 +60,7 @@ void Visualize(int2 DispatchID : SV_DispatchThreadID)
     float3 DataColor = float3(0.0f, 0.0f, 0.0f);
     if(g_Mode == 0)
     {
-        DataColor = ColorHeatMap(PixelSE);
+        DataColor = ColorHeatMap(PixelSE * g_Exposure);
     }
     else if(g_Mode == 1)
     {
