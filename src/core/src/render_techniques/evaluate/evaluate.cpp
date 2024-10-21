@@ -157,7 +157,7 @@ void Evaluate::render(CapsaicinInternal &capsaicin) noexcept
             auto buf = gfxBufferGetData(gfx_, readback_buffers_[prev_idx]);
             memcpy(&mse_, buf, sizeof(float));
             memcpy(&mape_, (std::byte *)buf + sizeof(float), sizeof(float));
-            mse_                        = mse_ / (capsaicin.getWidth() * capsaicin.getHeight());
+            mse_                        = mse_  / (capsaicin.getWidth() * capsaicin.getHeight());
             mape_                       = mape_ / (capsaicin.getWidth() * capsaicin.getHeight());
             readback_pending_[prev_idx] = false;
         }

@@ -61,7 +61,7 @@
 
 // If we're using a more accurate (but more expensive)
 // integration approximation for SG final shading.
-#define HIGH_PRECISION_SG_INTEGRATION
+// #define HIGH_PRECISION_SG_INTEGRATION
 
 // Mirror repeat the tile jitter sequence.
 // This helps elevating regular-patterned artifacts caused by
@@ -90,6 +90,10 @@
 // #define DEBUG_MIN_PROBE_REPROJECTION
 
 #define MIN_SG_COLOR (1e-6f)
+
+// Clamp the SG color to a multiple of the maximum ray radiance to avoid outflares
+// Setting this value to less than 1 may cause SG lamba to be too small to be useful
+#define SG_MAXIMUM_CLAMP_MULTIPLIER (2.f)
 
 #ifndef WAVE_SIZE
 // This macro should be set correctly with the compiler flags

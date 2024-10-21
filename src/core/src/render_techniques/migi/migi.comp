@@ -2386,7 +2386,7 @@ float3 ComputeEstimatedSGColor (
     // Darken the biased SG color to spare space for octahedron radiance
     Result *= SG_DARKEN_MULTIPLIER;
     // Clamp by maximum value to avoid outflares caused by too few rays
-    return min(Result, ChannelMaximums);
+    return min(Result, ChannelMaximums * SG_MAXIMUM_CLAMP_MULTIPLIER);
 }
 
 // TODO classify the number of update rays to completely unroll many loops
@@ -2500,6 +2500,12 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 PrevCount = (((LocalID - NumBasis0) < PrevBasisCount[2]) ? 0 :  PrevBasisCount[2]) + NumBasis0;
             }
             SGData SG = FetchBasisData(BasisOffsets[SampleLocation] + LocalID - PrevCount, true);
+            // Parrallax correction for SGs
+            float3 PrevProbePosition = GetScreenProbeHeader(Sample.Index[SampleLocation], true).Position;
+            float3 PointingPosition = SG.Depth * SG.Direction + PrevProbePosition;
+            float3 DirectionVector  = PointingPosition - Header.Position;
+            SG.Depth = length(DirectionVector);
+            SG.Direction = normalize(DirectionVector);
             LocalSGData[LocalID] = SG;
             LocalSGCandidateSampleWeight[LocalID] = Sample.Weights[SampleLocation];
         }
@@ -2575,6 +2581,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #endif
             // Calculate SG error score
             float  SGErrorScore = 0;
+            // float  SomeScore    = 0;
             for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
                 int RayRank = RayRankBase + LocalID;
                 float3 RayDirection = LocalUpdateRayDirection[RayRank];
@@ -2595,18 +2602,20 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #endif
                     float3 SGEvaluatedRadiance = EvaluateSGRaw(SG, RayDirection) * SGCandidateColor;
                     float3 DiffRadiance = RayRadiance - BaseRadiance - SGEvaluatedRadiance;
+                    // SomeScore += dot(SG.Direction, 1.f.xxx);
                     float  RayScore = dot(DiffRadiance, DiffRadiance);
 #ifdef SG_REPPROJECTION_FAVOR_SHARP_BRIGHT_ONES
                     // Favor sharp and bright SGs pointing at potentially small and bright light sources
                     // to prevent losing them when reprojecting.
-                    // Use x*x*x + x when x > 0, otherwise use -x as the score.
-                    float3 DiffRadianceFactor = select(DiffRadiance > 0, pow(DiffRadiance, 2) + 1, -1);
+                    // Use x*x + x when x > 0, otherwise use -x as the score.
+                    float3 DiffRadianceFactor = select(DiffRadiance > 0, DiffRadiance * (DiffRadiance + 1), -1);
                     RayScore = dot(DiffRadiance, DiffRadianceFactor);
 #endif
                     SGErrorScore += RayScore * InvPdf;
                 }
             }
             SGErrorScore = WaveActiveSum(SGErrorScore);
+            // SomeScore    = WaveActiveSum(SomeScore);
             // TODO SGErrorScore = SGErrorScore - MinSGErrorScore; for more resonable multi-SG selection
             if(WaveIsFirstLane()) {
                 // Reduce the possibility of selecting SGs with tiny sample weights
@@ -2633,7 +2642,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #endif
                 LocalSGCandidateScore[BasisRank] = FinalScore;
                 if(DebugSSRC_IsProbeSelected(ProbeIndex) && BasisRank < 4) {
-                    g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 12 + BasisRank] = asuint(FinalScore / 1000);
+                    g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 12 + BasisRank] = asuint(dot(SG.Direction, 1.f.xxx) / 1000);
                 }
             }
         }
@@ -2921,8 +2930,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 #else
         float  SumAFactor = 0;
 #endif
-        float  SumWeightedDepth   = 0;
-        float  SumWeight          = 0;
+        float  SumWeightedDepth = 0;
+        float  SumDepthWeight   = 0;
         float3 Maximums = 0.f.xxx;
 
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
@@ -2972,8 +2981,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                         float3 W = 1.f / (abs(DiffRadiance) + 1e-5f);
                         SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight * W;
                         SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight * W;
-                        SumWeightedDepth          += RayLinearDepth * SampleWeight * SGEvaluatedRaw;
-                        SumWeight                 += SampleWeight * SGEvaluatedRaw;
+                        SumWeightedDepth          += RayLinearDepth * SampleWeight * SGEvaluatedRaw * dot(RayRadiance, 1.f.xxx);
+                        SumDepthWeight            += SampleWeight * SGEvaluatedRaw *  * dot(RayRadiance, 1.f.xxx);
                         Maximums = max(Maximums, TargetRadiance);
                     }
 #else
@@ -2982,8 +2991,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     if(SGEvaluatedRaw > SG_CLIP_VALUE || SmallerTarget) {
                         SumAFactor                += 2.f * SGEvaluatedRaw * SGEvaluatedRaw * SampleWeight;
                         SumStepSize.dColor        += 2.f * TargetRadiance * SGEvaluatedRaw * SampleWeight;
-                        SumWeightedDepth          += RayLinearDepth * SampleWeight * SGEvaluatedRaw;
-                        SumWeight                 += SampleWeight * SGEvaluatedRaw;
+                        SumWeightedDepth          += RayLinearDepth * SampleWeight * SGEvaluatedRaw * dot(RayRadiance, 1.f.xxx);
+                        SumDepthWeight            += SampleWeight * SGEvaluatedRaw * dot(RayRadiance, 1.f.xxx);
                         Maximums = max(Maximums, TargetRadiance);
                     }
 #endif
@@ -2997,7 +3006,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         SumStepSize.dColor  = WaveActiveSum(SumStepSize.dColor);
         SumStepSize.dLambda = WaveActiveSum(SumStepSize.dLambda);
         SumWeightedDepth    = WaveActiveSum(SumWeightedDepth);
-        SumWeight           = WaveActiveSum(SumWeight);
+        SumDepthWeight      = WaveActiveSum(SumDepthWeight);
         Maximums = WaveActiveMax(Maximums);
         GroupMemoryBarrierWithGroupSync();
         // The chosen thread for updating each basis
@@ -3048,9 +3057,12 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 
             // Update Depth
             {
-                float EstimatedDepth = SumWeightedDepth / max(SumWeight, 1e-6f);
+                float DefaultDepth = 0.05f * (MI.CameraFar + MI.CameraNear);
+                float DefaultDepthWeight = 0.001;
+                float EstimatedDepth = (SumWeightedDepth + DefaultDepth * DefaultDepthWeight)
+                     / (SumDepthWeight + DefaultDepthWeight);
                 float Factor = min(MI.CacheUpdateLearningRate + ImpactFactors.x, 1.f);
-                SG.Depth = EstimatedDepth;//lerp(SG.Depth, EstimatedDepth, Factor);
+                SG.Depth = lerp(SG.Depth, EstimatedDepth, Factor);
             }
 
             if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
@@ -3193,10 +3205,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float4 RadianceDepth = RadianceDepthSum / Weight;
             // Accumulate the compensation radiance for over-lit caused by LSM method.
             float3 TexelCompensation = min(RadianceDepth.xyz, 0);
-            // Clamp to zero for negative radiance
-            RadianceDepth.rgb = max(RadianceDepth.rgb, 0.f.xxx);
 
-            float  LumaA = luminance(RadianceDepth.xyz);
+            float  LumaA = luminance(max(RadianceDepth.xyz, 0.f));
             float  LumaB = luminance(OldRadianceDepth.xyz);
             // Copy-pasted from GI1.0
             // Shadow-preserving biased temporal hysteresis (inspired by: https://www.youtube.com/watch?v=WzpLWzGvFK4&t=630s)
@@ -3206,9 +3216,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             TemporalBlend = 0.75f;
             // Clamp the lerping factor with impact factors from our pipeline
             TemporalBlend = min(max(1.f - ImpactFactors.x - MI.CacheUpdateLearningRate, 0), TemporalBlend);
-            float4 NewValue = lerp(RadianceDepth, OldRadianceDepth, TemporalBlend);
-            NewValue = max(NewValue, 0.f.xxxx);
-            WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, NewValue);
+            float4 UpdatedRadianceDepth = lerp(RadianceDepth, OldRadianceDepth, TemporalBlend);
+            UpdatedRadianceDepth = max(UpdatedRadianceDepth, 0.f);
+            WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, UpdatedRadianceDepth);
             float CompensationWeight = 1.f - TemporalBlend;
             CompensationIrradiance += CompensationWeight * TexelCompensation / HemiOctahedronIrradianceToTexelRadiance(ProbeTexelCoords);
             // We want the weighted sum of all texels, not the weighted average.
@@ -3217,7 +3227,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         CompensationIrradiance = WaveActiveSum(CompensationIrradiance);
         CompensationWeightSum  = WaveActiveSum(CompensationWeightSum);
         CompensationIrradiance /= max(CompensationWeightSum, 1e-4f);
-        CompensationWeightSum *= (1.f / SSRC_PROBE_TEXTURE_TEXEL_COUNT);
         // Write back compensation for the probe
         if(WaveIsFirstLane()) {
             float4 OldCompensationW = g_RWProbeCompensationTexture[ProbeIndex];
@@ -3623,8 +3632,10 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     float3 GGXIntegrationApprox = (FresnelTerm / VisibilityTerm) * GGX_D_Li_Approx;
                     // Albedo is later applied for diffuse lighting
 #ifndef HIGH_PRECISION_SG_INTEGRATION
+                    // Cosine weighted irradiance
                     float3 Irradiance = SGIrradianceInnerProduct(SG, ShadingNormal);
 #else
+                    // Cosine weighted irradiance
                     float3 Irradiance = SGIrradianceInnerProduct_HighPrecision(SG, ShadingNormal);
 #endif
                     HighFreq_Diffuse += Irradiance           * Sample.Weights[ProbeRank] * AO;

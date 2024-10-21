@@ -200,7 +200,7 @@ struct SGData {
 };
 
 float OneSubExpNeg2Lambda (float lambda) {
-    return lambda < 24.f ? (1.f - exp(-2.f * lambda)) : 1.f;
+    return (lambda < 24.f) ? (1.f - exp(-2.f * lambda)) : 1.f;
 }
 
 // Return the integral of a SG
@@ -629,7 +629,7 @@ SGData CosineLobeSG(in float3 direction)
     return cosineLobe;
 }
 
-float3 SGInnerProduct(in SGData x, in SGData y)
+float3 SGInnerProduct(SGData x, SGData y)
 {
     float dm = length(x.Lambda * x.Direction + y.Lambda * y.Direction);
     float3 expo = exp(dm - x.Lambda - y.Lambda) * x.Color * y.Color;
