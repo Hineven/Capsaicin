@@ -8,22 +8,12 @@
 // GI1.0 invalid flag (to make the copy-pasted code from GI1.0 work)
 #define kGI10_InvalidId 0xFFFFFFFFu
 
-// Use heuristic for direction update instead of GD
-#define HEURISTIC_DIRECTION_UPDATE
-// LSM (least square error) for probe update,
-// otherwise LAD (least absolute deviation), which reduces bias but needs more iterations to converge
-#define OPTIMAL_COLOR_UPDATE
-// Use LAD when doing SG reprojection guessing the intensity
-// #define REPROJECTION_LAD
 // Do not guess a new intensity for SGs in reprojection. Use their original values
 // instead.
 // #define REPROJECTION_NO_INTENSITY_GUESSING
 // Do not take probe sample weight into consideration when performing SG picking
 // while doing reprojection.
 #define REPROJECTION_NO_SAMPLE_WEIGHT
-
-// Whether to delay SG reprojection (history reuse) for better temporal stability
-#define DELAYED_SG_REPROJECTION
 
 // Evaluate backup radiance on probe texels instead of update rays
 // This heuristic is a bit strange, but it seems to work and is proven by GI10
@@ -38,21 +28,13 @@
 #define MIN_SG_LAMBDA 48.f
 #define MAX_SG_LAMBDA 12000.f
 
-// Rays that have raw evaluated SG values less than this won't be taken into account
-// for the SG during update.
-// This can cause bias (brighter in some areas)
-#define SG_CLIP_VALUE 2e-3f
-
-// Darkens the target radiance SGs trying to compensate for the bias
-// Spare some space for unbiased SH compensation
-#define SG_DARKEN_MULTIPLIER 1.f
+// SG color is clamped to a multiple of the maximum ray radiance to avoid outflares
+// Rays whose evaluated SG value is lower than this value will be discarded when performing LSM.
+#define SG_CLIP_VALUE 1e-3f
 
 // Merge SG Lambdas in log scale instead of linear
 #define LOGSCALE_SG_LAMBDA_IN_MERGING
 
-// Clamp negative radiance values when coordinating SG and Oct
-// Gives a slightly more stable lighting but may introduce bias?
-// #define CLAMP_NEGATIVE_RADIANCE_VALUES
 
 // Use UE style hemispherical octahedron mapping
 // It's not area preserving, and correction is not done.
@@ -75,9 +57,6 @@
 // 1002: clamping the color multiplier to [0, 1] mitigates the issue.
 #define SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
 
-// Always accumulate gradients of SGs when it evaluates above the target value
-// Darkens? the scene but may helps with fireflies
-// #define ALWAYS_ACCUMULATE_SG_GRADIENTS_IF_IT_IS_ABOVE_TARGET_VALUE
 
 // Favor sharp and bright SGs pointing at potentially small and bright light sources
 // to prevent losing them when reprojecting and bring artifacts.
@@ -93,7 +72,7 @@
 
 // Clamp the SG color to a multiple of the maximum ray radiance to avoid outflares
 // Setting this value to less than 1 may cause SG lamba to be too small to be useful
-#define SG_MAXIMUM_CLAMP_MULTIPLIER (1.f)
+#define SG_MAXIMUM_CLAMP_MULTIPLIER (1.5f)
 
 #ifndef WAVE_SIZE
 // This macro should be set correctly with the compiler flags
