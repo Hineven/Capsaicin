@@ -36,7 +36,7 @@
 #define REPROJECTION_PRIORITIZE_SG
 
 #define MIN_SG_LAMBDA 48.f
-#define MAX_SG_LAMBDA 4000.f
+#define MAX_SG_LAMBDA 12000.f
 
 // Rays that have raw evaluated SG values less than this won't be taken into account
 // for the SG during update.
@@ -93,7 +93,7 @@
 
 // Clamp the SG color to a multiple of the maximum ray radiance to avoid outflares
 // Setting this value to less than 1 may cause SG lamba to be too small to be useful
-#define SG_MAXIMUM_CLAMP_MULTIPLIER (2.f)
+#define SG_MAXIMUM_CLAMP_MULTIPLIER (1.f)
 
 #ifndef WAVE_SIZE
 // This macro should be set correctly with the compiler flags

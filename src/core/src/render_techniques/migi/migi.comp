@@ -2934,6 +2934,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         float  SumDepthWeight   = 0;
         float3 Maximums = 0.f.xxx;
 
+        // dColor/dLambda
+        float3 dColLambda = EvaluateSGdColLambda(SG);
+
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
         for(int RayGroupOffset = 0; RayGroupOffset < ProbeRayCount; RayGroupOffset += WAVE_SIZE) {
             int RayRank = RayGroupOffset + LocalID;
@@ -2996,7 +2999,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                         Maximums = max(Maximums, TargetRadiance);
                     }
 #endif
-                    SumStepSize.dLambda    -= Y * Gradients.dLambda    * SampleWeight;
+                    float AggregatedLambdaGradient = Gradients.dLambda + dot(dColLambda * Gradients.dColor, 1.f.xxx);
+                    SumStepSize.dLambda    -= Y *AggregatedLambdaGradient * SampleWeight;
                 }
             }
         }
@@ -3068,7 +3072,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 8] = asuint(SG.Lambda);
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 9] = asuint(SumStepSize.dLambda);
-                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 10] = asuint(dot(SG.Color, 1.f.xxx));
+                float Scale = dot(SG.Color, 1.f.xxx);
+                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 10] = asuint(Scale);
+                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 11] = asuint(SGIntegrate(SG.Lambda) * Scale);
             }
             
             // Write back

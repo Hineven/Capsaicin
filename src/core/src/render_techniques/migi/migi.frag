@@ -83,7 +83,7 @@ float4 DebugSSRC_VisualizeProbe (
     in DebugSSRC_ProbeInput Input
 ) : SV_Target {
     float3 LightDir = normalize(float3(0.5f, 1.f, 0.5f));
-    float3 Albedo = 0.5f.xxx;
+    float3 Albedo = float3(1.f, 0.5f, 0.f);
     float3 Normal = Input.Normal.xyz;
     float3 Color  = Albedo * (0.1f + saturate(dot(Normal, LightDir)) * 0.9f);
     return float4(Color, 1);

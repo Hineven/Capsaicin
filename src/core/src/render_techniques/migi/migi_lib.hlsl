@@ -244,6 +244,15 @@ struct SGGradients {
     float3 dDirection;
 };
 
+// dColLambda: dColor/dLambda if we want to preserve irradiance when updating Color and Lambda together
+float3 EvaluateSGdColLambda (SGData SG) {
+    float dColLambda;
+    if(SG.Lambda < 24)
+        dColLambda = (1 + 2 * SG.Lambda - exp(2 * SG.Lambda)) / (SG.Lambda * (1 - exp(2 * SG.Lambda)));
+    else dColLambda = 1.f / SG.Lambda;
+    return dColLambda * SG.Color;
+}
+
 void EvaluateSG_Gradients (SGData SG, float3 TargetDirection, out SGGradients Gradients, out float3 dColorExtra) {
     // Compute the Gradients for SG parameters
     // Targeting at the remaining radiance after subtracting all other SH and SGs
