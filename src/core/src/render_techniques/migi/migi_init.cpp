@@ -573,7 +573,10 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
     }
 
     auto light_sampler = capsaicin.getComponent<LightSamplerGridStream>();
-    light_sampler->reserveBoundsValues(capsaicin.getWidth() * capsaicin.getHeight(), this);
+
+    int max_ray_count = options_.SSRC_max_update_ray_count;
+    light_sampler->reserveBoundsValues(max_ray_count, this);
+    light_sampler->init(capsaicin);
     memset(readback_pending_, 0, sizeof(readback_pending_));
 
     internal_frame_index_ = 0;

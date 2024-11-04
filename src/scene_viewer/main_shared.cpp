@@ -91,7 +91,8 @@ static vector<SceneData> const scenes = {
     {"2Emitters",                                          {"assets/MIGITestMedia/2emitters/scene.gltf"},  false, 0.5f},
     {"MovingLight",                                          {"assets/MIGITestMedia/moving-light/TestScene.gltf"},  false, 5.f},
     {"SchoolPassage",                                      {"assets/MIGITestMedia/SchoolPassage/SchoolPassage.gltf"},   true, 3.f},
-    {"BiasTest",                                           {"assets/MIGITestMedia/BiasTest/scene.gltf"}, true, 2.f}
+    {"BiasTest",                                           {"assets/MIGITestMedia/BiasTest/scene.gltf"}, true, 2.f},
+    {"SanMiguel",                                          {"assets/MIGITestMedia/SanMiguel/SanMiguel.gltf"}, true, 3.f}
 };
 
 /** List of supported environment maps */
@@ -1512,11 +1513,11 @@ bool CapsaicinMain::renderGUIDetails() noexcept
                     // Switch to reference pt
                     Capsaicin::SetRenderer("Reference Path Tracer");
                 }
-                Capsaicin::setOption("tonemap_exposure", 2.5f);
+                Capsaicin::setOption("tonemap_exposure", 3.5f);
                 Capsaicin::setOption("reference_pt_sample_count", spp_per_frame);
                 // Direct lighting only. for testing purposes
-                Capsaicin::setOption("reference_pt_bounce_count", 1u);
-                Capsaicin::setOption("reference_pt_min_rr_bounces", 1u);
+                Capsaicin::setOption("reference_pt_bounce_count", 24u);
+                Capsaicin::setOption("reference_pt_min_rr_bounces", 2u);
                 time_progress_series.clear();
             }
         }

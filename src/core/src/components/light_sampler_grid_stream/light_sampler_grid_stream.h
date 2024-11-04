@@ -69,6 +69,9 @@ public:
             false; /**< Use faster reservoir parallel build on scene with large light count */
         bool light_grid_stream_centroid_build =
             false; /**< Use faster but simpler cell centroid sampling during build */
+
+        bool light_grid_stream_exclude_env =
+            true; /**< Exclude environment lights from the light sampler. */
     };
 
     /**

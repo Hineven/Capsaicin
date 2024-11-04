@@ -89,6 +89,12 @@ void CalculateBounds()
     g_DispatchCommandBuffer[0].num_groups_z = groups.z;
 }
 
+#ifdef LIGHTSAMPLERSTREAM_EXCLUDE_ENVIRONMENT
+#define EXCLUDE_LIGHT_KIND_FLAGS 0x1
+#else
+#define EXCLUDE_LIGHT_KIND_FLAGS 0
+#endif
+
 /**
  * Build an internal grid.
  */
@@ -163,9 +169,9 @@ void Build(in uint3 did : SV_DispatchThreadID, in uint gid : SV_GroupIndex)
         // Calculate sampled contribution for light
         Light selectedLight = getLight(lightIndex);
 #ifdef LIGHTSAMPLERSTREAM_USE_OCTAHEDRON_SAMPLING
-        float sampleWeight = sampleLightVolumeNormal(selectedLight, minBB, extent, normal);
+        float sampleWeight = sampleLightVolumeNormal(selectedLight, minBB, extent, normal, EXCLUDE_LIGHT_KIND_FLAGS);
 #else
-        float sampleWeight = sampleLightVolume(selectedLight, minBB, extent);
+        float sampleWeight = sampleLightVolume(selectedLight, minBB, extent, EXCLUDE_LIGHT_KIND_FLAGS); 
 #endif // LIGHTSAMPLERSTREAM_USE_OCTAHEDRON_SAMPLING
         // Must avoid 0 samples at the start of the stream to avoid division by 0
         if (sampleWeight > 0.0f)

@@ -15,6 +15,10 @@
 // Parameters & Globals & Helper functions
 #include "migi_inc.hlsl"
 
+// Light sampler (from Capsaicin)
+// (May be buggy for that I've found many bugs in the original Capsaicin)
+#include "../../components/light_sampler_grid_stream/light_sampler_grid_stream.hlsl"
+
 // Library for MIGI
 #include "migi_lib.hlsl"
 #include "migi_probes.hlsl"
@@ -1439,6 +1443,9 @@ void MIGI_CacheUpdateHandleHit(uint DispatchID, inout MIGI_CacheUpdatePayload pa
     g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(0.f.xxx, RayRadianceInvPdf.w));
     // Record hit distance
     g_RWUpdateRayLinearDepthBuffer[DispatchID] = Visibility.IsFrontFace ? payload.hit_dist : -payload.hit_dist;
+
+    // Write out light sampler bounds
+    requestLightSampleLocation(ray.Origin + payload.hit_dist * ray.Direction);
 }
 
 void MIGI_CacheUpdateHandleMiss(uint DispatchID, inout MIGI_CacheUpdatePayload payload, RayDesc ray)
@@ -1673,6 +1680,13 @@ void SSRC_ReprojectPreviousUpdateError (int2 DispatchID : SV_DispatchThreadID) {
 
 // UpdateErrorSplatTexture is later mipmapped.
 
+void WriteShadowRay (int Index, float3 Origin, float3 Direction, float3 Contribution, float TMax) {
+    g_RWShadowRayOriginBuffer[Index] = Origin;
+    g_RWShadowRayDirectionBuffer[Index] = PackUnorm2x16Unbiased(UnitVectorToOctahedron(Direction) * 0.5f + 0.5f);
+    g_RWShadowRayContributionBuffer[Index] = PackFp16x3Safe(Contribution);
+    g_RWShadowRayLinearDepthBuffer[Index] = TMax;
+}
+
 [numthreads(WAVE_SIZE, 1, 1)]
 void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint GroupID : SV_GroupID)
 {
@@ -1725,21 +1739,24 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
     }
     float2 MeshUV = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, QueryVisibility.Barycentrics);
 
-    // Bypass shading if we hit an emitter. Normally material emission can overwhelm ambient lighting.
 
+    float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex]);
+
+    float3 AccumulatedRadiance = RayRadianceInvPdf.rgb, AccumulatedRadianceE = 0;
+
+    // Emissive material
     if (QueryVisibility.IsFrontFace && dot(MaterialData.emissivity.xyz, MaterialData.emissivity.xyz) > 0.0f)
     {
         MaterialEmissive emissive = MakeMaterialEmissive(MaterialData, MeshUV);
-        float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex]);
-        RadianceInvPdf.xyz = emissive.emissive;
-        g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RadianceInvPdf);
-        return; // do not continue past an emissive surface
+        AccumulatedRadianceE += emissive.emissive;
     }
+    // Write back ray radiance (emissive only) first 
+    g_RWUpdateRayRadianceEBuffer[QueryIndex] = PackFp16x4Safe(float4(AccumulatedRadianceE, 0));
 
     bool bReprojectionSuccess = false;
-    float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex]);
                        
-    MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialData, MeshUV);
+    MaterialEvaluated MaterialEvalData = MakeMaterialEvaluated(MaterialData, MeshUV);
+    MaterialBRDF MaterialBRDFData = MakeMaterialBRDF(MaterialEvalData);
     // Approximate the shading normal with the geometry normal
     float3 ShadingNormal = WorldNormal;
     float Roughness = sqrt(MaterialBRDFData.roughnessAlpha);
@@ -1783,10 +1800,11 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
                         // Diffuse only. Glossy / specular lighting may vary significantly according
                         // to the viewing angle, so we cannot reuse them.
                         float3 PreviousDiffuse = g_PreviousDiffuseGITexture.SampleLevel(g_NearestSampler, previous_uv, 0).rgb;
-    #ifdef ENABLE_INDIRECT
+// Dont accumulate if we disabled indirect lighting
+#ifdef ENABLE_INDIRECT
                         // Multiply by DiffuseCompensation over darken the result (though it should be logically correct)
-                        RayRadianceInvPdf.xyz      += PreviousDiffuse;// * DiffuseCompensation;
-    #endif // ENABLE_INDIRECT
+                        AccumulatedRadiance      += PreviousDiffuse;// * DiffuseCompensation;
+#endif // ENABLE_INDIRECT
                         bReprojectionSuccess = true;
                     }
                 }
@@ -1795,6 +1813,7 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
     }
 
     // Touch the cache to increase probe scores
+    // Thus the sampled cache probes will be kept in memory for a longer time
     int WaveJitter = (MI.FrameIndex + GroupID) % 8;
     float3 WorldPositionBiased = 
         WorldPosition + WorldNormal * WorldCache_GetSampleOffsetAmount(WorldPosition);
@@ -1803,35 +1822,210 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
         RayTravelDistance, false, false, WaveJitter == 0);
     if(WaveJitter == 4) WorldCache_TouchSample(Sample);
     bool bIsDiffuseMaterial = DiffuseCompensation.x > 0.95f;
+
+    bool ShadowRaySpawned = false;
+    float3 ShadowRayDirection;
+    float3 ShadowRayContribution;
+    float  ShadowRayTMax;
+
     if(bReprojectionSuccess && bIsDiffuseMaterial) {
-        // Skip world cache shading for diffuse materials that project well on screen
-        g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RayRadianceInvPdf);
-        return ;
-    }
-    
-    // Shade query using world cache
-    float3 Radiance = 0;
-    float2 IrradianceTexPosition = 1.f + UnitVectorToOctahedron01(ShadingNormal) * WORLD_CACHE_PROBE_RESOLUTION_INTERNAL;
-    for(int i = 0; i < 8; i++) {
-        if(WorldCache_IsProbeIndexValid(Sample.ProbeIndex[i]) && Sample.Weights[i] > 0) {
-            int2 AtlasBase = WorldCache_GetProbeAtlasBase(Sample.ProbeIndex[i]);
-            float2 AtlasUV = (AtlasBase + IrradianceTexPosition) * WorldCache.InvAtlasDimensions;
-            float3 Irradiance = TWO_PI * g_WorldCacheIrradiance2PLuminanceTexture.SampleLevel(g_LinearSampler, AtlasUV, 0).xyz;
-            float3 Diffuse = DiffuseCompensation * Irradiance * evaluateLambert(MaterialBRDFData.albedo);
-            // Skip diffuse lighting from world cache as we have reprojected that from the previous frame
-            if(bReprojectionSuccess) Diffuse = 0; 
-            // compute specular term with split-sum approximation
-            float3 SpecularRadiance = Irradiance  / PI;
-            float3 Specular = DirectionalAlbedo * SpecularRadiance;
-            Radiance += (Diffuse + Specular) * Sample.Weights[i];
+        // Skip world cache shading / DI evaluation for diffuse materials that project well on screen
+        float3 FinalRadiance = AccumulatedRadianceE + AccumulatedRadiance;
+        g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(float4(FinalRadiance, RayRadianceInvPdf.w));
+    } else {
+        // Shade query using world cache
+        float2 IrradianceTexPosition = 1.f + UnitVectorToOctahedron01(ShadingNormal) * WORLD_CACHE_PROBE_RESOLUTION_INTERNAL;
+        for(int i = 0; i < 8; i++) {
+            if(WorldCache_IsProbeIndexValid(Sample.ProbeIndex[i]) && Sample.Weights[i] > 0) {
+                int2 AtlasBase = WorldCache_GetProbeAtlasBase(Sample.ProbeIndex[i]);
+                float2 AtlasUV = (AtlasBase + IrradianceTexPosition) * WorldCache.InvAtlasDimensions;
+                float3 Irradiance = TWO_PI * g_WorldCacheIrradiance2PLuminanceTexture.SampleLevel(g_LinearSampler, AtlasUV, 0).xyz;
+                float3 Diffuse = DiffuseCompensation * Irradiance * evaluateLambert(MaterialBRDFData.albedo);
+                // Skip diffuse lighting from world cache as we have reprojected that from the previous frame
+                if(bReprojectionSuccess) Diffuse = 0; 
+                // compute specular term with split-sum approximation
+                float3 SpecularRadiance = Irradiance  / PI;
+                float3 Specular = DirectionalAlbedo * SpecularRadiance;
+                AccumulatedRadiance += (Diffuse + Specular) * Sample.Weights[i];
+            }
         }
-    }
+
+        // We should compute direct lighting for this shading point
+        Random rng = MakeRandom(DispatchID, MI.FrameSeed);
+        LightSampler LightSamplerData = MakeLightSampler(rng);
+        float LightPdf  = 0;
+        uint LightIndex = LightSamplerData.sampleLights(WorldPosition, WorldNormal, LightPdf);
+        // Spawn a shadow ray to be traced.
+        {
+            Light SelectedLight = getLight(LightIndex);
+            float2 U01 = float2(rng.rand(), rng.rand());
+            // Warp to equal-areal barycentrics
+            {
+                float t = sqrt(U01.x);
+                float u = t * U01.y;
+                U01 = float2(t - u, u);
+            }
+            float3 LightDirection, LightPosition;
+            float3 Radiance = evaluateLightSampled(
+                SelectedLight, WorldPosition, U01, LightDirection, LightPosition
+            );
+            if(any(Radiance > 0)) {
+                float3 DeltaVector   = LightPosition - WorldPosition;
+                float  SquaredLength = dot(DeltaVector, DeltaVector);
+                float  Length        = sqrt(SquaredLength);
+                ShadowRayDirection    = normalize(LightPosition - WorldPosition);
+                float Weight = 1 / max(LightPdf, 1e-7f);
+                if(SelectedLight.get_light_type() == kLight_Area) {
+                    LightArea AreaLight = MakeLightArea(SelectedLight);
+                    float SurfacePdf    = 2.f / length(cross(AreaLight.v1 - AreaLight.v0, AreaLight.v2 - AreaLight.v0));
+                    // We have to convert surface pdf to solid angle pdf
+                    float CosineFactor  = saturate(dot(WorldNormal, ShadowRayDirection));
+                    float InvSolidAnglePdf = SquaredLength / max(SurfacePdf * CosineFactor, 1e-7f);
+                    Weight *= InvSolidAnglePdf;
+                }
+                if(Weight > 1e-7f) {
+#ifdef  ENABLE_INDIRECT
+                    ShadowRaySpawned = true;
+#endif
+                    float3 RayDirection = FetchUpdateRayDirection(QueryIndex);
+                    float3 BRDF = evaluateBRDF(MaterialBRDFData, WorldNormal, -RayDirection, ShadowRayDirection);
+                    ShadowRayContribution = Radiance * Weight * BRDF;
+                    ShadowRayTMax         = min(Length - 1e-4f, Length * (1.f - 1e-4f));
+                }
+            }
+        }
+
+        float3 FinalRadiance = AccumulatedRadianceE;
 
 #ifdef ENABLE_INDIRECT
-    RayRadianceInvPdf.xyz      += Radiance;
+        FinalRadiance       += AccumulatedRadiance;
 #endif
 
-    g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RayRadianceInvPdf);
+        g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(float4(FinalRadiance, RayRadianceInvPdf.w));
+    }
+    
+
+    // Commit shadow ray.
+    uint ShadowRayRank  = WavePrefixSum(ShadowRaySpawned ? 1 : 0);
+    uint ShadowRayCount = WaveActiveSum(ShadowRaySpawned ? 1 : 0);
+    uint ShadowRayBaseIndex = 0;
+    if(WaveIsFirstLane()) {
+        if(ShadowRayCount > 0) {
+            ShadowRayBaseIndex = InterlockedAdd(g_RWShadowRayCountBuffer[0], ShadowRayCount);
+        }
+    }
+    if(ShadowRaySpawned) {
+        uint ShadowRayIndex = ShadowRayBaseIndex + ShadowRayRank;
+        // Bias the shadow ray origin to prevent self-intersection
+        // TODO a more robust bias?
+        float3 Origin = WorldPosition + 1e-4f * ShadowRayDirection;
+        WriteShadowRay(ShadowRayIndex, Origin, ShadowRayDirection, ShadowRayContribution, ShadowRayTMax);
+        // Same as GI10, we cache the compressed material data for shadow rays
+        g_RWShadowRayReceiverMaterialBuffer[ShadowRayIndex] = packMaterial(MaterialEvalData);
+        g_RWShadowRayQueryIndexBuffer[ShadowRayIndex] = QueryIndex;
+    }
+}
+
+
+[numthreads(1, 1, 1)]
+void MIGI_GenerateTraceShadowRays () {
+    int RayCount   = g_RWShadowRayCountBuffer[0];
+    DispatchRaysCommand dispatch_command_rays = (DispatchRaysCommand)0;
+    dispatch_command_rays.ray_generation_shader_record = RayTracing.ray_generation_shader_record;
+    dispatch_command_rays.miss_shader_table = RayTracing.miss_shader_table;
+    dispatch_command_rays.hit_group_table = RayTracing.hit_group_table;
+    dispatch_command_rays.callable_shader_table = RayTracing.callable_shader_table;
+    dispatch_command_rays.width = RayCount;
+    dispatch_command_rays.height = 1;
+    dispatch_command_rays.depth = 1;
+    g_RWDispatchRaysCommandBuffer[0] = dispatch_command_rays;
+
+    DispatchCommand dispatch_command;
+    dispatch_command.num_groups_x = 
+        (RayCount + SSRC_DISPATCH_RAYS_GROUP_SIZE - 1) 
+        / SSRC_DISPATCH_RAYS_GROUP_SIZE;
+    dispatch_command.num_groups_y = 1;
+    dispatch_command.num_groups_z = 1;
+    dispatch_command.padding = 0;
+    g_RWDispatchCommandBuffer[0] = dispatch_command;
+
+    // Also, set the world cache query count to ray count.
+    g_RWWorldCacheQueryCountBuffer[0] = RayCount;
+}
+
+struct MIGI_ShadowRayPayload {
+    float3 Contribution;
+};
+
+void MIGI_ShadowRayHandleMiss(uint DispatchID, inout MIGI_ShadowRayPayload Payload, RayDesc ray)
+{
+    // Accumulate query contribution
+    int QueryIndex = g_RWShadowRayQueryIndexBuffer[DispatchID];
+    float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex]);
+    RadianceInvPdf.rgb += Payload.Contribution;
+    g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(RadianceInvPdf);
+}
+
+void MIGI_ShadowRayTraceRayInline(uint did, inout MIGI_ShadowRayPayload payload, RayDesc ray)
+{
+    ShadowRayQuery ray_query = TraceRay<ShadowRayQuery>(ray);
+
+    // If we hit some geometry, we append a new world-space hash-grid cache query
+    if(ray_query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+    {
+        // nop
+    } else {
+        MIGI_ShadowRayHandleMiss(did, payload, ray);
+    }
+}
+
+void MIGI_ShadowRayTraceRayRt(uint did, inout MIGI_ShadowRayPayload payload, RayDesc ray)
+{
+    TraceRay(g_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFFu, 0, 0, 0, ray, payload);
+}
+
+void MIGI_ShadowRayTraceRay(uint did, inout MIGI_ShadowRayPayload payload, RayDesc ray)
+{
+#if USE_INLINE_RT
+    MIGI_ShadowRayTraceRayInline(did, payload, ray);
+#else
+    MIGI_ShadowRayTraceRayRt(did, payload, ray);
+#endif
+}
+
+// Trace shadow rays to compute direct lighting visibility
+void MIGI_TraceShadowRays (uint DispatchID) {
+    if(DispatchID >= g_RWShadowRayCountBuffer[0]) return ;
+    
+    // Unpack ray data
+    float3 RayOrigin       = g_RWShadowRayOriginBuffer[DispatchID];
+    float3 RayDirection    = OctahedronToUnitVector(
+        UnpackUnorm2x16Unbiased(g_RWShadowRayDirectionBuffer[DispatchID]) * 2.f - 1.f
+    );
+    float3 RayContribution = UnpackFp16x3(g_RWShadowRayContributionBuffer[DispatchID]);
+    float  RayTMax         = g_RWShadowRayLinearDepthBuffer[DispatchID];
+
+    // Trace a shadow ray only.
+    RayDesc ShadowRayDesc;
+    ShadowRayDesc.Origin = RayOrigin;
+    ShadowRayDesc.Direction = RayDirection;
+    ShadowRayDesc.TMin = 0.f;
+    ShadowRayDesc.TMax = RayTMax;
+
+    // Fallback to far plane if no intersection
+    g_RWUpdateRayLinearDepthBuffer[DispatchID]    = MI.CameraFar;
+
+    MIGI_ShadowRayPayload Payload = (MIGI_ShadowRayPayload)0;
+    Payload.Contribution = RayContribution;
+    MIGI_ShadowRayTraceRay(
+        DispatchID,
+        Payload, ShadowRayDesc
+    );
+}
+
+[numthreads(SSRC_DISPATCH_RAYS_GROUP_SIZE, 1, 1)]
+void MIGI_TraceShadowRaysMain (uint DispatchID : SV_DispatchThreadID) {
+    MIGI_TraceUpdateRays(DispatchID);
 }
 
 // Update world cache
@@ -1859,9 +2053,13 @@ void WorldCache_UpdateProbes (int2 LocalID : SV_GroupThreadID, int GroupID : SV_
             int RayIndex = RayBaseOffset + RayRank;
             float3 RayDirection = FetchUpdateRayDirection(RayIndex);
             float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-            float3 RayRadiance = RayRadianceInvPdf.xyz;
+            float3 RayRadianceE      = UnpackFp16x3(g_RWUpdateRayRadianceEBuffer[RayIndex]);
+            float  InvPdf            = RayRadianceInvPdf.w;
+            // We omit direct emission when updating DDGI, which is not friendly to the cache.
+            // Direct lighting on DDGI shaded surfaces are processed in another DI pipeline.
+            float3 RayRadiance = RayRadianceInvPdf.xyz - RayRadianceE;
             float  RayDepth    = g_RWUpdateRayLinearDepthBuffer[RayIndex];
-            if(RayRadianceInvPdf.w > 0) {
+            if(InvPdf > 0) {
                 if(RayDepth < 0) {
                     NumBackfaceHits ++;
                     if(NumBackfaceHits > NumBackfaceHitsThreshold) break;
@@ -1869,9 +2067,9 @@ void WorldCache_UpdateProbes (int2 LocalID : SV_GroupThreadID, int GroupID : SV_
                     continue;
                 }
                 float CosineFactor = saturate(dot(RayDirection, OctDirection));
-                SumIrradiance += RayRadiance * CosineFactor * RayRadianceInvPdf.w;
+                SumIrradiance += RayRadiance * CosineFactor * InvPdf;
                 SumIrradianceWeight += 1;
-                float Weight = pow(CosineFactor, 50) * RayRadianceInvPdf.w;
+                float Weight = pow(CosineFactor, 50) * InvPdf;
                 // Clamp the ray depth to 2.5 * the probe grid size, cause larger values are meaningless.
                 // (We need 2 x grid size on cascade seams)
                 RayDepth = min(RayDepth, 2.5f * WorldCache_GetGridSizeForLevel(Header.GridCoords.w));
@@ -2687,7 +2885,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float Step = dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
                 // TODO better lambda update
                 // FIXME hack (but seemingly useful)
-                float Factor = exp(Step * MI.LambdaLearningBonus) * 0.99f; asfasfasdf
+                float Factor = exp(Step * MI.LambdaLearningBonus) * 0.98f;// asfasfasdf
                 Factor = clamp(Factor, 0.75f, 1.3334f);
                 float OldLambda = SG.Lambda;
                 SG.Lambda *= Factor;
@@ -3729,7 +3927,7 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
             float3 Albedo = MaterialBRDFData.albedo;
             // Save diffuse only lighting for GI reuse
             g_RWDiffuseGITexture[TexCoords] = float4(
-                DenoisedIrradiance * evaluateLambert(Albedo) + EmissiveMaterialData.emissive,
+                DenoisedIrradiance * evaluateLambert(Albedo), // + EmissiveMaterialData.emissive,
                 1.0f
             );
             g_RWGlobalIlluminationOutput[TexCoords] = float4(

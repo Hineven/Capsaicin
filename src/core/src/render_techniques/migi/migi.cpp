@@ -733,9 +733,8 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         }
     }
 
-    // Trace results are waiting to be shaded
+    // Light sampler bounds written, trace results are waiting to be shaded.
     // Build the light sampling cells based on shading positions from frame to frame
-    // unused for now
     light_sampler->update(capsaicin, this);
 
     // Shade queries

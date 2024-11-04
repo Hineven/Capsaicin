@@ -47,6 +47,7 @@ RenderOptionList LightSamplerGridStream::getRenderOptions() noexcept
     newOptions.emplace(RENDER_OPTION_MAKE(light_grid_stream_merge_type, options));
     newOptions.emplace(RENDER_OPTION_MAKE(light_grid_stream_parallel_build, options));
     newOptions.emplace(RENDER_OPTION_MAKE(light_grid_stream_centroid_build, options));
+    newOptions.emplace(RENDER_OPTION_MAKE(light_grid_stream_exclude_env, options));
     return newOptions;
 }
 
@@ -223,6 +224,7 @@ void LightSamplerGridStream::update(CapsaicinInternal &capsaicin, Timeable *pare
         || optionsNew.light_grid_stream_resample != options.light_grid_stream_resample
         || optionsNew.light_grid_stream_merge_type != options.light_grid_stream_merge_type
         || optionsNew.light_grid_stream_centroid_build != options.light_grid_stream_centroid_build
+        || optionsNew.light_grid_stream_exclude_env != options.light_grid_stream_exclude_env
         || usingManyLights != manyLights || lightBuilder->needsRecompile(capsaicin);
     lightsUpdatedFlag =
         optionsNew.light_grid_stream_octahedron_sampling != options.light_grid_stream_octahedron_sampling
@@ -390,6 +392,10 @@ std::vector<std::string> LightSamplerGridStream::getShaderDefines(
     if (usingManyLights)
     {
         baseDefines.push_back("LIGHTSAMPLERSTREAM_RES_MANYLIGHTS");
+    }
+    if(options.light_grid_stream_exclude_env)
+    {
+        baseDefines.push_back("LIGHTSAMPLERSTREAM_EXCLUDE_ENVIRONMENT");
     }
     return baseDefines;
 }

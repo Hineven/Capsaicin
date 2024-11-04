@@ -33,7 +33,7 @@ struct MIGIRenderOptions {
     bool     exclude_oct_lighting {false};
     bool     exclude_SG_lighting {false};
 
-    uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
+    uint32_t SSRC_max_update_ray_count {8 * 1024 * 1024};
     uint32_t SSRC_max_adaptive_probe_count {32 * 1024};
     uint32_t SSRC_max_basis_count {4 * 1024 * 1024};
     uint32_t SSRC_max_probe_count {};
@@ -41,8 +41,8 @@ struct MIGIRenderOptions {
 
     struct {
         int max_query_count;  // reload
-        float grid_size {0.15f}; // reset
-        int   clipmap_resolution {32};  // reload
+        float grid_size {0.1f}; // reset
+        int   clipmap_resolution {16};  // reload
         int   clipmap_levels {4}; // reload
 
         int probe_initial_score {30}; // < 31
@@ -50,7 +50,7 @@ struct MIGIRenderOptions {
         int probe_score_bonus {25};
 
         int max_probe_count          = 4 * 16384; // reload
-        int num_update_ray_per_probe = 88;//148; // max 243
+        int num_update_ray_per_probe = 148; // max 243, 88, 33
 
         float sample_bias                = 0.1f;
         float probe_irradiance_threshold = 0.2f;

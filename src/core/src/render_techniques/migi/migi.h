@@ -138,6 +138,11 @@ public:
         GfxBuffer update_ray_direction {};
         GfxBuffer update_ray_radiance_inv_pdf {};
         GfxBuffer update_ray_linear_depth {};
+        GfxBuffer shadow_ray_count {};
+        GfxBuffer shadow_ray_origin {};
+        GfxBuffer shadow_ray_direction {};
+        GfxBuffer shadow_ray_contribution {};asdasdasasd
+        GfxBuffer shadow_ray_linear_depth {};
         GfxBuffer adaptive_probe_count {};
 //        GfxBuffer probe_update_error {};
         GfxBuffer UE_hemi_octahedron_correction_lut_temp {};
@@ -194,6 +199,8 @@ public:
         GfxKernel  MIGI_TraceUpdateRaysMain {};
         GfxKernel  SSRC_ReprojectPreviousUpdateError {};
         GfxKernel  WorldCache_ShadeQueries {};
+        GfxKernel  MIGI_GenerateTraceShadowRays {};
+        GfxKernel  MIGI_TraceShadowRaysMain {};
         GfxKernel  WorldCache_UpdateProbes {};
         GfxKernel  WorldCache_MoveProbes {};
         GfxKernel  SSRC_UpdateProbes {};
@@ -285,7 +292,6 @@ protected:
     mutable bool need_reset_world_cache_ {true};
     // If we're going to generate data for export this frame
     mutable bool need_export_ {false};
-
 
     // If we should recalculate internal LUTs
     bool need_reset_luts_ {true} ;

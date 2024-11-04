@@ -53,7 +53,7 @@ StructuredBuffer<uint> g_LightBufferSize;
  * @param extent        Bounding box size.
  * @return The calculated combined luminance.
  */
-float sampleLightVolume(Light selectedLight, float3 minBB, float3 extent)
+float sampleLightVolume(Light selectedLight, float3 minBB, float3 extent, uint exclude_flags)
 {
 #if defined(DISABLE_AREA_LIGHTS) && defined(DISABLE_DELTA_LIGHTS) && defined(DISABLE_ENVIRONMENT_LIGHTS)
     return 0.0f;
@@ -252,7 +252,8 @@ float sampleLightVolume(Light selectedLight, float3 minBB, float3 extent)
 #   endif // DISABLE_DELTA_LIGHTS
 #   ifndef DISABLE_ENVIRONMENT_LIGHTS
     /*lightType == kLight_Environment*/
-    {
+    // Sometimes we exclude the environment light from direct lighting calculations
+    if( !(exclude_flags & 0x1 ) ) {
         // Get the environment light
         LightEnvironment light = MakeLightEnvironment(selectedLight);
 
@@ -281,7 +282,7 @@ float sampleLightVolume(Light selectedLight, float3 minBB, float3 extent)
  * @param normal        The face normal of the bounding box region.
  * @return The calculated combined luminance.
  */
-float sampleLightVolumeNormal(Light selectedLight, float3 minBB, float3 extent, float3 normal)
+float sampleLightVolumeNormal(Light selectedLight, float3 minBB, float3 extent, float3 normal, uint exclude_flags)
 {
 #if defined(DISABLE_AREA_LIGHTS) && defined(DISABLE_DELTA_LIGHTS) && defined(DISABLE_ENVIRONMENT_LIGHTS)
     return 0.0f;
@@ -550,7 +551,8 @@ float sampleLightVolumeNormal(Light selectedLight, float3 minBB, float3 extent, 
 #   endif // DISABLE_DELTA_LIGHTS
 #   ifndef DISABLE_ENVIRONMENT_LIGHTS
     /*lightType == kLight_Environment*/
-    {
+    
+    if( !(exclude_flags & 0x1 ) ){
         // Get the environment light
         LightEnvironment light = MakeLightEnvironment(selectedLight);
 

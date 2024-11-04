@@ -13,7 +13,7 @@
 // #define REPROJECTION_NO_INTENSITY_GUESSING
 // Do not take probe sample weight into consideration when performing SG picking
 // while doing reprojection.
-#define REPROJECTION_NO_SAMPLE_WEIGHT
+// #define REPROJECTION_NO_SAMPLE_WEIGHT
 
 // Evaluate backup radiance on probe texels instead of update rays
 // This heuristic is a bit strange, but it seems to work and is proven by GI10
@@ -191,7 +191,24 @@ RWStructuredBuffer<uint>  g_RWUpdateRayProbeBuffer;
 RWStructuredBuffer<uint>  g_RWUpdateRayDirectionBuffer;
 // Traced Radiance & InvPdf for each update ray
 RWStructuredBuffer<uint2>  g_RWUpdateRayRadianceInvPdfBuffer;
+// Radiance from direct emitters for each update ray
+RWStructuredBuffer<uint2>  g_RWUpdateRayRadianceEBuffer;
 RWStructuredBuffer<float>  g_RWUpdateRayLinearDepthBuffer;
+// Shadow ray packed data
+// Shadow ray origin
+RWStructuredBuffer<float3> g_RWShadowRayOriginBuffer;
+// xy : packed oct direction
+RWStructuredBuffer<uint>   g_RWShadowRayDirectionBuffer;
+// Contribution of the shadow ray if not occluded (radiance / pdf)
+RWStructuredBuffer<uint2> g_RWShadowRayContributionBuffer;
+// Linear depth of the shadow ray
+RWStructuredBuffer<float>  g_RWShadowRayLinearDepthBuffer;
+// Number of shadow rays
+RWStructuredBuffer<uint>   g_RWShadowRayCountBuffer;
+// Compress and cache the materials that send shadow rays (same as GI1.0)
+RWStructuredBuffer<uint>   g_RWShadowRayReceiverMaterialBuffer;
+// Record the query / ray index that launched the shadow ray
+RWStructuredBuffer<uint>   g_RWShadowRayQueryIndexBuffer;
 
 // Number of adaptive probes within each tile
 RWTexture2D<uint>          g_RWTileAdaptiveProbeCountTexture;
