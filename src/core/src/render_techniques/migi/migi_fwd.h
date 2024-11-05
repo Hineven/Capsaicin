@@ -33,7 +33,7 @@ struct MIGIRenderOptions {
     bool     exclude_oct_lighting {false};
     bool     exclude_SG_lighting {false};
 
-    uint32_t SSRC_max_update_ray_count {8 * 1024 * 1024};
+    uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
     uint32_t SSRC_max_adaptive_probe_count {32 * 1024};
     uint32_t SSRC_max_basis_count {4 * 1024 * 1024};
     uint32_t SSRC_max_probe_count {};
@@ -127,6 +127,13 @@ namespace MIGIRT {
     static char const *kMIGICacheUpdateAnyHitShaderName       = "MIGI_CacheUpdateAnyHit";
     static char const *kMIGICacheUpdateClosestHitShaderName   = "MIGI_CacheUpdateClosestHit";
     static char const *kMIGICacheUpdateHitGroupName           = "MIGI_CacheUpdateHitGroup";
+
+    static char const *kMIGIShadowRayRaygenShaderName         = "MIGI_ShadowRayRaygen";
+    static char const *kMIGIShadowRayMissShaderName           = "MIGI_ShadowRayMiss";
+    static char const *kMIGIShadowRayAnyHitShaderName         = "MIGI_ShadowRayAnyHit";
+    static char const *kMIGIShadowRayClosestHitShaderName     = "MIGI_ShadowRayClosestHit";
+    static char const *kMIGIShadowRayHitGroupName           = "MIGI_ShadowRayHitGroup";
+
 }
 
 constexpr uint32_t kExportBufferSize = 16 * 1024 * 1024;

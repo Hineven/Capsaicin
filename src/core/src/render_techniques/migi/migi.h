@@ -137,12 +137,14 @@ public:
         GfxBuffer update_ray_probe {};
         GfxBuffer update_ray_direction {};
         GfxBuffer update_ray_radiance_inv_pdf {};
+        GfxBuffer update_ray_radiance_E {};
         GfxBuffer update_ray_linear_depth {};
         GfxBuffer shadow_ray_count {};
         GfxBuffer shadow_ray_origin {};
         GfxBuffer shadow_ray_direction {};
-        GfxBuffer shadow_ray_contribution {};asdasdasasd
+        GfxBuffer shadow_ray_contribution {};
         GfxBuffer shadow_ray_linear_depth {};
+        GfxBuffer shadow_ray_query_index {};
         GfxBuffer adaptive_probe_count {};
 //        GfxBuffer probe_update_error {};
         GfxBuffer UE_hemi_octahedron_correction_lut_temp {};
@@ -192,7 +194,7 @@ public:
         GfxKernel  SSRC_InitializeFailedProbes {};
         GfxKernel  SSRC_AllocateUpdateRays {};
         GfxKernel  WorldCache_AllocateUpdateRays {};
-        GfxKernel  MIGI_SetUpdateRayCount {};
+        GfxKernel  MIGI_SetRayCounts {};
         GfxKernel  SSRC_SampleUpdateRays {};
         GfxKernel  WorldCache_SampleUpdateRays {};
         GfxKernel  MIGI_GenerateTraceUpdateRays {};

@@ -205,7 +205,15 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayProbeBuffer", buf_.update_ray_probe);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayDirectionBuffer", buf_.update_ray_direction);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayRadianceInvPdfBuffer", buf_.update_ray_radiance_inv_pdf);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayRadianceEBuffer", buf_.update_ray_radiance_E);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayLinearDepthBuffer", buf_.update_ray_linear_depth);
+
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWShadowRayOriginBuffer", buf_.shadow_ray_origin);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWShadowRayDirectionBuffer", buf_.shadow_ray_direction);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWShadowRayContributionBuffer", buf_.shadow_ray_contribution);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWShadowRayLinearDepthBuffer", buf_.shadow_ray_linear_depth);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWShadowRayCountBuffer", buf_.shadow_ray_count);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWShadowRayQueryIndexBuffer", buf_.shadow_ray_query_index);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileAdaptiveProbeCountTexture", tex_.tile_adaptive_probe_count[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousTileAdaptiveProbeCountTexture", tex_.tile_adaptive_probe_count[1 - flip]);
@@ -501,8 +509,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 0);
             gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 1);
             gfxCommandBindKernel(gfx_, kernels_.PrecomputeHiZ_max);
-            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]),
-                divideAndRoundUp(options_.height / 4, threads[1]), 1);
+            gfxCommandDispatch(gfx_, divideAndRoundUp(options_.width / 4, threads[0]), divideAndRoundUp(options_.height / 4, threads[1]), 1);
             gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_In", tex_.HiZ_max, 1);
             gfxProgramSetTexture(gfx_, kernels_.program, "g_RWHiZ_Out", tex_.HiZ_max, 2);
             gfxCommandBindKernel(gfx_, kernels_.PrecomputeHiZ_max);
@@ -689,7 +696,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
     {
         const TimedSection timed_section(*this, "MIGI_SetUpdateRayCount");
-        gfxCommandBindKernel(gfx_, kernels_.MIGI_SetUpdateRayCount);
+        gfxCommandBindKernel(gfx_, kernels_.MIGI_SetRayCounts);
         gfxCommandDispatch(gfx_, 1, 1, 1);
     }
 
@@ -734,10 +741,10 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     }
 
     // Light sampler bounds written, trace results are waiting to be shaded.
-    // Build the light sampling cells based on shading positions from frame to frame
+    // Build the light sampling cells based on shading positions
     light_sampler->update(capsaicin, this);
 
-    // Shade queries
+    // Shade queries， here we request light samples at shading points
     {
         TimedSection const timed_section(*this, "WorldCache_ShadeQueries");
         gfxCommandBindKernel(gfx_, kernels_.WorldCache_ShadeQueries);
@@ -746,10 +753,39 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
+    {
+        const TimedSection timed_section(*this, "MIGI_GenerateTraceShadowRays");
+        gfxCommandBindKernel(gfx_, kernels_.MIGI_GenerateTraceShadowRays);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+    }
+
+    // Trace shadow rays for DI at shading points
+    {
+        TimedSection const timed_section(*this, "MIGI_TraceShadowRays");
+        if(options_.use_dxr10) {
+            gfxSbtSetShaderGroup(
+                gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, MIGIRT::kMIGIShadowRayRaygenShaderName);
+            gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Miss, 0, MIGIRT::kMIGIShadowRayMissShaderName);
+            for (uint32_t i = 0; i < gfxAccelerationStructureGetRaytracingPrimitiveCount(
+                                     gfx_, capsaicin.getAccelerationStructure());
+                i++)
+            {
+                gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Hit,
+                    i * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
+                    MIGIRT::kMIGIShadowRayHitGroupName);
+            }
+            gfxCommandBindKernel(gfx_, kernels_.MIGI_TraceShadowRaysMain);
+            gfxCommandDispatchRaysIndirect(gfx_, sbt_, buf_.dispatch_rays_command);
+        } else {
+            gfxCommandBindKernel(gfx_, kernels_.MIGI_TraceShadowRaysMain);
+            gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
+        }
+    }
+
     // Update the SSRC
     {
         TimedSection const timed_section(*this, "SSRC_UpdateProbes");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_WriteProbeDispatchParameters);
+        gfxCommandBindKernel(gfx_, kernels_.MIGI_GenerateTraceShadowRays);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_UpdateProbes);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);

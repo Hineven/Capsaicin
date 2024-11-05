@@ -99,6 +99,7 @@ static vector<SceneData> const scenes = {
 static vector<pair<string_view, string_view>> const sceneEnvironmentMaps = {
     {                    "None",                                                                     ""},
     {"Photo Studio London Hall", "assets/CapsaicinTestMedia/environment_maps/PhotoStudioLondonHall.hdr"},
+    {                 "Rogland",                  "assets/MIGITestMedia/envmap/rogland_overcast_4k.exr"},
     {              "Kiara Dawn",             "assets/CapsaicinTestMedia/environment_maps/KiaraDawn.hdr"},
     {        "Nagoya Wall Path",        "assets/CapsaicinTestMedia/environment_maps/NagoyaWallPath.hdr"},
     {        "Spaichingen Hill",       "assets/CapsaicinTestMedia/environment_maps/SpaichingenHill.hdr"},

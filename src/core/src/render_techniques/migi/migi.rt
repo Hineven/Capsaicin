@@ -75,3 +75,24 @@ void MIGI_CacheUpdateMiss(inout MIGI_CacheUpdatePayload payload)
     payload.hit_dist = MI.CameraFar;
     MIGI_CacheUpdateHandleMiss(DispatchRaysIndex().x, payload, GetRayDescRt());
 }
+
+[shader("raygeneration")]
+void MIGI_ShadowRayRaygen()
+{
+    MIGI_TraceShadowRays(DispatchRaysIndex().x);
+}
+
+[shader("anyhit")]
+void MIGI_ShadowRayAnyHit(inout MIGI_ShadowRayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    if (!AlphaTest(GetHitInfoRt(attr)))
+    {
+        IgnoreHit();
+    }
+}
+
+[shader("miss")]
+void MIGI_ShadowRayClosestHit(inout MIGI_ShadowRayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    MIGI_ShadowRayHandleMiss(DispatchRaysIndex().x, payload, GetRayDescRt());
+}

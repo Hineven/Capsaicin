@@ -132,8 +132,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_AllocateUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_AllocateUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "WorldCache_AllocateUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.MIGI_SetUpdateRayCount = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "MIGI_SetUpdateRayCount", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.MIGI_SetRayCounts = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "MIGI_SetRayCounts", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_SampleUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_SampleUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_SampleUpdateRays = gfxCreateComputeKernel(
@@ -145,6 +145,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "SSRC_ReprojectPreviousUpdateError", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_ShadeQueries = gfxCreateComputeKernel(
             gfx_, kernels_.program, "WorldCache_ShadeQueries", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.MIGI_GenerateTraceShadowRays = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "MIGI_GenerateTraceShadowRays", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_UpdateProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "WorldCache_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_MoveProbes = gfxCreateComputeKernel(
@@ -202,11 +204,20 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             migi_cache_update_exports.push_back(MIGIRT::kMIGICacheUpdateMissShaderName);
             migi_cache_update_exports.push_back(MIGIRT::kMIGICacheUpdateAnyHitShaderName);
             migi_cache_update_exports.push_back(MIGIRT::kMIGICacheUpdateClosestHitShaderName);
-            std::vector<char const *> screen_cache_update_subobjects = base_subobjects;
-            screen_cache_update_subobjects.push_back(MIGIRT::kMIGICacheUpdateHitGroupName);
+            std::vector<char const *> migi_raytracing_subobjects = base_subobjects;
+            migi_raytracing_subobjects.push_back(MIGIRT::kMIGICacheUpdateHitGroupName);
             kernels_.MIGI_TraceUpdateRaysMain = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
                 migi_cache_update_exports.data(), (uint32_t)migi_cache_update_exports.size(),
-                screen_cache_update_subobjects.data(), (uint32_t)screen_cache_update_subobjects.size(),
+                migi_raytracing_subobjects.data(), (uint32_t)migi_raytracing_subobjects.size(),
+                defines_c.data(), (uint32_t)defines_c.size());
+            std::vector<char const *> migi_shadow_ray_exports;
+            migi_shadow_ray_exports.push_back(MIGIRT::kMIGIShadowRayRaygenShaderName);
+            migi_shadow_ray_exports.push_back(MIGIRT::kMIGIShadowRayMissShaderName);
+            migi_shadow_ray_exports.push_back(MIGIRT::kMIGIShadowRayAnyHitShaderName);
+            migi_shadow_ray_exports.push_back(MIGIRT::kMIGIShadowRayClosestHitShaderName);
+            kernels_.MIGI_TraceShadowRaysMain = gfxCreateRaytracingKernel(gfx_, kernels_.program, nullptr, 0,
+                migi_shadow_ray_exports.data(), (uint32_t)migi_shadow_ray_exports.size(),
+                migi_raytracing_subobjects.data(), (uint32_t)migi_raytracing_subobjects.size(),
                 defines_c.data(), (uint32_t)defines_c.size());
 
             uint32_t entry_count[kGfxShaderGroupType_Count] {
@@ -222,6 +233,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         {
             kernels_.MIGI_TraceUpdateRaysMain                 = gfxCreateComputeKernel(
                 gfx_, kernels_.program, "MIGI_TraceUpdateRaysMain", defines_c.data(), (uint32_t)defines_c.size());
+            kernels_.MIGI_TraceShadowRaysMain                 = gfxCreateComputeKernel(
+                gfx_, kernels_.program, "MIGI_TraceShadowRaysMain", defines_c.data(), (uint32_t)defines_c.size());
         }
 
     }
@@ -476,10 +489,26 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.update_ray_probe.setName("UpdateRayProbe");
     buf_.update_ray_direction = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count);
     buf_.update_ray_direction.setName("UpdateRayDirection");
-    buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count * 2);
+    buf_.update_ray_radiance_inv_pdf = gfxCreateBuffer<uint2>(gfx_, max_update_ray_count);
     buf_.update_ray_radiance_inv_pdf.setName("UpdateRayRadianceInvPdf");
+    buf_.update_ray_radiance_E = gfxCreateBuffer<uint2>(gfx_, max_update_ray_count);
+    buf_.update_ray_radiance_E.setName("UpdateRayRadianceE");
     buf_.update_ray_linear_depth = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count);
     buf_.update_ray_linear_depth.setName("UpdateRayLinearDepth");
+
+    buf_.shadow_ray_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.shadow_ray_count.setName("ShadowRayCount");
+    buf_.shadow_ray_origin    = gfxCreateBuffer<float3>(gfx_, max_update_ray_count);
+    buf_.shadow_ray_origin.setName("ShadowRayOrigin");
+    buf_.shadow_ray_direction = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count);
+    buf_.shadow_ray_direction.setName("ShadowRayDirection");
+    buf_.shadow_ray_contribution = gfxCreateBuffer<uint2>(gfx_, max_update_ray_count);
+    buf_.shadow_ray_contribution.setName("ShadowRayContribution");
+    buf_.shadow_ray_linear_depth = gfxCreateBuffer<float>(gfx_, max_update_ray_count);
+    buf_.shadow_ray_linear_depth.setName("ShadowRayLinearDepth");
+    buf_.shadow_ray_query_index = gfxCreateBuffer<uint32_t>(gfx_, max_update_ray_count);
+    buf_.shadow_ray_query_index.setName("ShadowRayQueryIndex");
+
 
     buf_.adaptive_probe_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.adaptive_probe_count.setName("AdaptiveProbeCount");
@@ -574,9 +603,9 @@ bool MIGI::init(const CapsaicinInternal &capsaicin) noexcept
 
     auto light_sampler = capsaicin.getComponent<LightSamplerGridStream>();
 
-    int max_ray_count = options_.SSRC_max_update_ray_count;
+    int max_ray_count = options_.SSRC_max_update_ray_count
+                      + options_.world_cache.max_probe_count * options_.world_cache.num_update_ray_per_probe;
     light_sampler->reserveBoundsValues(max_ray_count, this);
-    light_sampler->init(capsaicin);
     memset(readback_pending_, 0, sizeof(readback_pending_));
 
     internal_frame_index_ = 0;
@@ -614,13 +643,15 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectProbeHistory);
     gfxDestroyKernel(gfx_, kernels_.SSRC_AllocateUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_AllocateUpdateRays);
-    gfxDestroyKernel(gfx_, kernels_.MIGI_SetUpdateRayCount);
+    gfxDestroyKernel(gfx_, kernels_.MIGI_SetRayCounts);
     gfxDestroyKernel(gfx_, kernels_.SSRC_SampleUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_SampleUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.MIGI_GenerateTraceUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.MIGI_TraceUpdateRaysMain);
     gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_ShadeQueries);
+    gfxDestroyKernel(gfx_, kernels_.MIGI_GenerateTraceShadowRays);
+    gfxDestroyKernel(gfx_, kernels_.MIGI_TraceShadowRaysMain);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_MoveProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
@@ -721,7 +752,14 @@ void MIGI::releaseResources()
     gfxDestroyBuffer(gfx_, buf_.update_ray_probe);
     gfxDestroyBuffer(gfx_, buf_.update_ray_direction);
     gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_inv_pdf);
+    gfxDestroyBuffer(gfx_, buf_.update_ray_radiance_E);
     gfxDestroyBuffer(gfx_, buf_.update_ray_linear_depth);
+    gfxDestroyBuffer(gfx_, buf_.shadow_ray_count);
+    gfxDestroyBuffer(gfx_, buf_.shadow_ray_origin);
+    gfxDestroyBuffer(gfx_, buf_.shadow_ray_direction);
+    gfxDestroyBuffer(gfx_, buf_.shadow_ray_contribution);
+    gfxDestroyBuffer(gfx_, buf_.shadow_ray_linear_depth);
+    gfxDestroyBuffer(gfx_, buf_.shadow_ray_query_index);
     gfxDestroyBuffer(gfx_, buf_.adaptive_probe_count);
 //    gfxDestroyBuffer(gfx_, buf_.probe_update_error);
     gfxDestroyBuffer(gfx_, buf_.UE_hemi_octahedron_correction_lut_temp);

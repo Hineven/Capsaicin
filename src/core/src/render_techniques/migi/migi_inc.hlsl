@@ -205,8 +205,6 @@ RWStructuredBuffer<uint2> g_RWShadowRayContributionBuffer;
 RWStructuredBuffer<float>  g_RWShadowRayLinearDepthBuffer;
 // Number of shadow rays
 RWStructuredBuffer<uint>   g_RWShadowRayCountBuffer;
-// Compress and cache the materials that send shadow rays (same as GI1.0)
-RWStructuredBuffer<uint>   g_RWShadowRayReceiverMaterialBuffer;
 // Record the query / ray index that launched the shadow ray
 RWStructuredBuffer<uint>   g_RWShadowRayQueryIndexBuffer;
 

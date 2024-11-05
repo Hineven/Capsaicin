@@ -12,6 +12,9 @@ add_definitions(
     /MP
 )
 
+# Use utf-8 encoding
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+
 # Disable unused parameters from 3rd party directories
 set(GFX_BUILD_EXAMPLES            OFF CACHE BOOL "")
 set(BUILD_TESTING                 OFF CACHE BOOL "")

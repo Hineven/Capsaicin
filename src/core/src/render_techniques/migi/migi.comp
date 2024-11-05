@@ -1066,9 +1066,11 @@ void WorldCache_AllocateUpdateRays (int DispatchID : SV_DispatchThreadID) {
 // A scan sum is performed to accumulate allocated raycount for each probe
 
 [numthreads(1, 1, 1)]
-void MIGI_SetUpdateRayCount () {
+void MIGI_SetRayCounts () {
     int ProbeCount = MI.UniformScreenProbeCount + g_RWAdaptiveProbeCountBuffer[0] + g_RWWorldCacheActiveProbeCountBuffer[0];
     g_RWUpdateRayCountBuffer[0] = g_RWProbeUpdateRayOffsetBuffer[ProbeCount];
+    // Also, clear the shadow ray count buffer
+    g_RWShadowRayCountBuffer[0] = 0;
 }
 
 // We sample from 4 adjacent probes if reprojection is delayed, so 4 times the basis count
@@ -1441,6 +1443,7 @@ void MIGI_CacheUpdateHandleHit(uint DispatchID, inout MIGI_CacheUpdatePayload pa
     // Clear radiance to 0
     float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[DispatchID]);
     g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(0.f.xxx, RayRadianceInvPdf.w));
+    g_RWUpdateRayRadianceEBuffer[DispatchID] = PackFp16x3Safe(0.f.xxx);
     // Record hit distance
     g_RWUpdateRayLinearDepthBuffer[DispatchID] = Visibility.IsFrontFace ? payload.hit_dist : -payload.hit_dist;
 
@@ -1454,6 +1457,9 @@ void MIGI_CacheUpdateHandleMiss(uint DispatchID, inout MIGI_CacheUpdatePayload p
     // Fallback to sky sample if no intersection
     float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[DispatchID]);
     g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(payload.sky_sample, RayRadianceInvPdf.w));
+    // Sky emission is not considered 'emission' in the current implementation due to it's 
+    // low frequency nature. (Sun is removed from the sky and considered to be a separate direct lighting source)
+    g_RWUpdateRayRadianceEBuffer[DispatchID] = PackFp16x3Safe(0.f.xxx);//PackFp16x3Safe(payload.sky_sample);
     g_RWUpdateRayLinearDepthBuffer[DispatchID] = MI.CameraFar;
 }
 
@@ -1697,10 +1703,12 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
     }
     float SignedRayTravelDistance = g_RWUpdateRayLinearDepthBuffer[QueryIndex];
     float RayTravelDistance = abs(SignedRayTravelDistance);
-    if(g_RWUpdateRayLinearDepthBuffer[QueryIndex] == 0 || RayTravelDistance >= MI.CameraFar) {
+    if(SignedRayTravelDistance == 0 || RayTravelDistance >= MI.CameraFar) {
         // Early out if invalid / no visibility intersetion found for this ray
         return;
     }
+
+    return ;
 
     float Q_Noise = BlueNoise_Sample1D(int2(QueryIndex % 1024, QueryIndex / 1024), MI.FrameSeed, 6);
 
@@ -1742,7 +1750,7 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
 
     float4 RayRadianceInvPdf    = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex]);
 
-    float3 AccumulatedRadiance = RayRadianceInvPdf.rgb, AccumulatedRadianceE = 0;
+    float3 AccumulatedRadiance = 0, AccumulatedRadianceE = RayRadianceInvPdf.rgb;
 
     // Emissive material
     if (QueryVisibility.IsFrontFace && dot(MaterialData.emissivity.xyz, MaterialData.emissivity.xyz) > 0.0f)
@@ -1856,7 +1864,7 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
         float LightPdf  = 0;
         uint LightIndex = LightSamplerData.sampleLights(WorldPosition, WorldNormal, LightPdf);
         // Spawn a shadow ray to be traced.
-        {
+        if(LightPdf > 0) {
             Light SelectedLight = getLight(LightIndex);
             float2 U01 = float2(rng.rand(), rng.rand());
             // Warp to equal-areal barycentrics
@@ -1903,7 +1911,6 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
 
         g_RWUpdateRayRadianceInvPdfBuffer[QueryIndex] = PackFp16x4Safe(float4(FinalRadiance, RayRadianceInvPdf.w));
     }
-    
 
     // Commit shadow ray.
     uint ShadowRayRank  = WavePrefixSum(ShadowRaySpawned ? 1 : 0);
@@ -1911,9 +1918,12 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
     uint ShadowRayBaseIndex = 0;
     if(WaveIsFirstLane()) {
         if(ShadowRayCount > 0) {
-            ShadowRayBaseIndex = InterlockedAdd(g_RWShadowRayCountBuffer[0], ShadowRayCount);
+            InterlockedAdd(g_RWShadowRayCountBuffer[0], ShadowRayCount, ShadowRayBaseIndex);
         }
     }
+    // Broadcast the base index to all lanes
+    ShadowRayBaseIndex = WaveReadLaneFirst(ShadowRayBaseIndex);
+    // Write shadow ray data
     if(ShadowRaySpawned) {
         uint ShadowRayIndex = ShadowRayBaseIndex + ShadowRayRank;
         // Bias the shadow ray origin to prevent self-intersection
@@ -1921,7 +1931,6 @@ void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint G
         float3 Origin = WorldPosition + 1e-4f * ShadowRayDirection;
         WriteShadowRay(ShadowRayIndex, Origin, ShadowRayDirection, ShadowRayContribution, ShadowRayTMax);
         // Same as GI10, we cache the compressed material data for shadow rays
-        g_RWShadowRayReceiverMaterialBuffer[ShadowRayIndex] = packMaterial(MaterialEvalData);
         g_RWShadowRayQueryIndexBuffer[ShadowRayIndex] = QueryIndex;
     }
 }
@@ -1957,6 +1966,7 @@ struct MIGI_ShadowRayPayload {
     float3 Contribution;
 };
 
+
 void MIGI_ShadowRayHandleMiss(uint DispatchID, inout MIGI_ShadowRayPayload Payload, RayDesc ray)
 {
     // Accumulate query contribution
@@ -1969,12 +1979,7 @@ void MIGI_ShadowRayHandleMiss(uint DispatchID, inout MIGI_ShadowRayPayload Paylo
 void MIGI_ShadowRayTraceRayInline(uint did, inout MIGI_ShadowRayPayload payload, RayDesc ray)
 {
     ShadowRayQuery ray_query = TraceRay<ShadowRayQuery>(ray);
-
-    // If we hit some geometry, we append a new world-space hash-grid cache query
-    if(ray_query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-    {
-        // nop
-    } else {
+    if(ray_query.CommittedStatus() == COMMITTED_NOTHING) {
         MIGI_ShadowRayHandleMiss(did, payload, ray);
     }
 }
