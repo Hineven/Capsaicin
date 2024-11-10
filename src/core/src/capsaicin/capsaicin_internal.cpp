@@ -1955,7 +1955,7 @@ void CapsaicinInternal::terminate()
     scene_ = {};
 }
 
-void CapsaicinInternal::reloadShaders() noexcept
+void CapsaicinInternal:: reloadShaders() noexcept
 {
     // Instead of just recompiling kernels we re-initialise all component/techniques. This has the side effect
     // of not only recompiling kernels but also re-initialising old data that may no longer contain correct

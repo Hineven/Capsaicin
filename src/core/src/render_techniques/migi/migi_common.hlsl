@@ -198,6 +198,11 @@ struct MIGI_Constants {
     uint   NoCompensation;
     uint   Padding1;
     uint   Padding2;
+
+    float3 SunRadiance;
+    float  SunCosineThreshold;
+    float3 SunDirection;
+    uint   Padding3;
 };
 
 

@@ -371,6 +371,47 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         C.NoCompensation          = options_.SSRC_SG_no_compensation;
 
+        auto & options = capsaicin.getOptions();
+        float sun_color_r = 0;
+        if(options.contains("sun_color_r")) {
+            sun_color_r = std::get<float>(options.at("sun_color_r"));
+        }
+        float sun_color_g = 0;
+        if(options.contains("sun_color_g")) {
+            sun_color_g = std::get<float>(options.at("sun_color_g"));
+        }
+        float sun_color_b = 0;
+        if(options.contains("sun_color_b")) {
+            sun_color_b = std::get<float>(options.at("sun_color_b"));
+        }
+        float3 SunColor = {sun_color_r, sun_color_g, sun_color_b};
+        if(options.contains("extra_sun_directional_light")) {
+            auto enable = std::get<int>(options.at("extra_sun_directional_light"));
+            if(!enable) {
+                SunColor = {0, 0, 0};
+            }
+        }
+        float sun_cone_angle = 0.01f;
+        if(options.contains("sun_cone_angle")) {
+            sun_cone_angle = std::get<float>(options.at("sun_cone_angle"));
+        }
+#define M_PI 3.14159265358979323846
+        C.SunRadiance             = SunColor * float(4 * M_PI / sun_cone_angle);
+        float sun_direction_x = 0;
+        if(options.contains("sun_direction_x")) {
+            sun_direction_x = std::get<float>(options.at("sun_direction_x"));
+        }
+        float sun_direction_y = 1;
+        if(options.contains("sun_direction_y")) {
+            sun_direction_y = std::get<float>(options.at("sun_direction_y"));
+        }
+        float sun_direction_z = 0;
+        if(options.contains("sun_direction_z")) {
+            sun_direction_z = std::get<float>(options.at("sun_direction_z"));
+        }
+        C.SunDirection = normalize(float3(sun_direction_x, sun_direction_y, sun_direction_z));
+        C.SunCosineThreshold = float(1 - sun_cone_angle / (M_PI * 2));
+
         glm::mat4 original_proj_view =
             glm::perspective(__inspection_camera.fovY, __inspection_camera.aspect, __inspection_camera.nearZ, __inspection_camera.farZ)
             * glm::lookAt(__inspection_camera.eye, __inspection_camera.center, __inspection_camera.up);
@@ -785,7 +826,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     // Update the SSRC
     {
         TimedSection const timed_section(*this, "SSRC_UpdateProbes");
-        gfxCommandBindKernel(gfx_, kernels_.MIGI_GenerateTraceShadowRays);
+        gfxCommandBindKernel(gfx_, kernels_.SSRC_WriteProbeDispatchParameters);
         gfxCommandDispatch(gfx_, 1, 1, 1);
         gfxCommandBindKernel(gfx_, kernels_.SSRC_UpdateProbes);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);

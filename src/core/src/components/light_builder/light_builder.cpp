@@ -133,12 +133,16 @@ void LightBuilder::run(CapsaicinInternal &capsaicin) noexcept
     lightSettingChanged = options.delta_light_enable != optionsNew.delta_light_enable
                        || options.area_light_enable != optionsNew.area_light_enable
                        || options.environment_light_enable != optionsNew.environment_light_enable;
+
     options = optionsNew;
     if (oldLightHash != lightHash
         || (capsaicin.getEnvironmentMapUpdated() && options.environment_light_enable)
         || (oldAreaLightMaxCount != areaLightMaxCount) || (oldDeltaLightCount != deltaLightCount)
         || lightSettingChanged
-        || (areaLightMaxCount > 0 && (capsaicin.getMeshesUpdated() || capsaicin.getTransformsUpdated())))
+        || (areaLightMaxCount > 0 && (capsaicin.getMeshesUpdated() || capsaicin.getTransformsUpdated()))
+        // Simply rebuild every frame for varying sunlight.
+        || true
+        )
     {
         lightsUpdated = true;
 
@@ -152,6 +156,9 @@ void LightBuilder::run(CapsaicinInternal &capsaicin) noexcept
             // Add the environment map to the light list
             // Note: other parts require that the environment map is always first in the list
             environmentMapCount = 0;
+            // Hineven: disable environment light from direct light sampling.
+            // Use cache instead.
+            asdfasfdasfasdf
             if (!!environmentMap && options.environment_light_enable)
             {
                 Light light = MakeEnvironmentLight(environmentMap.getWidth(), environmentMap.getHeight());
@@ -192,6 +199,18 @@ void LightBuilder::run(CapsaicinInternal &capsaicin) noexcept
                         lights[i].color * lights[i].intensity, lights[i].direction, lights[i].range);
                     allLightData.push_back(light);
                 }
+            }
+            if(capsaicin.getOption<int>("extra_sun_directional_light")) {
+                // Add an extra directional light
+                float r = capsaicin.getOption<float>("sun_color_r");
+                float g = capsaicin.getOption<float>("sun_color_g");
+                float b = capsaicin.getOption<float>("sun_color_b");
+                float x = capsaicin.getOption<float>("sun_direction_x");
+                float y = capsaicin.getOption<float>("sun_direction_y");
+                float z = capsaicin.getOption<float>("sun_direction_z");
+                Light light = MakeDirectionalLight(float3(r, g, b), float3(x, y, z), 1e9f);
+                allLightData.push_back(light);
+
             }
 
             const uint32_t numLights = areaLightMaxCount + (uint32_t)allLightData.size();

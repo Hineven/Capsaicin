@@ -151,6 +151,27 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::SliderFloat("SG Color  Learning Bonus", &options_.SSRC_SG_color_learning_bonus, 0.05f, 5.f);
         ImGui::SliderFloat("SG Direction Learing Rate", &options_.SSRC_SG_direction_learing_rate, 0.01f, 0.3f);
         ImGui::Checkbox("Always Export", &options_.always_export);
+
+        static bool   sun_enable    = true;
+        static float3 sun_direction = {-0.8f, 0.55f, -0.3f};
+        static float3 sun_color = {0.12f, 0.09f, 0.08f};
+        static float  sun_cone_angle = 0.015f;
+        ImGui::SliderFloat3("Sun Direction", &sun_direction.x, -1.0f, 1.0f);
+        ImGui::SliderFloat3("Sun Color", &sun_color.x, 0.0f, 5.0f);
+        ImGui::SliderFloat("Sun Cone Angle", &sun_cone_angle, 0.0f, 0.015f);
+        auto & options = capsaicin.getOptions();
+        sun_direction = glm::normalize(sun_direction);
+        options["sun_direction_x"] = sun_direction.x;
+        options["sun_direction_y"] = sun_direction.y;
+        options["sun_direction_z"] = sun_direction.z;
+        options["sun_color_r"] = sun_color.x;
+        options["sun_color_g"] = sun_color.y;
+        options["sun_color_b"] = sun_color.z;
+        options["sun_cone_angle"] = sun_cone_angle;
+        ImGui::Checkbox("Sun Enable", &sun_enable);
+        options["extra_sun_directional_light"] = sun_enable ? 1 : 0;
+
+
         if(!options_.always_export) {
             if (ImGui::Button("Export Probe Data"))
             {

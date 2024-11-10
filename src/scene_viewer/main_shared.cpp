@@ -700,6 +700,15 @@ bool CapsaicinMain::loadScene(Scene scene) noexcept
 
     // Set render settings based on current scene
     Capsaicin::setOption("tonemap_exposure", sceneData.renderExposure);
+    // Add an extra sunlight
+    Capsaicin::setOption("extra_sun_directional_light", 1);
+    Capsaicin::setOption("sun_direction_x", 0.f);
+    Capsaicin::setOption("sun_direction_y", 1.f);
+    Capsaicin::setOption("sun_direction_z", 0.f);
+    Capsaicin::setOption("sun_color_r", 5.f);
+    Capsaicin::setOption("sun_color_g", 3.5f);
+    Capsaicin::setOption("sun_color_b", 2.5f);
+    Capsaicin::setOption("sun_cone_angle",  0.004f);
     currentScene = scene;
     return true;
 }
