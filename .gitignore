@@ -7,3 +7,7 @@ out
 cmake-build-debug
 .idea
 third_party/gfx/third_party/*
+diff-highlights
+track.txt
+diff-highlights.avi
+eval.py
