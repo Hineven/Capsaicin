@@ -1,0 +1,3 @@
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/CMakeFiles/tinyexr-populate.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/CMakeFiles/edit_cache.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/CMakeFiles/rebuild_cache.dir

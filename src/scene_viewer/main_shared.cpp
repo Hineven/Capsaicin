@@ -77,21 +77,22 @@ struct SceneData
 
 /** List of supported scene files and associated data */
 static vector<SceneData> const scenes = {
-    {"Flying World",    {"assets/CapsaicinTestMedia/flying_world_battle_of_the_trash_god/FlyingWorld-BattleOfTheTrashGod.gltf"},  true, 2.5f                                                                                                          },
-    {"Gas Station",                                                   {"assets/CapsaicinTestMedia/gas_station/GasStation.gltf"},  true, 1.0f},
-    {"Tropical Bedroom",                                    {"assets/CapsaicinTestMedia/tropical_bedroom/TropicalBedroom.gltf"},  true, 2.0f},
-    {"Sponza",                                                                 {"assets/CapsaicinTestMedia/sponza/Sponza.gltf"},  true, 5.0f},
-    {"Breakfast Room",                                          {"assets/CapsaicinTestMedia/breakfast_room/BreakfastRoom.gltf"},  true, 3.0f},
-    {"Remi's Room",                                          {"assets/MIGITestMedia/demo/demo.gltf"},  true, 3.5f},
-    {"Simple",                                          {"assets/MIGITestMedia/simple/scene.gltf"},  true, 1.0f},
-    {"XYZ",                                          {"assets/MIGITestMedia/xyz/z-up-x-axis-block.gltf"},  true, 1.0f},
-    {"Box",                                          {"assets/MIGITestMedia/cornell-box/scene.gltf"},  false, 1.0f},
-    {"1Emitter",                                          {"assets/MIGITestMedia/1emitter/scene.gltf"},  false, 1.0f},
-    {"1Emitter_twisted",                                          {"assets/MIGITestMedia/1emitter_twisted/scene.gltf"},  false, 1.0f},
-    {"2Emitters",                                          {"assets/MIGITestMedia/2emitters/scene.gltf"},  false, 0.5f},
-    {"MovingLight",                                          {"assets/MIGITestMedia/moving-light/TestScene.gltf"},  false, 5.f},
-    {"SchoolPassage",                                      {"assets/MIGITestMedia/SchoolPassage/SchoolPassage.gltf"},   true, 3.f},
-    {"BiasTest",                                           {"assets/MIGITestMedia/BiasTest/scene.gltf"}, true, 2.f}
+    {"Flying World",{"assets/CapsaicinTestMedia/flying_world_battle_of_the_trash_god/FlyingWorld-BattleOfTheTrashGod.gltf"},  true, 2.5f                                                                                                          },
+    {"Gas Station",{"assets/CapsaicinTestMedia/gas_station/GasStation.gltf"},  true, 1.0f},
+    {"Tropical Bedroom",{"assets/CapsaicinTestMedia/tropical_bedroom/TropicalBedroom.gltf"},  true, 2.0f},
+    {"Sponza",{"assets/CapsaicinTestMedia/sponza/Sponza.gltf"},  true, 5.0f},
+    {"Breakfast Room",{"assets/CapsaicinTestMedia/breakfast_room/BreakfastRoom.gltf"},  true, 3.0f},
+    {"Remi's Room",{"assets/MIGITestMedia/demo/demo.gltf"},  true, 3.5f},
+    {"Simple",{"assets/MIGITestMedia/simple/scene.gltf"},  true, 1.0f},
+    {"XYZ",{"assets/MIGITestMedia/xyz/z-up-x-axis-block.gltf"},  true, 1.0f},
+    {"Box",{"assets/MIGITestMedia/cornell-box/scene.gltf"},  false, 1.0f},
+    {"1Emitter",{"assets/MIGITestMedia/1emitter/scene.gltf"},  false, 1.0f},
+    {"1Emitter_twisted",{"assets/MIGITestMedia/1emitter_twisted/scene.gltf"},  false, 1.0f},
+    {"2Emitters",{"assets/MIGITestMedia/2emitters/scene.gltf"},  false, 0.5f},
+    {"MovingLight",{"assets/MIGITestMedia/moving-light/TestScene.gltf"},  false, 5.f},
+    {"SchoolPassage",{"assets/MIGITestMedia/SchoolPassage/SchoolPassage.gltf"},   true, 3.f},
+    {"BiasTest",{"assets/MIGITestMedia/BiasTest/scene.gltf"}, true, 2.f},
+    {"DiffHighlight",{"assets/MIGITestMedia/diff-highlight/diff-highlight.gltf"},  false, 5.f}
 };
 
 /** List of supported environment maps */
@@ -306,9 +307,9 @@ void CapsaicinMain::printString(std::string const &text, MessageLevel level) noe
 bool CapsaicinMain::initialise() noexcept
 {
     // Default application settings
-    uint32_t windowWidth  = 1920;
+    uint32_t windowWidth  = 1600;
     // Must be a divisor of 16 for MIGI
-    uint32_t windowHeight = 1088;
+    uint32_t windowHeight = 960;
 
     // Command line settings
     CLI::App app(programName.data());

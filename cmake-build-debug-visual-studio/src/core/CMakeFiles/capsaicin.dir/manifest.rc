@@ -1,0 +1,2 @@
+#pragma code_page(65001)
+2 /* CREATEPROCESS_MANIFEST_RESOURCE_ID */ 24 /* RT_MANIFEST */ "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/src/core/CMakeFiles/capsaicin.dir/embed.manifest"

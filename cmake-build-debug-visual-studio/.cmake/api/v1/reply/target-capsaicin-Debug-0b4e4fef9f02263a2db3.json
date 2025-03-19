@@ -1,0 +1,2071 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "bin/capsaicin.dll"
+		},
+		{
+			"path" : "lib/capsaicin.lib"
+		},
+		{
+			"path" : "bin/capsaicin.pdb"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"install",
+			"target_link_options",
+			"target_link_libraries",
+			"target_compile_options",
+			"target_include_directories",
+			"target_compile_features",
+			"target_sources"
+		],
+		"files" : 
+		[
+			"src/core/CMakeLists.txt",
+			"third_party/gfx/CMakeLists.txt",
+			"third_party/gfx/third_party/KTX-Software/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 29,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 118,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 72,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 100,
+				"parent" : 0
+			},
+			{
+				"file" : 1
+			},
+			{
+				"command" : 3,
+				"file" : 1,
+				"line" : 61,
+				"parent" : 5
+			},
+			{
+				"command" : 3,
+				"file" : 1,
+				"line" : 145,
+				"parent" : 5
+			},
+			{
+				"file" : 2
+			},
+			{
+				"command" : 3,
+				"file" : 2,
+				"line" : 934,
+				"parent" : 8
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 60,
+				"parent" : 0
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 43,
+				"parent" : 0
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 48,
+				"parent" : 0
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 59,
+				"parent" : 0
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 38,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "/DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++20 -MDd   /MP"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "/W4"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "/WX"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "/external:anglebrackets"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "/external:W0"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "/analyze:external-"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-D_CRT_SECURE_NO_WARNINGS"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-D_HAS_EXCEPTIONS=0"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-D_SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-DGLM_FORCE_CTOR_INIT"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-DGLM_FORCE_XYZW_ONLY"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-DGLM_FORCE_DEPTH_ZERO_TO_ONE"
+				},
+				{
+					"backtrace" : 10,
+					"fragment" : "-DNOMINMAX"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 4,
+					"define" : "GFX_ENABLE_GUI"
+				},
+				{
+					"backtrace" : 4,
+					"define" : "GFX_ENABLE_SCENE"
+				},
+				{
+					"define" : "capsaicin_EXPORTS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 11,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/include"
+				},
+				{
+					"backtrace" : 11,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/src/core"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/src"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/src/capsaicin"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/src/render_techniques"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/src/renderers"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/src/utilities"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/../../third_party/ffx-parallelsort"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/../../third_party/gfx/third_party/stb"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/src/core/../../third_party/gfx/third_party/tinyexr"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/imgui"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/Vulkan-Headers/include"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/glm/glm/.."
+				}
+			],
+			"language" : "CXX",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					13,
+					4
+				],
+				"standard" : "20"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24,
+				25,
+				26,
+				27,
+				28,
+				29,
+				30,
+				31,
+				32,
+				33,
+				34,
+				35,
+				36,
+				37,
+				38
+			]
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 4,
+			"id" : "gfx::@401b9fa24677a3007ff3"
+		},
+		{
+			"backtrace" : 4,
+			"id" : "tinyobjloader::@504dab42fa214d3d2823"
+		},
+		{
+			"backtrace" : 4,
+			"id" : "tinyexr::@a555b93cb649aa1ecdc6"
+		},
+		{
+			"backtrace" : 4,
+			"id" : "ktx::@58e89cc968e10828fda8"
+		},
+		{
+			"backtrace" : 4,
+			"id" : "astcenc-avx2-static::@1b4efa6848702e1342da"
+		}
+	],
+	"id" : "capsaicin::@0618756b1ff51bca1a0e",
+	"install" : 
+	{
+		"destinations" : 
+		[
+			{
+				"backtrace" : 2,
+				"path" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/lib"
+			},
+			{
+				"backtrace" : 2,
+				"path" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/bin"
+			}
+		],
+		"prefix" : 
+		{
+			"path" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install"
+		}
+	},
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "/machine:x64 /debug /INCREMENTAL",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 3,
+				"fragment" : "/SUBSYSTEM:WINDOWS",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "third_party\\gfx\\gfx.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "d3d12.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\agility_sdk\\dummy.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\agility_sdk\\dummy.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "_deps\\tinyexr-build\\tinyexr.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "d3d12.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "dxgi.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\dxc\\lib\\x64\\dxcompiler.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\dxc\\lib\\x64\\dxcompiler.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\WinPixEventRuntime\\bin\\x64\\WinPixEventRuntime.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 7,
+				"fragment" : "_deps\\tinyobjloader-build\\tinyobjloader.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 7,
+				"fragment" : "_deps\\ktx-build\\ktx.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 9,
+				"fragment" : "_deps\\ktx-build\\lib\\astc-encoder\\Source\\astcenc-avx2-static.lib",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib",
+				"role" : "libraries"
+			}
+		],
+		"language" : "CXX"
+	},
+	"name" : "capsaicin",
+	"nameOnDisk" : "capsaicin.dll",
+	"paths" : 
+	{
+		"build" : "src/core",
+		"source" : "src/core"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files\\capsaicin",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5
+			]
+		},
+		{
+			"name" : "Source Files\\components\\blue_noise_sampler",
+			"sourceIndexes" : 
+			[
+				6
+			]
+		},
+		{
+			"name" : "Source Files\\components\\brdf_lut",
+			"sourceIndexes" : 
+			[
+				7
+			]
+		},
+		{
+			"name" : "Source Files\\components",
+			"sourceIndexes" : 
+			[
+				8
+			]
+		},
+		{
+			"name" : "Source Files\\components\\light_builder",
+			"sourceIndexes" : 
+			[
+				9
+			]
+		},
+		{
+			"name" : "Source Files\\components\\light_sampler",
+			"sourceIndexes" : 
+			[
+				10
+			]
+		},
+		{
+			"name" : "Source Files\\components\\light_sampler_grid_cdf",
+			"sourceIndexes" : 
+			[
+				11
+			]
+		},
+		{
+			"name" : "Source Files\\components\\light_sampler_grid_stream",
+			"sourceIndexes" : 
+			[
+				12
+			]
+		},
+		{
+			"name" : "Source Files\\components\\light_sampler_uniform",
+			"sourceIndexes" : 
+			[
+				13
+			]
+		},
+		{
+			"name" : "Source Files\\components\\prefilter_ibl",
+			"sourceIndexes" : 
+			[
+				14
+			]
+		},
+		{
+			"name" : "Source Files\\components\\stratified_sampler",
+			"sourceIndexes" : 
+			[
+				15
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\atmosphere",
+			"sourceIndexes" : 
+			[
+				16
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\evaluate",
+			"sourceIndexes" : 
+			[
+				17
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\gi10",
+			"sourceIndexes" : 
+			[
+				18
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\migi",
+			"sourceIndexes" : 
+			[
+				19,
+				20,
+				21,
+				22,
+				23
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\reference_path_tracer",
+			"sourceIndexes" : 
+			[
+				24
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques",
+			"sourceIndexes" : 
+			[
+				25
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\skybox",
+			"sourceIndexes" : 
+			[
+				26
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\ssgi",
+			"sourceIndexes" : 
+			[
+				27
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\taa",
+			"sourceIndexes" : 
+			[
+				28,
+				29
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\tone_mapping",
+			"sourceIndexes" : 
+			[
+				30
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\variance_estimate",
+			"sourceIndexes" : 
+			[
+				31
+			]
+		},
+		{
+			"name" : "Source Files\\render_techniques\\visibility_buffer",
+			"sourceIndexes" : 
+			[
+				32
+			]
+		},
+		{
+			"name" : "Source Files\\renderers\\gi10",
+			"sourceIndexes" : 
+			[
+				33
+			]
+		},
+		{
+			"name" : "Source Files\\renderers\\migi",
+			"sourceIndexes" : 
+			[
+				34
+			]
+		},
+		{
+			"name" : "Source Files\\renderers\\reference_path_tracer",
+			"sourceIndexes" : 
+			[
+				35
+			]
+		},
+		{
+			"name" : "Source Files\\utilities",
+			"sourceIndexes" : 
+			[
+				36,
+				37,
+				38
+			]
+		},
+		{
+			"name" : "Header Files",
+			"sourceIndexes" : 
+			[
+				39,
+				64,
+				181
+			]
+		},
+		{
+			"name" : "Header Files\\capsaicin",
+			"sourceIndexes" : 
+			[
+				40,
+				41,
+				42,
+				43,
+				44,
+				45,
+				46,
+				47,
+				48
+			]
+		},
+		{
+			"name" : "Header Files\\components\\blue_noise_sampler",
+			"sourceIndexes" : 
+			[
+				49,
+				50
+			]
+		},
+		{
+			"name" : "Header Files\\components\\brdf_lut",
+			"sourceIndexes" : 
+			[
+				51
+			]
+		},
+		{
+			"name" : "Header Files\\components",
+			"sourceIndexes" : 
+			[
+				52
+			]
+		},
+		{
+			"name" : "Header Files\\components\\light_builder",
+			"sourceIndexes" : 
+			[
+				53
+			]
+		},
+		{
+			"name" : "Header Files\\components\\light_sampler",
+			"sourceIndexes" : 
+			[
+				54,
+				55
+			]
+		},
+		{
+			"name" : "Header Files\\components\\light_sampler_grid_cdf",
+			"sourceIndexes" : 
+			[
+				56,
+				57
+			]
+		},
+		{
+			"name" : "Header Files\\components\\light_sampler_grid_stream",
+			"sourceIndexes" : 
+			[
+				58
+			]
+		},
+		{
+			"name" : "Header Files\\components\\light_sampler_uniform",
+			"sourceIndexes" : 
+			[
+				59
+			]
+		},
+		{
+			"name" : "Header Files\\components\\prefilter_ibl",
+			"sourceIndexes" : 
+			[
+				60
+			]
+		},
+		{
+			"name" : "Header Files\\components\\stratified_sampler",
+			"sourceIndexes" : 
+			[
+				61,
+				62
+			]
+		},
+		{
+			"name" : "Header Files\\geometry",
+			"sourceIndexes" : 
+			[
+				63
+			]
+		},
+		{
+			"name" : "Header Files\\lights",
+			"sourceIndexes" : 
+			[
+				65
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\atmosphere",
+			"sourceIndexes" : 
+			[
+				66
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\evaluate",
+			"sourceIndexes" : 
+			[
+				67
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\gi10",
+			"sourceIndexes" : 
+			[
+				68,
+				69
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\migi",
+			"sourceIndexes" : 
+			[
+				70,
+				71,
+				72,
+				73
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\reference_path_tracer",
+			"sourceIndexes" : 
+			[
+				74
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques",
+			"sourceIndexes" : 
+			[
+				75
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\skybox",
+			"sourceIndexes" : 
+			[
+				76
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\ssgi",
+			"sourceIndexes" : 
+			[
+				77,
+				78
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\switcher",
+			"sourceIndexes" : 
+			[
+				79
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\taa",
+			"sourceIndexes" : 
+			[
+				80,
+				81
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\tone_mapping",
+			"sourceIndexes" : 
+			[
+				82
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\variance_estimate",
+			"sourceIndexes" : 
+			[
+				83
+			]
+		},
+		{
+			"name" : "Header Files\\render_techniques\\visibility_buffer",
+			"sourceIndexes" : 
+			[
+				84
+			]
+		},
+		{
+			"name" : "Header Files\\renderers",
+			"sourceIndexes" : 
+			[
+				85
+			]
+		},
+		{
+			"name" : "Header Files\\utilities",
+			"sourceIndexes" : 
+			[
+				86,
+				87,
+				88,
+				89
+			]
+		},
+		{
+			"name" : "Shader Files\\capsaicin",
+			"sourceIndexes" : 
+			[
+				90,
+				91,
+				92,
+				93
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\blue_noise_sampler",
+			"sourceIndexes" : 
+			[
+				94
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\brdf_lut",
+			"sourceIndexes" : 
+			[
+				95
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\light_builder",
+			"sourceIndexes" : 
+			[
+				96,
+				97,
+				98
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\light_sampler",
+			"sourceIndexes" : 
+			[
+				99
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\light_sampler_grid_cdf",
+			"sourceIndexes" : 
+			[
+				100,
+				101,
+				102
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\light_sampler_grid_stream",
+			"sourceIndexes" : 
+			[
+				103,
+				104
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\light_sampler_uniform",
+			"sourceIndexes" : 
+			[
+				105
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\prefilter_ibl",
+			"sourceIndexes" : 
+			[
+				106,
+				107
+			]
+		},
+		{
+			"name" : "Shader Files\\components\\stratified_sampler",
+			"sourceIndexes" : 
+			[
+				108
+			]
+		},
+		{
+			"name" : "Shader Files\\geometry",
+			"sourceIndexes" : 
+			[
+				109,
+				110,
+				111,
+				112,
+				113,
+				114,
+				115
+			]
+		},
+		{
+			"name" : "Shader Files\\lights",
+			"sourceIndexes" : 
+			[
+				116,
+				117,
+				118,
+				119,
+				120
+			]
+		},
+		{
+			"name" : "Shader Files\\materials",
+			"sourceIndexes" : 
+			[
+				121,
+				122,
+				123
+			]
+		},
+		{
+			"name" : "Shader Files\\math",
+			"sourceIndexes" : 
+			[
+				124,
+				125,
+				126,
+				127,
+				128,
+				129,
+				130,
+				131,
+				132,
+				133
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\atmosphere",
+			"sourceIndexes" : 
+			[
+				134,
+				135
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\evaluate",
+			"sourceIndexes" : 
+			[
+				136
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\gi10",
+			"sourceIndexes" : 
+			[
+				137,
+				138,
+				139,
+				140,
+				141,
+				142,
+				143,
+				144,
+				145,
+				146
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\migi",
+			"sourceIndexes" : 
+			[
+				147,
+				148,
+				149,
+				150,
+				151,
+				152,
+				153,
+				154,
+				155,
+				156,
+				157
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\reference_path_tracer",
+			"sourceIndexes" : 
+			[
+				158,
+				159
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\skybox",
+			"sourceIndexes" : 
+			[
+				160,
+				161
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\ssgi",
+			"sourceIndexes" : 
+			[
+				162,
+				163
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\taa",
+			"sourceIndexes" : 
+			[
+				164,
+				165
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\tone_mapping",
+			"sourceIndexes" : 
+			[
+				166
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\variance_estimate",
+			"sourceIndexes" : 
+			[
+				167
+			]
+		},
+		{
+			"name" : "Shader Files\\render_techniques\\visibility_buffer",
+			"sourceIndexes" : 
+			[
+				168,
+				169,
+				170,
+				171,
+				172,
+				173,
+				174,
+				175,
+				176,
+				177
+			]
+		},
+		{
+			"name" : "Shader Files\\utilities",
+			"sourceIndexes" : 
+			[
+				178,
+				179,
+				180
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/capsaicin/capsaicin.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/capsaicin/capsaicin_internal.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/capsaicin/capsaicin_internal_dump.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/capsaicin/graph.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/capsaicin/thread_pool.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/capsaicin/timeable.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/blue_noise_sampler/blue_noise_sampler.cpp",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/brdf_lut/brdf_lut.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/component.cpp",
+			"sourceGroupIndex" : 3
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/light_builder/light_builder.cpp",
+			"sourceGroupIndex" : 4
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/light_sampler/light_sampler_switcher.cpp",
+			"sourceGroupIndex" : 5
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/light_sampler_grid_cdf/light_sampler_grid_cdf.cpp",
+			"sourceGroupIndex" : 6
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/light_sampler_grid_stream/light_sampler_grid_stream.cpp",
+			"sourceGroupIndex" : 7
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/light_sampler_uniform/light_sampler_uniform.cpp",
+			"sourceGroupIndex" : 8
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/prefilter_ibl/prefilter_ibl.cpp",
+			"sourceGroupIndex" : 9
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/components/stratified_sampler/stratified_sampler.cpp",
+			"sourceGroupIndex" : 10
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/atmosphere/atmosphere.cpp",
+			"sourceGroupIndex" : 11
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/evaluate/evaluate.cpp",
+			"sourceGroupIndex" : 12
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/gi10/gi10.cpp",
+			"sourceGroupIndex" : 13
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/migi/migi.cpp",
+			"sourceGroupIndex" : 14
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/migi/migi_init.cpp",
+			"sourceGroupIndex" : 14
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/migi/migi_options.cpp",
+			"sourceGroupIndex" : 14
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/migi/migi_ui.cpp",
+			"sourceGroupIndex" : 14
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/migi/world_cache.cpp",
+			"sourceGroupIndex" : 14
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/reference_path_tracer/reference_path_tracer.cpp",
+			"sourceGroupIndex" : 15
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/render_technique.cpp",
+			"sourceGroupIndex" : 16
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/skybox/skybox.cpp",
+			"sourceGroupIndex" : 17
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/ssgi/ssgi.cpp",
+			"sourceGroupIndex" : 18
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/taa/taa.cpp",
+			"sourceGroupIndex" : 19
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/taa/update_history.cpp",
+			"sourceGroupIndex" : 19
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/tone_mapping/tone_mapping.cpp",
+			"sourceGroupIndex" : 20
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/variance_estimate/variance_estimate.cpp",
+			"sourceGroupIndex" : 21
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/render_techniques/visibility_buffer/visibility_buffer.cpp",
+			"sourceGroupIndex" : 22
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/renderers/gi10/gi10_renderer.cpp",
+			"sourceGroupIndex" : 23
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/renderers/migi/migi_renderer.cpp",
+			"sourceGroupIndex" : 24
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/renderers/reference_path_tracer/reference_path_tracer.cpp",
+			"sourceGroupIndex" : 25
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/utilities/gpu_image_metrics.cpp",
+			"sourceGroupIndex" : 26
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/utilities/gpu_reduce.cpp",
+			"sourceGroupIndex" : 26
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "src/core/src/utilities/gpu_sort.cpp",
+			"sourceGroupIndex" : 26
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/include/capsaicin.h",
+			"sourceGroupIndex" : 27
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/capsaicin_internal.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/capsaicin_internal_types.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/common_functions.inl",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/factory.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/graph.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/hash_reduce.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/static_string.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/thread_pool.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/timeable.h",
+			"sourceGroupIndex" : 28
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/blue_noise_sampler/blue_noise_sampler.h",
+			"sourceGroupIndex" : 29
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/blue_noise_sampler/blue_noise_sampler_samples.h",
+			"sourceGroupIndex" : 29
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/brdf_lut/brdf_lut.h",
+			"sourceGroupIndex" : 30
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/component.h",
+			"sourceGroupIndex" : 31
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_builder/light_builder.h",
+			"sourceGroupIndex" : 32
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler/light_sampler.h",
+			"sourceGroupIndex" : 33
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler/light_sampler_switcher.h",
+			"sourceGroupIndex" : 33
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_cdf/light_sampler_grid_cdf.h",
+			"sourceGroupIndex" : 34
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_cdf/light_sampler_grid_shared.h",
+			"sourceGroupIndex" : 34
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_stream/light_sampler_grid_stream.h",
+			"sourceGroupIndex" : 35
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_uniform/light_sampler_uniform.h",
+			"sourceGroupIndex" : 36
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/prefilter_ibl/prefilter_ibl.h",
+			"sourceGroupIndex" : 37
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/stratified_sampler/stratified_sampler.h",
+			"sourceGroupIndex" : 38
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/stratified_sampler/stratified_sampler_data.h",
+			"sourceGroupIndex" : 38
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/path_tracing_shared.h",
+			"sourceGroupIndex" : 39
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/gpu_shared.h",
+			"sourceGroupIndex" : 27
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/lights/lights_shared.h",
+			"sourceGroupIndex" : 40
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/atmosphere/atmosphere.h",
+			"sourceGroupIndex" : 41
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/evaluate/evaluate.h",
+			"sourceGroupIndex" : 42
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi10.h",
+			"sourceGroupIndex" : 43
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi10_shared.h",
+			"sourceGroupIndex" : 43
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi.h",
+			"sourceGroupIndex" : 44
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi_fwd.h",
+			"sourceGroupIndex" : 44
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi_internal.h",
+			"sourceGroupIndex" : 44
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/world_cache.h",
+			"sourceGroupIndex" : 44
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/reference_path_tracer/reference_path_tracer.h",
+			"sourceGroupIndex" : 45
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/render_technique.h",
+			"sourceGroupIndex" : 46
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/skybox/skybox.h",
+			"sourceGroupIndex" : 47
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/ssgi/ssgi.h",
+			"sourceGroupIndex" : 48
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/ssgi/ssgi_shared.h",
+			"sourceGroupIndex" : 48
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/switcher/switcher.h",
+			"sourceGroupIndex" : 49
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/taa/taa.h",
+			"sourceGroupIndex" : 50
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/taa/update_history.h",
+			"sourceGroupIndex" : 50
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/tone_mapping/tone_mapping.h",
+			"sourceGroupIndex" : 51
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/variance_estimate/variance_estimate.h",
+			"sourceGroupIndex" : 52
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/visibility_buffer.h",
+			"sourceGroupIndex" : 53
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/renderers/renderer.h",
+			"sourceGroupIndex" : 54
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/utilities/buffer_view.h",
+			"sourceGroupIndex" : 55
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/utilities/gpu_image_metrics.h",
+			"sourceGroupIndex" : 55
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/utilities/gpu_reduce.h",
+			"sourceGroupIndex" : 55
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/utilities/gpu_sort.h",
+			"sourceGroupIndex" : 55
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/convolve_ibl.comp",
+			"sourceGroupIndex" : 56
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/convolve_ibl.frag",
+			"sourceGroupIndex" : 56
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/convolve_ibl.vert",
+			"sourceGroupIndex" : 56
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/capsaicin/dump_copy_aov_to_buffer.comp",
+			"sourceGroupIndex" : 56
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/blue_noise_sampler/blue_noise_sampler.hlsl",
+			"sourceGroupIndex" : 57
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/brdf_lut/brdf_lut.comp",
+			"sourceGroupIndex" : 58
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_builder/gather_area_lights.geom",
+			"sourceGroupIndex" : 59
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_builder/gather_area_lights.vert",
+			"sourceGroupIndex" : 59
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_builder/light_builder.hlsl",
+			"sourceGroupIndex" : 59
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler/light_sampler.hlsl",
+			"sourceGroupIndex" : 60
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_cdf/light_sampler_grid.hlsl",
+			"sourceGroupIndex" : 61
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_cdf/light_sampler_grid_cdf.comp",
+			"sourceGroupIndex" : 61
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_cdf/light_sampler_grid_cdf.hlsl",
+			"sourceGroupIndex" : 61
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_stream/light_sampler_grid_stream.comp",
+			"sourceGroupIndex" : 62
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_grid_stream/light_sampler_grid_stream.hlsl",
+			"sourceGroupIndex" : 62
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/light_sampler_uniform/light_sampler_uniform.hlsl",
+			"sourceGroupIndex" : 63
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/prefilter_ibl/prefilter_ibl.frag",
+			"sourceGroupIndex" : 64
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/prefilter_ibl/prefilter_ibl.vert",
+			"sourceGroupIndex" : 64
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/components/stratified_sampler/stratified_sampler.hlsl",
+			"sourceGroupIndex" : 65
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/geometry.hlsl",
+			"sourceGroupIndex" : 66
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/intersection.hlsl",
+			"sourceGroupIndex" : 66
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/mesh.hlsl",
+			"sourceGroupIndex" : 66
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/mis.hlsl",
+			"sourceGroupIndex" : 66
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/path_tracing.hlsl",
+			"sourceGroupIndex" : 66
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/ray_intersection.hlsl",
+			"sourceGroupIndex" : 66
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/geometry/ray_tracing.hlsl",
+			"sourceGroupIndex" : 66
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/lights/light_evaluation.hlsl",
+			"sourceGroupIndex" : 67
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/lights/light_sampling.hlsl",
+			"sourceGroupIndex" : 67
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/lights/light_sampling_volume.hlsl",
+			"sourceGroupIndex" : 67
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/lights/lights.hlsl",
+			"sourceGroupIndex" : 67
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/lights/reservoir.hlsl",
+			"sourceGroupIndex" : 67
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/materials/material_evaluation.hlsl",
+			"sourceGroupIndex" : 68
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/materials/material_sampling.hlsl",
+			"sourceGroupIndex" : 68
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/materials/materials.hlsl",
+			"sourceGroupIndex" : 68
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/color.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/hash.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/math.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/math_constants.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/pack.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/quaternion.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/random.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/sampling.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/spherical_harmonics.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/math/transform.hlsl",
+			"sourceGroupIndex" : 69
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/atmosphere/atmosphere.comp",
+			"sourceGroupIndex" : 70
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/atmosphere/atmosphere.hlsl",
+			"sourceGroupIndex" : 70
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/evaluate/evaluate.comp",
+			"sourceGroupIndex" : 71
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi10.comp",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi10.frag",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi10.hlsl",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi10.rt",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi10.vert",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/gi_denoiser.hlsl",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/glossy_reflections.hlsl",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/hash_grid_cache.hlsl",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/screen_probes.hlsl",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/gi10/world_space_restir.hlsl",
+			"sourceGroupIndex" : 72
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi.comp",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi.frag",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi.rt",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi.vert",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi_common.hlsl",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi_inc.hlsl",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi_lib.hlsl",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi_probes.hlsl",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/migi_worldcache.hlsl",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/optim.hlsl",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/migi/world_space_restir.hlsl",
+			"sourceGroupIndex" : 73
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/reference_path_tracer/reference_path_tracer.comp",
+			"sourceGroupIndex" : 74
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/reference_path_tracer/reference_path_tracer.rt",
+			"sourceGroupIndex" : 74
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/skybox/skybox.frag",
+			"sourceGroupIndex" : 75
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/skybox/skybox.vert",
+			"sourceGroupIndex" : 75
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/ssgi/ssgi.comp",
+			"sourceGroupIndex" : 76
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/ssgi/ssgi_debug.comp",
+			"sourceGroupIndex" : 76
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/taa/taa.comp",
+			"sourceGroupIndex" : 77
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/taa/update_history.comp",
+			"sourceGroupIndex" : 77
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/tone_mapping/tone_mapping.comp",
+			"sourceGroupIndex" : 78
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/variance_estimate/variance_estimate.comp",
+			"sourceGroupIndex" : 79
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/debug_dxr10.rt",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/debug_material.frag",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/debug_material.vert",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/debug_velocity.frag",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/debug_velocity.vert",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/disocclusion_mask.comp",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/visibility_buffer.frag",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/visibility_buffer.vert",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/visibility_buffer_rt.comp",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/render_techniques/visibility_buffer/visibility_buffer_rt.rt",
+			"sourceGroupIndex" : 80
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/utilities/gpu_image_metrics.comp",
+			"sourceGroupIndex" : 81
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/utilities/gpu_reduce.comp",
+			"sourceGroupIndex" : 81
+		},
+		{
+			"backtrace" : 14,
+			"path" : "src/core/src/utilities/gpu_sort.comp",
+			"sourceGroupIndex" : 81
+		},
+		{
+			"backtrace" : 14,
+			"path" : "cmake-build-debug-visual-studio/src/core/capsaicin_export.h",
+			"sourceGroupIndex" : 27
+		}
+	],
+	"type" : "SHARED_LIBRARY"
+}

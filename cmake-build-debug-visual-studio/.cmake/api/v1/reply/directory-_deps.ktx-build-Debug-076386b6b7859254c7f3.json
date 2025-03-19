@@ -1,0 +1,128 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"install"
+		],
+		"files" : 
+		[
+			"third_party/gfx/third_party/KTX-Software/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 988,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 1015,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 1021,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 1034,
+				"parent" : 0
+			}
+		]
+	},
+	"installers" : 
+	[
+		{
+			"backtrace" : 1,
+			"component" : "dev",
+			"destination" : "lib",
+			"paths" : 
+			[
+				"_deps/ktx-build/ktx.lib"
+			],
+			"targetId" : "ktx::@58e89cc968e10828fda8",
+			"targetIndex" : 5,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 1,
+			"component" : "dev",
+			"destination" : "include",
+			"paths" : 
+			[
+				"third_party/gfx/third_party/KTX-Software/include/ktx.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 1,
+			"component" : "dev",
+			"destination" : "lib",
+			"paths" : 
+			[
+				"_deps/ktx-build/lib/astc-encoder/Source/astcenc-avx2-static.lib"
+			],
+			"targetId" : "astcenc-avx2-static::@1b4efa6848702e1342da",
+			"targetIndex" : 1,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 2,
+			"component" : "dev",
+			"destination" : "include/KHR",
+			"paths" : 
+			[
+				"third_party/gfx/third_party/KTX-Software/include/KHR/khr_df.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 3,
+			"component" : "library",
+			"destination" : "lib/cmake/ktx",
+			"exportName" : "KTXTargets",
+			"exportTargets" : 
+			[
+				{
+					"id" : "ktx::@58e89cc968e10828fda8",
+					"index" : 5
+				},
+				{
+					"id" : "astcenc-avx2-static::@1b4efa6848702e1342da",
+					"index" : 1
+				}
+			],
+			"paths" : 
+			[
+				"_deps/ktx-build/CMakeFiles/Export/eb899b7ebdca6f1dd2b833b33a58189b/KtxTargets.cmake"
+			],
+			"type" : "export"
+		},
+		{
+			"backtrace" : 4,
+			"component" : "library",
+			"destination" : "lib/cmake/ktx",
+			"paths" : 
+			[
+				"third_party/gfx/third_party/KTX-Software/cmake/KtxConfig.cmake",
+				"cmake-build-debug-visual-studio/_deps/ktx-build/KtxConfigVersion.cmake"
+			],
+			"type" : "file"
+		}
+	],
+	"paths" : 
+	{
+		"build" : "_deps/ktx-build",
+		"source" : "third_party/gfx/third_party/KTX-Software"
+	}
+}

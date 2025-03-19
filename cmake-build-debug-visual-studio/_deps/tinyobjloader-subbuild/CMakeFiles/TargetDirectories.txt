@@ -1,0 +1,3 @@
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyobjloader-subbuild/CMakeFiles/tinyobjloader-populate.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyobjloader-subbuild/CMakeFiles/edit_cache.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyobjloader-subbuild/CMakeFiles/rebuild_cache.dir

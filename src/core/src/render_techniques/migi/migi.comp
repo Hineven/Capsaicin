@@ -399,6 +399,7 @@ float3 RecoverScreenProbePosition (int2 TileCoords, float LinearDepth, bool bPre
     }
 }
 
+// TODO:EAJ
 // Allocate fixed uniform probes for current frame
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_AllocateUniformProbes (int DispatchID : SV_DispatchThreadID) {
@@ -410,8 +411,11 @@ void SSRC_AllocateUniformProbes (int DispatchID : SV_DispatchThreadID) {
     Header.ScreenCoords = GetUniformScreenProbeScreenCoords(ProbeIndex);
     float Depth             = g_DepthTexture.Load(int3(Header.ScreenCoords, 0)).x;
     bool  bValid            = Depth < 1.f;
-    if(bValid) Header.Class  = ComputeProbeRankFromSplattedError(Header.ScreenCoords);
+    if(bValid) {
+        Header.Class  = ComputeProbeRankFromSplattedError(Header.ScreenCoords);
+    }
     int BasisCount      = bValid ? GetProbeBasisCountFromClass(Header.Class) : 0;
+    //int BasisCount      = bValid ? Header.SGCount : 0;
     int BasisOffset     = WavePrefixSum(BasisCount);
     int BasisCountSum   = WaveActiveSum(BasisCount);
     int BasisGroupOffset;
@@ -421,6 +425,7 @@ void SSRC_AllocateUniformProbes (int DispatchID : SV_DispatchThreadID) {
     BasisGroupOffset = WaveReadLaneFirst(BasisGroupOffset);
     Header.BasisOffset   = BasisGroupOffset + BasisOffset;
     // Clip over the maximum basis count
+    // TODO: Obviously MaxBasisCount is not enough for multiple SGs
     if(Header.BasisOffset + BasisCount > MI.MaxBasisCount) {
         Header.Class = 0;
     }
@@ -654,6 +659,7 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
         g_RWTileAdaptiveProbeIndexTexture[GetAdaptiveProbeIndexCoords(TileCoords, TileAdaptiveProbeRank)] = AdaptiveProbeIndex;
         // The probe here is guaranteed to be valid upon allocation.
         int ScreenProbeIndex1   = AdaptiveProbeIndex + MI.UniformScreenProbeCount;
+        // TODO:EAJ
         ProbeHeader Header;
         Header.ScreenCoords     = LocalProbeScreenCoordsToAllocate[LocalID];
         Header.Class        = ComputeProbeRankFromSplattedError(Header.ScreenCoords);
@@ -668,6 +674,7 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
         BasisGroupOffset = WaveReadLaneFirst(BasisGroupOffset);
         Header.BasisOffset   = BasisGroupOffset + BasisOffset;
         // Clip over the maximum basis count
+        // TODO: Obviously MaxBasisCount is not enough for multiple SGs
         if(Header.BasisOffset + BasisCount > MI.MaxBasisCount) {
             Header.Class = 0;
         }
@@ -733,6 +740,7 @@ void WorldCache_WriteProbeDispatchParameters () {
     g_RWPerLaneWCAPDispatchCommandBuffer[0] = Command;
 }
 
+// TODO:EAJ
 SGData GetDefaultBasis (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, float3 ProbeNormal) {
     SGData SG;
     SG.Color     = 0.001f.xxx;
@@ -750,6 +758,7 @@ SGData GetDefaultBasis (int GroupID, int LocalID, int2 ProbeIndex, int BasisCoun
     return SG;
 }
 
+// TODO:EAJ
 void ResetBasis (int GroupID, int LocalID, int2 ProbeIndex, int BasisCount, int BasisOffset, float3 ProbeNormal) {
     if(LocalID < BasisCount) {
         SGData SG = GetDefaultBasis(GroupID, LocalID, ProbeIndex, BasisCount, ProbeNormal);
@@ -817,13 +826,14 @@ bool GetProbeReprojectionSample (float3 ProbeNormal, float3 ProbeTangent, float3
     return false;
 }
 
+// TODO:EAJ
 groupshared float  LocalSGSize4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared SGData LocalSGData4[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared SGData LocalSGData4New[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared int    LocalSGMaxMatchIndex[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 groupshared int    LocalSGNewIndex[SSRC_MAX_NUM_BASIS_PER_PROBE * 4];
 // Radiance + Weight (sample count)
-groupshared int4   LocalProbeTexelsQuantilized[SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE];
+groupshared int4   LocalProbeTexelsQuantilized[SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE];// FIXME: Oct Bug
 groupshared int    LocalProbeTexelSampleWeightQuantilized[SSRC_PROBE_TEXTURE_SIZE * SSRC_PROBE_TEXTURE_SIZE];
 // Initialize probe cache from the previous frame, one group per probe
 [numthreads(WAVE_SIZE, 1, 1)]
@@ -1081,6 +1091,7 @@ groupshared float  LocalOctahedronSampleWeightPrefixSum[SSRC_PROBE_TEXTURE_TEXEL
 groupshared SGData LocalSGData[SSRC_MAX_NUM_BASIS_TO_SAMPLE_PER_PROBE];
 groupshared float  LocalSGSize[SSRC_MAX_NUM_BASIS_TO_SAMPLE_PER_PROBE];
 
+// TODO: EAJ think if one of RGB is big, weight should be big
 float RadianceToSampleWeight (float3 Radiance) {
     return dot(Radiance, 1.f.xxx) + 1e-4f;
 }
@@ -1280,7 +1291,7 @@ void SSRC_SampleUpdateRays (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
             SGData SG = LocalSGData[i];
             SGPdfSum += LocalSGSize[i] * SampleSGPDF(SG.Lambda, dot(RayDirection, SG.Direction));
         }
-        float RayPdf = OctPdf * P_SampleOctahedron + SGPdfSum / max(SumSizeBasis, Epsilon) * (1.f - P_SampleOctahedron);
+        float RayPdf = OctPdf * P_SampleOctahedron + (SGPdfSum / max(SumSizeBasis, Epsilon)) * (1.f - P_SampleOctahedron);
         if(MI.NoImportanceSampling) {
             RayPdf = UniformSampleHemispherePdf();
             RayDirection = UniformSampleHemisphere(u2);
@@ -1445,7 +1456,7 @@ void MIGI_CacheUpdateHandleMiss(uint DispatchID, inout MIGI_CacheUpdatePayload p
 {
     payload.sky_sample = g_EnvironmentBuffer.SampleLevel(g_TextureSampler, ray.Direction, 0.0f).xyz;
     // Fallback to sky sample if no intersection
-    float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[DispatchID]);
+    float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[DispatchID]);// FIXME: Oct Bug
     g_RWUpdateRayRadianceInvPdfBuffer[DispatchID] = PackFp16x4Safe(float4(payload.sky_sample, RayRadianceInvPdf.w));
     g_RWUpdateRayLinearDepthBuffer[DispatchID] = MI.CameraFar;
 }
@@ -2090,6 +2101,10 @@ groupshared float  LocalUpdateRayInvPdf[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
 groupshared float  LocalSGCandidateScore[SSRC_MAX_NUM_BASIS_TO_SAMPLE_PER_PROBE];
 groupshared float  LocalSGCandidateSampleWeight[SSRC_MAX_NUM_BASIS_TO_SAMPLE_PER_PROBE];
 
+// TODO:EAJ
+// Clasify update rays based on reprojected SGs' directions
+groupshared int    LocalUpdateRayForSGIndex[SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE];
+
 // Definitions about buffers holding SG data are reused from previous code snippets
 // SGData LocalSGData[];
 
@@ -2565,68 +2580,82 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     // TODO this must be very unstable
     float3 ImpactFactors = 1.f - ReprojectionTrust;
 
-#if SSRC_MAX_NUM_BASIS_PER_PROBE > 1
-    #error "Code for multiple SGs per probe is removed (SG direction update & color update)."
-#endif
-
-    // 1.Update the SG direction first 
+    // TODO:EAJ
+    // 1.Update the SGs direction first (and classify rays)
     [branch]
     if(MI.CacheUpdate_SGDirection) {
-        float3 SumDirection = 0.f;
-        // Pick one basis to update direction
-        if(BasisCount > 0) {
-            int BasisRankToUpdate = GetBasisRankToUpdate(BasisCount);
-            SGData SG_D = LocalSGData[BasisRankToUpdate];
-            // This is a heuristic method to update SG direction
-            // General idea: weighted sum of ray directions with f(Radiance) * InvPdf
-            [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
-            for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
-                int RayRank = RayRankBase + LocalID;
-                int RayIndex = ProbeRayOffset + RayRank;
-                float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-                float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
-                float3 RayRadiance       = RayRadianceInvPdf.xyz;
-                float  InvPdf            = RayRadianceInvPdf.w;
-                if(InvPdf > 0) {
-                    float  SGEvaluatedRaw      = EvaluateSGRaw(SG_D, RayDirection);
-                    float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG_D.Color;
-                    // Clamp DiffRadiance to prevent "direction chasing" when the direction of a basis is updated
-                    // but its color is not converged to the correct result yet.
-                    float3 DiffRadianceClamped = max(RayRadiance, 0.f);
-                    float3 TargetRadiance = DiffRadianceClamped + SGEvaluatedRadiance;
-                    float  RadianceWeight    = MI.SquaredSGDirectionalRadianceWeight ? dot(TargetRadiance, TargetRadiance) : dot(TargetRadiance, 1.f.xxx);
-                    // The weight for balancing sample distribution
-                    float  SampleWeight      = InvPdf;
-                    float TotalWeight = RadianceWeight * SampleWeight;
-                    SumDirection  += RayDirection * TotalWeight;
+        // 1.0.initialize basic data
+        float3 SumDirection[SSRC_MAX_NUM_BASIS_PER_PROBE];
+        SGData SG_T[SSRC_MAX_NUM_BASIS_PER_PROBE];
+        [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+        for(int BasisRank = 0; BasisRank < BasisCount; BasisRank++) {
+            SumDirection[BasisRank] = 0.f;
+            SG_T[BasisRank] = LocalSGData[BasisRank];
+        }
+        // 1.1.enumerate rays and classify using the angle between SG and ray
+        [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
+        for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
+
+            int RayRank = RayRankBase + LocalID;
+//            int RayIndex = ProbeRayOffset + RayRank;
+//            float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
+//            float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
+//            float3 RayRadiance       = RayRadianceInvPdf.xyz;
+//            float  InvPdf            = RayRadianceInvPdf.w;
+            float3 RayDirection      = LocalUpdateRayDirection[RayRank];
+            float3 RayRadiance       = LocalUpdateRayRadiance[RayRank];
+            float  InvPdf            = LocalUpdateRayInvPdf[RayRank];
+
+            if(InvPdf > 0) {
+                int index = -1;
+                float DirectionSimilarScore;
+                float MaxDirectionSimilarScore = -1;
+                [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+                for(int BasisRank = 0; BasisRank < BasisCount; BasisRank ++) {
+                    DirectionSimilarScore = dot(SG_T[BasisRank].Direction, RayDirection);
+                    if(DirectionSimilarScore > MaxDirectionSimilarScore) {
+                        index = BasisRank;
+                        MaxDirectionSimilarScore = DirectionSimilarScore;
+                    }
                 }
+                LocalUpdateRayForSGIndex[RayRank] = index;
+                if(index == -1) continue;
+
+                // 1.2.calculate new direction
+                float  SGEvaluatedRaw      = EvaluateSGRaw(SG_T[index], RayDirection);
+                float3 SGEvaluatedRadiance = SGEvaluatedRaw * SG_T[index].Color;
+                float3 DiffRadianceClamped = max(RayRadiance, 0.f);
+                float3 TargetRadiance = DiffRadianceClamped;// + SGEvaluatedRadiance
+                float  RadianceWeight    = MI.SquaredSGDirectionalRadianceWeight ? dot(TargetRadiance, TargetRadiance) : dot(TargetRadiance, 1.f.xxx);
+                float  SampleWeight      = InvPdf;
+                float TotalWeight = RadianceWeight * SampleWeight;
+                SumDirection[index]  += RayDirection * TotalWeight;
             }
-            // Accumulate and normalize
-            SumDirection = WaveActiveSum(SumDirection);
-            if(dot(SumDirection, SumDirection) > 1e-6f) {
-                float3 TargetDirection = normalize(SumDirection);
-                // The spherical interpolation is not intensively tested. 
-                // It may not be the best way to update SG direction, so I commented it out.
-                // TODO try this out
-                // float  SrcWeight = SGIntegrate(SG_D.Lambda) * dot(SG_D.Color, 1.f.xxx) + Epsilon;
-                // float  DstWeight = SumTotalWeight + Epsilon;
-                // float  T = SrcWeight / (SrcWeight + DstWeight);
+        }
+
+        //1.3.update SGs' direction
+        [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+        for(int BasisRank = 0; BasisRank < BasisCount; BasisRank++) {
+            SumDirection[BasisRank] = WaveActiveSum(SumDirection[BasisRank]);
+            float3 TargetDirection = normalize(SumDirection[BasisRank]);
+            if(dot(SumDirection[BasisRank], SumDirection[BasisRank]) > 1e-6f) {
                 float T = MI.SGDirectionLearningRate;
-                SG_D.Direction = normalize(lerp(SG_D.Direction, TargetDirection, T));//InterpolateDirection(SG_D.Direction, TargetDirection, T);
-                if(WaveIsFirstLane()) {
-                    LocalSGData[BasisRankToUpdate] = SG_D;
+                SG_T[BasisRank].Direction = normalize(lerp(SG_T[BasisRank].Direction, TargetDirection, T));//InterpolateDirection(SG_D.Direction, TargetDirection, T);
+                if (WaveIsFirstLane()) {
+                    LocalSGData[BasisRank] = SG_T[BasisRank];
                 }
             }
-            GroupMemoryBarrierWithGroupSync();
         }
     }
+    GroupMemoryBarrierWithGroupSync();
 
+    // TODO:EAJ
     // 2. Update SGs' depth and lambda
     [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
     for(int BasisRank = 0; BasisRank < BasisCount; BasisRank ++) {
         SGData SG = LocalSGData[BasisRank];
 
-        // 1. Compute dLambda
+        // 2.1. Compute dLambda
         float  dLambda = 0;
         float  SumWeightedDepth = 0;
         float  SumDepthWeight   = 0;
@@ -2636,6 +2665,8 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
         for(int RayGroupOffset = 0; RayGroupOffset < ProbeRayCount; RayGroupOffset += WAVE_SIZE) {
+            if(LocalUpdateRayForSGIndex[RayGroupOffset] != BasisRank) continue;
+
             int RayRank = RayGroupOffset + LocalID;
             if(RayRank < ProbeRayCount) {
                 int RayIndex = ProbeRayOffset + RayRank;
@@ -2681,13 +2712,13 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         // TODO is this necessary?
         GroupMemoryBarrierWithGroupSync();
 
-        // 2.Update Lambda and Depth
+        // 2.2.Update Lambda and Depth
         if(WaveIsFirstLane()) {
             if(MI.CacheUpdate_SGLambda) {
                 float Step = dLambda    * MI.CacheUpdateLearningRate * (1 + ImpactFactors.z);
                 // TODO better lambda update
                 // FIXME hack (but seemingly useful)
-                float Factor = exp(Step * MI.LambdaLearningBonus) * 0.99f; asfasfasdf
+                float Factor = exp(Step * MI.LambdaLearningBonus) * 0.99f;
                 Factor = clamp(Factor, 0.75f, 1.3334f);
                 float OldLambda = SG.Lambda;
                 SG.Lambda *= Factor;
@@ -2720,11 +2751,15 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         Context.SG = SG;
         ComputeFilterContext(Context);
 
-        // 3. Calculate irradiance that passed the filter
+
+        // 2.3. Calculate irradiance that passed the filter
         // also, accumulate and update the octahedron radiance using the irradiance that
         // failed the filter.
         float3 SumFilteredIrradiance = 0.f;
+        int ValidProbeRayCount = 0;
         for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
+            if(LocalUpdateRayForSGIndex[RayRankBase] != BasisRank) continue;
+
             int RayRank = RayRankBase + LocalID;
             // Ray data has been loaded to shared memory earlier
             float3 RayDirection      = LocalUpdateRayDirection[RayRank];
@@ -2742,6 +2777,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 
                 float3 FilteredRadiance = FilterRadiance(Context, RayContext);
                 SumFilteredIrradiance += FilteredRadiance * InvPdf;
+                ValidProbeRayCount += 1;
                 if(any(FilteredRadiance != 0)) {
                     float3 RemainingRadiance = RayRadiance - FilteredRadiance;
                     // Remove the ray radiance from the ray, as it has been accumulated into SG
@@ -2751,6 +2787,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
         // Accumulate and normalize
         SumFilteredIrradiance = WaveActiveSum(SumFilteredIrradiance) / ProbeRayCount;
+        //SumFilteredIrradiance = WaveActiveSum(SumFilteredIrradiance) / WaveActiveSum(ValidProbeRayCount);
 
         // Lastly, we update the color / depth parameters of the SG
         if(WaveIsFirstLane()) {
@@ -2794,6 +2831,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
 
     GroupMemoryBarrierWithGroupSync();
     // 3. Update probe octahedron radiance
+    // FIXME: Oct Bug
     {
         // Enumerate rays and accumulate
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
@@ -2823,7 +2861,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         // Accumulate backup radiance
         for(int BaseTexelIndex = 0; BaseTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseTexelIndex += WAVE_SIZE) {
             int TexelIndex = BaseTexelIndex + LocalID;
-            float3 Radiance = RecoverRadiance(LocalProbeTexelsQuantilized[TexelIndex]);
+            float3 Radiance = RecoverRadiance(LocalProbeTexelsQuantilized[TexelIndex].xyz);
             float  Weight   = RecoverWeight(LocalProbeTexelSampleWeightQuantilized[TexelIndex]);
             BackupRadianceSum += Radiance / max(Weight, 1e-4f);
             BackupRadianceWeightSum += (Weight != 0) ? 1 : 0;
@@ -2937,9 +2975,9 @@ void GatherProbeRadiance (
 ) {
     if(all(NeighborProbeIndex >= 0) && all(NeighborProbeIndex < MI.TileDimensions)) {
         float NeighborLinearDepth = GetScreenProbeLinearDepth(NeighborProbeIndex);
-        if(NeighborLinearDepth > 0) { // Valid
+        if (NeighborLinearDepth > 0) { // Valid
             float PositionWeight = GetFilterPositionWeight(NeighborLinearDepth, LinearDepth);
-            if(PositionWeight > 0) {
+            if (PositionWeight > 0) {
                 float3 NeighborWorldPosition = GetScreenProbePosition(NeighborProbeIndex);
                 float3 ToNeighbor = HitPosition - NeighborWorldPosition;
                 float  ToNeighborLength = max(length(ToNeighbor), 1e-3f);
@@ -2948,11 +2986,11 @@ void GatherProbeRadiance (
                 float3 Tangent, Bitangent;
                 GetOrthoVectors(NeighborProbeNormal, Tangent, Bitangent);
                 float3 NeighborProbeLocalDirection = float3(
-                    dot(Tangent,   ToNeighborUnit),
-                    dot(Bitangent, ToNeighborUnit),
-                    dot(NeighborProbeNormal, ToNeighborUnit)
+                dot(Tangent, ToNeighborUnit),
+                dot(Bitangent, ToNeighborUnit),
+                dot(NeighborProbeNormal, ToNeighborUnit)
                 );
-                if(NeighborProbeLocalDirection.z > 0) {
+                if (NeighborProbeLocalDirection.z > 0) {
                     float2 NeighborProbeUV = UnitVectorToHemiOctahedron01(NeighborProbeLocalDirection);
                     int2   NeighborTexelCoords = clamp(NeighborProbeUV * SSRC_PROBE_TEXTURE_SIZE, 0, SSRC_PROBE_TEXTURE_SIZE - 1);
                     float4 NeighborRadianceDepth = GetScreenProbeOctahedronRadianceDepth(NeighborProbeIndex, NeighborTexelCoords);
@@ -2968,8 +3006,71 @@ void GatherProbeRadiance (
             }
         }
     }
-    
 }
+
+void GatherProbeSG (
+    float3 Position,
+    float  LinearDepth,
+    float3 HitPosition,
+    int2   NeighborProbeIndex,
+    out SGData BestNeighborSG,
+    out float NeighborWeight
+) {
+    if(all(NeighborProbeIndex >= 0) && all(NeighborProbeIndex < MI.TileDimensions)) {
+        ProbeHeader NeighborHeader = GetScreenProbeHeader(NeighborProbeIndex);
+        float NeighborLinearDepth = GetScreenProbeLinearDepth(NeighborProbeIndex);
+        if (NeighborLinearDepth > 0) { // Valid
+            float PositionWeight = GetFilterPositionWeight(NeighborLinearDepth, LinearDepth);
+            if (PositionWeight > 0) {
+                float3 NeighborWorldPosition = NeighborHeader.Position;
+                float3 ToNeighbor = HitPosition - NeighborWorldPosition;
+                float  ToNeighborLength = max(length(ToNeighbor), 1e-3f);
+                float3 ToNeighborUnit = ToNeighbor / ToNeighborLength;
+                float3 NeighborProbeNormal = NeighborHeader.Normal;
+                float3 Tangent, Bitangent;
+                GetOrthoVectors(NeighborProbeNormal, Tangent, Bitangent);
+                float3 NeighborProbeLocalDirection = float3(
+                dot(Tangent, ToNeighborUnit),
+                dot(Bitangent, ToNeighborUnit),
+                dot(NeighborProbeNormal, ToNeighborUnit)
+                );
+
+                // Enumerate SGs and choose the nearest one
+                NeighborWeight = 0.f;
+                int NeighborSGCount = GetProbeBasisCountFromClass(NeighborHeader.Class);
+                [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+                for(int NeighborSGIndex = 0; NeighborSGIndex < NeighborSGCount; NeighborSGIndex++) {
+                    int NeighborSGRank = NeighborHeader.BasisOffset + NeighborSGIndex;
+                    SGData NeighborSG = FetchBasisData(NeighborSGRank);
+                    // 1.The angle between ToNeighborUnit and NeighborSG's direction
+                    float FitnessScore1 = dot(NeighborProbeLocalDirection, NeighborSG.Direction);
+                    if(FitnessScore1 > NeighborWeight) {
+                        NeighborWeight = FitnessScore1;
+                        BestNeighborSG = NeighborSG;
+                    }
+                }
+                // 2.The angle between main SG and neighbor SG
+                float FitnessScore2 = dot(normalize(HitPosition - Position), ToNeighborUnit);
+                // 3.The radiance in ToNeighbor
+                float FitnessScore3 = dot(EvaluateSG(BestNeighborSG, ToNeighborUnit), float3(1.f, 1.f, 1.f));
+                // 4.Position weight
+                float FitnessScore4 = PositionWeight;
+                NeighborWeight *= FitnessScore2 * FitnessScore3 * FitnessScore4;
+            }
+        }
+    }
+    else {
+        BestNeighborSG.Direction = float3(0.f, 0.f, 0.f);
+        BestNeighborSG.Lambda = 0.f;
+        BestNeighborSG.Color = float3(0.f, 0.f, 0.f);
+        BestNeighborSG.Depth = 0.f;
+        NeighborWeight = 0.f;
+    }
+}
+
+// Used for SG Filtering
+groupshared SGData FilteredNeighborSGs[SSRC_MAX_NUM_BASIS_PER_PROBE][4];
+groupshared float  FilteredNeighborSGsWeight[SSRC_MAX_NUM_BASIS_PER_PROBE][4];
 
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
@@ -2978,7 +3079,7 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
     ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
     // Thread group early out if the probe is not valid
     [branch]
-    if(!Header.bValid) return ;
+    if(!Header.bValid) return;
     
     int2 ProbeScreenCoords  = Header.ScreenCoords;
     int2 TileIndex = int2(ProbeScreenCoords / SSRC_TILE_SIZE);
@@ -3081,8 +3182,75 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
     if(WaveIsFirstLane()) {
         WriteScreenProbeSHCoefficients(ProbeIndex, SH_Coefficients);
     }
-    // TODO filter SG
 
+    // TODO filter SG
+    // TODO:EAJ
+    if(MI.ProbeFiltering) {
+        int2 Offsets[4];
+        Offsets[0] = int2(-1, 0);
+        Offsets[1] = int2(1, 0);
+        Offsets[2] = int2(0, -1);
+        Offsets[3] = int2(0, 1);
+        // Enumerate SGs and update
+        int ProbeSGCount = GetProbeBasisCountFromClass(Header.Class);
+
+        for(int BaseProbeSGIndex = 0;BaseProbeSGIndex < ProbeSGCount * 4; BaseProbeSGIndex += WAVE_SIZE) {
+            int UpdatedSGIndex = (BaseProbeSGIndex + LocalID) / 4;
+            int NeighborSGIndex = (BaseProbeSGIndex + LocalID) % 4;
+            // TODO: More reasonable computing mode
+            // Calculate HitPosition:using the nearest texel direction
+            int UpdatedSGRank = Header.BasisOffset + UpdatedSGIndex;
+            SGData UpdatedSG = FetchBasisData(UpdatedSGRank);
+            float2 ProbeTexelUV = UnitVectorToHemiOctahedron01(UpdatedSG.Direction);
+            int2 ProbeTexelCoords = clamp(ProbeTexelUV * SSRC_PROBE_TEXTURE_SIZE - 0.5f,
+                int2(0, 0), int2(SSRC_PROBE_TEXTURE_SIZE - 1, SSRC_PROBE_TEXTURE_SIZE - 1));
+            float3 ProbeLocalTexelDirection = HemiOctahedron01ToUnitVector(ProbeTexelUV);
+            float3 ProbeWorldTexelDirection =
+                Tangent * ProbeLocalTexelDirection.x
+                + Bitangent * ProbeLocalTexelDirection.y
+                + Header.Normal * ProbeLocalTexelDirection.z;
+            float4  TexelRadianceDepth = GetScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords);
+            float3 HitPosition = Header.Position + ProbeWorldTexelDirection * TexelRadianceDepth.w;
+            // Calculate NeighborProbeIndex
+            int2 NeighborProbeIndex = TileIndex + Offsets[NeighborSGIndex];
+            // Get BestNeighborSG and its NeighborWeight
+            GatherProbeSG (
+                Header.Position,
+                Header.LinearDepth,
+                HitPosition,
+                NeighborProbeIndex,
+                FilteredNeighborSGs[UpdatedSGIndex][NeighborSGIndex],
+                FilteredNeighborSGsWeight[UpdatedSGIndex][NeighborSGIndex]
+            );
+
+            GroupMemoryBarrierWithGroupSync();
+
+            // Filtering SG
+            if(NeighborSGIndex == 0) {
+                float3 SumDirection = float3(0.f, 0.f, 0.f);
+                float  SumLambda = 0.f;
+                float3 SumColor = float3(0.f, 0.f, 0.f);
+                float  SumDepth = 0.f;
+                float  SumWeight = max(SumWeight, 1e-3f);
+                [unroll(4)]
+                for(int Offset = 0; Offset < 4; Offset ++) {
+                    SumDirection += FilteredNeighborSGs[UpdatedSGIndex][Offset].Direction * FilteredNeighborSGsWeight[UpdatedSGIndex][Offset];
+                    SumLambda += FilteredNeighborSGs[UpdatedSGIndex][Offset].Lambda * FilteredNeighborSGsWeight[UpdatedSGIndex][Offset];
+                    SumColor += FilteredNeighborSGs[UpdatedSGIndex][Offset].Color * FilteredNeighborSGsWeight[UpdatedSGIndex][Offset];
+                    SumDepth += FilteredNeighborSGs[UpdatedSGIndex][Offset].Depth * FilteredNeighborSGsWeight[UpdatedSGIndex][Offset];
+                    SumWeight += FilteredNeighborSGsWeight[UpdatedSGIndex][Offset];
+                }
+                float FilterSGWeight = 0.5f;
+                FilterSGWeight *= dot(UpdatedSG.Direction, ProbeLocalTexelDirection);
+                FilterSGWeight = clamp(FilterSGWeight, 0.0f, 1.0f);
+                UpdatedSG.Direction = normalize(UpdatedSG.Direction * (1 - FilterSGWeight) + (SumDirection / SumWeight) * FilterSGWeight);
+                //UpdatedSG.Lambda = lerp(UpdatedSG.Lambda, SumLambda / SumWeight, FilterSGWeight);
+                //UpdatedSG.Color = lerp(UpdatedSG.Color, SumColor / SumWeight, FilterSGWeight);
+                //UpdatedSG.Depth = lerp(UpdatedSG.Depth, SumDepth / SumWeight, FilterSGWeight);
+                WriteBasisData(UpdatedSGRank, UpdatedSG);
+            }
+        }
+    }
 }
 
 
@@ -3160,6 +3328,7 @@ float4 SampleScreenProbeRadianceDepth (int2 ProbeIndex, float3 LocalDirection) {
     return g_ProbeSampleColorTexture.SampleLevel(g_LinearSampler, AtlasUV, 0);
 }
 
+// TODO: EAJ don't know why should do this
 void CompensateSG (inout SGData SG, float3 Compensation) {
     float  SGRawInt = SGIntegrate(SG.Lambda);
     float3 DeltaColor = Compensation / SGRawInt;

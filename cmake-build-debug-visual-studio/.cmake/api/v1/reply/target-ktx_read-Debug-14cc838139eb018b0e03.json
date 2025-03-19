@@ -1,0 +1,708 @@
+{
+	"archive" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "/machine:x64",
+				"role" : "flags"
+			}
+		]
+	},
+	"artifacts" : 
+	[
+		{
+			"path" : "_deps/ktx-build/ktx_read.lib"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"add_compile_options",
+			"target_compile_definitions",
+			"commom_lib_settings",
+			"target_include_directories",
+			"target_compile_features",
+			"target_sources"
+		],
+		"files" : 
+		[
+			"third_party/gfx/third_party/KTX-Software/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 305,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 227,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 228,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 534,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 392,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 543,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 410,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 334,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 388,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 455,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 465,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 526,
+				"parent" : 4
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 368,
+				"parent" : 4
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 343,
+				"parent" : 4
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 435,
+				"parent" : 4
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 456,
+				"parent" : 4
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "/DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -MDd   /MP"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "/W4"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "/WX"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "/Gz"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 5,
+					"define" : "BASISD_SUPPORT_FXT1=0"
+				},
+				{
+					"backtrace" : 6,
+					"define" : "BASISD_SUPPORT_KTX2=0"
+				},
+				{
+					"backtrace" : 6,
+					"define" : "BASISD_SUPPORT_KTX2_ZSTD=0"
+				},
+				{
+					"backtrace" : 7,
+					"define" : "BASISU_NO_ITERATOR_DEBUG_LEVEL"
+				},
+				{
+					"backtrace" : 8,
+					"define" : "DEBUG"
+				},
+				{
+					"backtrace" : 9,
+					"define" : "KHRONOS_STATIC"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "KTX_FEATURE_KTX1"
+				},
+				{
+					"backtrace" : 11,
+					"define" : "KTX_FEATURE_KTX2"
+				},
+				{
+					"backtrace" : 12,
+					"define" : "KTX_OMIT_VULKAN=1"
+				},
+				{
+					"backtrace" : 8,
+					"define" : "LIBKTX"
+				},
+				{
+					"backtrace" : 8,
+					"define" : "_DEBUG"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/include"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/lib/basisu/zstd"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/other_include"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/utils"
+				}
+			],
+			"language" : "CXX",
+			"sourceIndexes" : 
+			[
+				3,
+				9,
+				24,
+				25
+			]
+		},
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "/DWIN32 /D_WINDOWS /Zi /Ob0 /Od /RTC1 -MDd   /MP"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "/W4"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "/WX"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "/Gz"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 5,
+					"define" : "BASISD_SUPPORT_FXT1=0"
+				},
+				{
+					"backtrace" : 6,
+					"define" : "BASISD_SUPPORT_KTX2=0"
+				},
+				{
+					"backtrace" : 6,
+					"define" : "BASISD_SUPPORT_KTX2_ZSTD=0"
+				},
+				{
+					"backtrace" : 7,
+					"define" : "BASISU_NO_ITERATOR_DEBUG_LEVEL"
+				},
+				{
+					"backtrace" : 8,
+					"define" : "DEBUG"
+				},
+				{
+					"backtrace" : 9,
+					"define" : "KHRONOS_STATIC"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "KTX_FEATURE_KTX1"
+				},
+				{
+					"backtrace" : 11,
+					"define" : "KTX_FEATURE_KTX2"
+				},
+				{
+					"backtrace" : 12,
+					"define" : "KTX_OMIT_VULKAN=1"
+				},
+				{
+					"backtrace" : 8,
+					"define" : "LIBKTX"
+				},
+				{
+					"backtrace" : 8,
+					"define" : "_DEBUG"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/include"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/lib/basisu/zstd"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/other_include"
+				},
+				{
+					"backtrace" : 13,
+					"path" : "D:/Coding/C++_Projects/Capsaicin/third_party/gfx/third_party/KTX-Software/utils"
+				}
+			],
+			"language" : "C",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					14
+				],
+				"standard" : "99"
+			},
+			"sourceIndexes" : 
+			[
+				12,
+				13,
+				14,
+				15,
+				17,
+				18,
+				19,
+				20,
+				26,
+				30,
+				31,
+				33,
+				35,
+				36,
+				37,
+				39,
+				43,
+				45,
+				47
+			]
+		}
+	],
+	"folder" : 
+	{
+		"name" : "third_party/gfx_deps/ktx_deps"
+	},
+	"id" : "ktx_read::@58e89cc968e10828fda8",
+	"name" : "ktx_read",
+	"nameOnDisk" : "ktx_read.lib",
+	"paths" : 
+	{
+		"build" : "_deps/ktx-build",
+		"source" : "third_party/gfx/third_party/KTX-Software"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Header Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				4,
+				5,
+				6,
+				7,
+				8,
+				10,
+				11,
+				16,
+				21,
+				22,
+				23,
+				27,
+				28,
+				29,
+				32,
+				34,
+				38,
+				40,
+				41,
+				42,
+				44,
+				48
+			]
+		},
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				3,
+				9,
+				12,
+				13,
+				14,
+				15,
+				17,
+				18,
+				19,
+				20,
+				24,
+				25,
+				26,
+				30,
+				31,
+				33,
+				35,
+				36,
+				37,
+				39,
+				43,
+				45,
+				46,
+				47
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/include/KHR/khr_df.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/include/ktx.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basis_sgd.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basis_transcode.cpp",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu_containers.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu_containers_impl.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu_file_headers.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu_transcoder_internal.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu_transcoder_uastc.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu_transcoder.cpp",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu_transcoder.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/transcoder/basisu.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/basisu/zstd/zstd.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/checkheader.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/createdfd.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/colourspaces.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/dfd.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/interpretdfd.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/printdfd.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/queries.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/vk2dfd.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/vk2dfd.inl",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/vulkan/vk_platform.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/dfdutils/vulkan/vulkan_core.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/etcdec.cxx",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/etcunpack.cxx",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/filestream.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/filestream.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/formatsize.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/gl_format.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/hashlist.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/info.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/ktxint.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/memstream.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/memstream.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/strings.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/swap.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/texture.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/texture.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/texture2.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/texture2.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/uthash.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/vk_format.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/vkformat_check.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/vkformat_enum.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/vkformat_str.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 15,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/internalexport.def",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 16,
+			"compileGroupIndex" : 1,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/texture1.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 16,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/texture1.h",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

@@ -53,7 +53,7 @@ public:
         bool reference_pt_disable_specular_materials =
             false; /**< Disable specular sampling/evaluation essentially setting materials to diffuse only */
         bool reference_pt_nee_only    = false; /**< Disable light contributions from source other than NEE */
-        bool reference_pt_disable_nee = false; /**< Disable light contributions from Next Event Estimation */
+        bool reference_pt_disable_nee = true; /**< Disable light contributions from Next Event Estimation */
         bool reference_pt_nee_reservoir_resampling =
             false;                           /**< Use reservoir resampling for selecting NEE light samples */
         bool reference_pt_use_dxr10 = false; /**< Use dxr 1.0 ray-tracing pipelines instead of inline rt */

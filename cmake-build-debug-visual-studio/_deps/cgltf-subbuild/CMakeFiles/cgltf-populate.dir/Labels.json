@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/cgltf-populate"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/cgltf-populate.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/cgltf-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-build.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-download.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-install.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-test.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"cgltf-populate"
+		],
+		"name" : "cgltf-populate"
+	}
+}

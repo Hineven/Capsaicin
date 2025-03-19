@@ -1,0 +1,82 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"install"
+		],
+		"files" : 
+		[
+			"src/scene_viewer/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 29,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 34,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 37,
+				"parent" : 0
+			}
+		]
+	},
+	"installers" : 
+	[
+		{
+			"backtrace" : 1,
+			"component" : "Unspecified",
+			"destination" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/bin",
+			"paths" : 
+			[
+				"bin/scene_viewer.exe"
+			],
+			"targetId" : "scene_viewer::@24c9fec4fdcd591ea0e1",
+			"targetIndex" : 10,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 2,
+			"component" : "Unspecified",
+			"destination" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/bin",
+			"paths" : 
+			[
+				"cmake-build-debug-visual-studio/bin/capsaicin.dll",
+				"third_party/gfx/third_party/dxc/bin/x64/dxcompiler.dll",
+				"third_party/gfx/third_party/dxc/bin/x64/dxil.dll",
+				"third_party/gfx/third_party/WinPixEventRuntime/bin/x64/WinPixEventRuntime.dll",
+				"third_party/agility_sdk/D3D12Core.dll",
+				"third_party/agility_sdk/d3d12SDKLayers.dll"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 3,
+			"component" : "Unspecified",
+			"destination" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/bin",
+			"paths" : 
+			[
+				"src/scene_viewer/../../assets"
+			],
+			"type" : "directory"
+		}
+	],
+	"paths" : 
+	{
+		"build" : "src/scene_viewer",
+		"source" : "src/scene_viewer"
+	}
+}

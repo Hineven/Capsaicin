@@ -1,0 +1,578 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						13,
+						15
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.24.0"
+					},
+					"projectIndex" : 0,
+					"source" : "."
+				},
+				{
+					"build" : "third_party/gfx",
+					"childIndexes" : 
+					[
+						2,
+						4,
+						5,
+						6,
+						12
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-third_party.gfx-Debug-831089df0d1910dcf2f8.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.24.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "third_party/gfx",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "_deps/glm-build",
+					"childIndexes" : 
+					[
+						3
+					],
+					"jsonFile" : "directory-_deps.glm-build-Debug-81a82f596918e6997231.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.2"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 2,
+					"source" : "third_party/gfx/third_party/glm"
+				},
+				{
+					"build" : "_deps/glm-build/glm",
+					"jsonFile" : "directory-_deps.glm-build.glm-Debug-c6603be86cedb8982d32.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.2"
+					},
+					"parentIndex" : 2,
+					"projectIndex" : 2,
+					"source" : "third_party/gfx/third_party/glm/glm"
+				},
+				{
+					"build" : "_deps/tinyobjloader-build",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-_deps.tinyobjloader-build-Debug-7ae3023b2a90c6e06fea.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.2"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 3,
+					"source" : "third_party/gfx/third_party/tinyobjloader",
+					"targetIndexes" : 
+					[
+						13,
+						14
+					]
+				},
+				{
+					"build" : "_deps/tinyexr-build",
+					"jsonFile" : "directory-_deps.tinyexr-build-Debug-a5b057b32ceea4e08e3f.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.5"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 4,
+					"source" : "third_party/gfx/third_party/tinyexr",
+					"targetIndexes" : 
+					[
+						12
+					]
+				},
+				{
+					"build" : "_deps/ktx-build",
+					"childIndexes" : 
+					[
+						7,
+						8,
+						10,
+						11
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-_deps.ktx-build-Debug-076386b6b7859254c7f3.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "2.8.12"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 5,
+					"source" : "third_party/gfx/third_party/KTX-Software",
+					"targetIndexes" : 
+					[
+						5,
+						6,
+						7,
+						8
+					]
+				},
+				{
+					"build" : "_deps/ktx-build/interface/basisu_c_binding",
+					"jsonFile" : "directory-_deps.ktx-build.interface.basisu_c_binding-Debug-68e7e170ff4269975b67.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "2.8.12"
+					},
+					"parentIndex" : 6,
+					"projectIndex" : 5,
+					"source" : "third_party/gfx/third_party/KTX-Software/interface/basisu_c_binding",
+					"targetIndexes" : 
+					[
+						9
+					]
+				},
+				{
+					"build" : "_deps/ktx-build/lib/astc-encoder",
+					"childIndexes" : 
+					[
+						9
+					],
+					"jsonFile" : "directory-_deps.ktx-build.lib.astc-encoder-Debug-f19add3c7edc4a2d001c.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 6,
+					"projectIndex" : 6,
+					"source" : "third_party/gfx/third_party/KTX-Software/lib/astc-encoder"
+				},
+				{
+					"build" : "_deps/ktx-build/lib/astc-encoder/Source",
+					"jsonFile" : "directory-_deps.ktx-build.lib.astc-encoder.Source-Debug-609a0bb04dc1a6d134c9.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 8,
+					"projectIndex" : 7,
+					"source" : "third_party/gfx/third_party/KTX-Software/lib/astc-encoder/Source",
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"build" : "_deps/ktx-build/other_projects/fmt",
+					"jsonFile" : "directory-_deps.ktx-build.other_projects.fmt-Debug-1e6da23affb13b157cbd.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.1"
+					},
+					"parentIndex" : 6,
+					"projectIndex" : 8,
+					"source" : "third_party/gfx/third_party/KTX-Software/other_projects/fmt",
+					"targetIndexes" : 
+					[
+						3
+					]
+				},
+				{
+					"build" : "_deps/ktx-build/tests",
+					"jsonFile" : "directory-_deps.ktx-build.tests-Debug-5be145775db298af27c6.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "2.8.12"
+					},
+					"parentIndex" : 6,
+					"projectIndex" : 5,
+					"source" : "third_party/gfx/third_party/KTX-Software/tests"
+				},
+				{
+					"build" : "_deps/vulkan-headers-build",
+					"jsonFile" : "directory-_deps.vulkan-headers-build-Debug-eebdf305764ea3edeb07.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 9,
+					"source" : "third_party/gfx/third_party/Vulkan-Headers"
+				},
+				{
+					"build" : "third_party/CLI11",
+					"childIndexes" : 
+					[
+						14
+					],
+					"jsonFile" : "directory-third_party.CLI11-Debug-1f75a584a45900502a8f.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.4"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 10,
+					"source" : "third_party/CLI11"
+				},
+				{
+					"build" : "third_party/CLI11/src",
+					"jsonFile" : "directory-third_party.CLI11.src-Debug-7767198587b6beac45e7.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.4"
+					},
+					"parentIndex" : 13,
+					"projectIndex" : 10,
+					"source" : "third_party/CLI11/src",
+					"targetIndexes" : 
+					[
+						0
+					]
+				},
+				{
+					"build" : "src",
+					"childIndexes" : 
+					[
+						16,
+						17
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-src-Debug-c94b7c2814d5a21df52c.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.24.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src",
+					"targetIndexes" : 
+					[
+						11
+					]
+				},
+				{
+					"build" : "src/core",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-src.core-Debug-d0f992922aadd81e2352.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.24.0"
+					},
+					"parentIndex" : 15,
+					"projectIndex" : 0,
+					"source" : "src/core",
+					"targetIndexes" : 
+					[
+						2
+					]
+				},
+				{
+					"build" : "src/scene_viewer",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-src.scene_viewer-Debug-38f5b219cf647555f73d.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.24.0"
+					},
+					"parentIndex" : 15,
+					"projectIndex" : 0,
+					"source" : "src/scene_viewer",
+					"targetIndexes" : 
+					[
+						10
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1,
+						10
+					],
+					"directoryIndexes" : 
+					[
+						0,
+						15,
+						16,
+						17
+					],
+					"name" : "Capsaicin",
+					"targetIndexes" : 
+					[
+						2,
+						10,
+						11
+					]
+				},
+				{
+					"childIndexes" : 
+					[
+						2,
+						3,
+						4,
+						5,
+						9
+					],
+					"directoryIndexes" : 
+					[
+						1
+					],
+					"name" : "gfx",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						2,
+						3
+					],
+					"name" : "glm",
+					"parentIndex" : 1
+				},
+				{
+					"directoryIndexes" : 
+					[
+						4
+					],
+					"name" : "tinyobjloader",
+					"parentIndex" : 1,
+					"targetIndexes" : 
+					[
+						13,
+						14
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						5
+					],
+					"name" : "tinyexr",
+					"parentIndex" : 1,
+					"targetIndexes" : 
+					[
+						12
+					]
+				},
+				{
+					"childIndexes" : 
+					[
+						6,
+						8
+					],
+					"directoryIndexes" : 
+					[
+						6,
+						7,
+						11
+					],
+					"name" : "KTX-Software",
+					"parentIndex" : 1,
+					"targetIndexes" : 
+					[
+						5,
+						6,
+						7,
+						8,
+						9
+					]
+				},
+				{
+					"childIndexes" : 
+					[
+						7
+					],
+					"directoryIndexes" : 
+					[
+						8
+					],
+					"name" : "astcencoder",
+					"parentIndex" : 5
+				},
+				{
+					"directoryIndexes" : 
+					[
+						9
+					],
+					"name" : "astcenc-avx2",
+					"parentIndex" : 6,
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						10
+					],
+					"name" : "FMT",
+					"parentIndex" : 5,
+					"targetIndexes" : 
+					[
+						3
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						12
+					],
+					"name" : "VULKAN_HEADERS",
+					"parentIndex" : 1
+				},
+				{
+					"directoryIndexes" : 
+					[
+						13,
+						14
+					],
+					"name" : "CLI11",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						0
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 14,
+					"id" : "CLI11::@a0e38423643b899a6e63",
+					"jsonFile" : "target-CLI11-Debug-11b5ee4463215e0a4466.json",
+					"name" : "CLI11",
+					"projectIndex" : 10
+				},
+				{
+					"directoryIndex" : 9,
+					"id" : "astcenc-avx2-static::@1b4efa6848702e1342da",
+					"jsonFile" : "target-astcenc-avx2-static-Debug-5cfc96e409443a3a00ce.json",
+					"name" : "astcenc-avx2-static",
+					"projectIndex" : 7
+				},
+				{
+					"directoryIndex" : 16,
+					"id" : "capsaicin::@0618756b1ff51bca1a0e",
+					"jsonFile" : "target-capsaicin-Debug-0b4e4fef9f02263a2db3.json",
+					"name" : "capsaicin",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 10,
+					"id" : "fmt::@073ee83d196d07193921",
+					"jsonFile" : "target-fmt-Debug-550661862dc13cc4e904.json",
+					"name" : "fmt",
+					"projectIndex" : 8
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gfx::@401b9fa24677a3007ff3",
+					"jsonFile" : "target-gfx-Debug-a28a5f9f5d413f5626de.json",
+					"name" : "gfx",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "ktx::@58e89cc968e10828fda8",
+					"jsonFile" : "target-ktx-Debug-b81b16e1c78df96a93b0.json",
+					"name" : "ktx",
+					"projectIndex" : 5
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "ktx_read::@58e89cc968e10828fda8",
+					"jsonFile" : "target-ktx_read-Debug-14cc838139eb018b0e03.json",
+					"name" : "ktx_read",
+					"projectIndex" : 5
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "ktx_version::@58e89cc968e10828fda8",
+					"jsonFile" : "target-ktx_version-Debug-cf13cdd76ec015720b71.json",
+					"name" : "ktx_version",
+					"projectIndex" : 5
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "objUtil::@58e89cc968e10828fda8",
+					"jsonFile" : "target-objUtil-Debug-f89cb8d7307c7aaba6db.json",
+					"name" : "objUtil",
+					"projectIndex" : 5
+				},
+				{
+					"directoryIndex" : 7,
+					"id" : "obj_basisu_cbind::@5121215ecaa38d76901b",
+					"jsonFile" : "target-obj_basisu_cbind-Debug-b1510c308dd685986d26.json",
+					"name" : "obj_basisu_cbind",
+					"projectIndex" : 5
+				},
+				{
+					"directoryIndex" : 17,
+					"id" : "scene_viewer::@24c9fec4fdcd591ea0e1",
+					"jsonFile" : "target-scene_viewer-Debug-fb7dd77de680e8930c8b.json",
+					"name" : "scene_viewer",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 15,
+					"id" : "test_main::@145eef247bfb46b6828c",
+					"jsonFile" : "target-test_main-Debug-99c4d51bd3e555b091ad.json",
+					"name" : "test_main",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 5,
+					"id" : "tinyexr::@a555b93cb649aa1ecdc6",
+					"jsonFile" : "target-tinyexr-Debug-33130a52c9cce9a3f08d.json",
+					"name" : "tinyexr",
+					"projectIndex" : 4
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "tinyobjloader::@504dab42fa214d3d2823",
+					"jsonFile" : "target-tinyobjloader-Debug-c3286307c0e8a0ef1d36.json",
+					"name" : "tinyobjloader",
+					"projectIndex" : 3
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "uninstall::@504dab42fa214d3d2823",
+					"jsonFile" : "target-uninstall-Debug-f7349b960c66bfe697ed.json",
+					"name" : "uninstall",
+					"projectIndex" : 3
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+		"source" : "D:/Coding/C++_Projects/Capsaicin"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 7
+	}
+}

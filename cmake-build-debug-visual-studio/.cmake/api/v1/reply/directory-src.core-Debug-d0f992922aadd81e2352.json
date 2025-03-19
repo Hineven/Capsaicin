@@ -1,0 +1,86 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"install"
+		],
+		"files" : 
+		[
+			"src/core/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 118,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 127,
+				"parent" : 0
+			}
+		]
+	},
+	"installers" : 
+	[
+		{
+			"backtrace" : 1,
+			"component" : "Unspecified",
+			"destination" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/lib",
+			"paths" : 
+			[
+				"lib/capsaicin.lib"
+			],
+			"targetId" : "capsaicin::@0618756b1ff51bca1a0e",
+			"targetIndex" : 2,
+			"targetIsImportLibrary" : true,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 1,
+			"component" : "Unspecified",
+			"destination" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/bin",
+			"paths" : 
+			[
+				"bin/capsaicin.dll"
+			],
+			"targetId" : "capsaicin::@0618756b1ff51bca1a0e",
+			"targetIndex" : 2,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 1,
+			"component" : "Unspecified",
+			"destination" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/include/capsaicin",
+			"paths" : 
+			[
+				"src/core/include/capsaicin.h",
+				"cmake-build-debug-visual-studio/src/core/version.h",
+				"cmake-build-debug-visual-studio/src/core/capsaicin_export.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 2,
+			"component" : "Unspecified",
+			"destination" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/install/bin",
+			"paths" : 
+			[
+				"src/core/src"
+			],
+			"type" : "directory"
+		}
+	],
+	"paths" : 
+	{
+		"build" : "src/core",
+		"source" : "src/core"
+	}
+}

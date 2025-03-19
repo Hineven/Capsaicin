@@ -49,7 +49,7 @@ MIGI::~MIGI() {terminate();}
 #pragma warning(disable : 4702)
 void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 {
-    // Prepar settings
+    // Prepare settings
     updateRenderOptions(capsaicin);
 
     auto light_sampler      = capsaicin.getComponent<LightSamplerGridStream>();

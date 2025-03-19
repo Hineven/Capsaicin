@@ -1,14 +1,21 @@
+/*
+ * Structures and helper functions about screen probes in migi
+ */
+
 #ifndef MIGI_PROBES_HLSL
 #define MIGI_PROBES_HLSL
 
 #include "migi_lib.hlsl"
 
+// Struct of Screen Probe
 struct ProbeHeader {
     // Screen pixel coords of the probe
     int2 ScreenCoords;
+    // The global index of the first SG in this probe
     int BasisOffset;
     // 0: 0, 1: 1, 2: 2, 3: 4, 4: 8, no larger than 8
     int  Class;
+    // The number of SGs in this Probe
     bool bValid;
     float  LinearDepth;
     float3 Position;
@@ -97,7 +104,7 @@ int2 GetScreenProbeScreenCoords (int2 ProbeIndex, bool bPrevious = false) {
 
 int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
     // TODO: Implement this function and get adaptive number of basis
-    return MI.DisableSG ? 0 : 1;
+    return MI.DisableSG ? 0 : 3;
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {

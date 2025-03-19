@@ -62,7 +62,7 @@ uint2 PackFp16x4Safe (float4 v) {
 }
 
 uint PackUint16x2 (uint2 v) {
-    return v.x | (v.y << 16);
+    return (v.x & 0xFFFF) | (v.y << 16);
 }
 
 uint2 UnpackUint16x2 (uint v) {

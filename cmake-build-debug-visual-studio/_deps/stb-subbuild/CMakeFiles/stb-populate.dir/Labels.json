@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/CMakeFiles/stb-populate"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/CMakeFiles/stb-populate.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/CMakeFiles/stb-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-build.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-download.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-install.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-test.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"stb-populate"
+		],
+		"name" : "stb-populate"
+	}
+}

@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "_deps/ktx-build/tests",
+		"source" : "third_party/gfx/third_party/KTX-Software/tests"
+	}
+}

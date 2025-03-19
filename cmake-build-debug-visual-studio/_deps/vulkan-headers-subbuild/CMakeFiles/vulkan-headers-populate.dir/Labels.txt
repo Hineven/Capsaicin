@@ -1,0 +1,14 @@
+# Target labels
+ vulkan-headers-populate
+# Source files and their labels
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/CMakeFiles/vulkan-headers-populate
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/CMakeFiles/vulkan-headers-populate.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/CMakeFiles/vulkan-headers-populate-complete.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-build.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-configure.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-download.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-install.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-mkdir.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-patch.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-test.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-update.rule

@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/CMakeFiles/tinyexr-populate"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/CMakeFiles/tinyexr-populate.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/CMakeFiles/tinyexr-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-build.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-download.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-install.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-test.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/tinyexr-subbuild/tinyexr-populate-prefix/src/tinyexr-populate-stamp/tinyexr-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"tinyexr-populate"
+		],
+		"name" : "tinyexr-populate"
+	}
+}

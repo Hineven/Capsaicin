@@ -1,0 +1,85 @@
+{
+	"backtrace" : 2,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_custom_target",
+			"create_version_header"
+		],
+		"files" : 
+		[
+			"third_party/gfx/third_party/KTX-Software/cmake/version.cmake",
+			"third_party/gfx/third_party/KTX-Software/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 540,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 193,
+				"parent" : 1
+			}
+		]
+	},
+	"folder" : 
+	{
+		"name" : "third_party/gfx_deps/ktx_deps"
+	},
+	"id" : "ktx_version::@58e89cc968e10828fda8",
+	"name" : "ktx_version",
+	"paths" : 
+	{
+		"build" : "_deps/ktx-build",
+		"source" : "third_party/gfx/third_party/KTX-Software"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "",
+			"sourceIndexes" : 
+			[
+				0
+			]
+		},
+		{
+			"name" : "CMake Rules",
+			"sourceIndexes" : 
+			[
+				1,
+				2
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 2,
+			"isGenerated" : true,
+			"path" : "cmake-build-debug-visual-studio/_deps/ktx-build/CMakeFiles/ktx_version",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "cmake-build-debug-visual-studio/_deps/ktx-build/CMakeFiles/ktx_version.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "third_party/gfx/third_party/KTX-Software/lib/version.h.rule",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "UTILITY"
+}

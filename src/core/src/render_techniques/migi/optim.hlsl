@@ -1,3 +1,4 @@
+// QR decomposition of a symmetric tridiagonal matrix
 template<typename Real, int n>
 inline void TridiagSym(Real V[n*n], Real d[n], Real e[n])
 {
@@ -100,6 +101,7 @@ inline void TridiagSym(Real V[n*n], Real d[n], Real e[n])
 	e[0] = 0.0;
 }
 
+//  QL algorithm for finding the eigenvalues and eigenvectors of the matrix
 template<typename Real, int n>
 inline void TridiagQLSym(Real V[n*n], Real d[n], Real e[n])
 {
@@ -207,6 +209,7 @@ inline void TridiagQLSym(Real V[n*n], Real d[n], Real e[n])
 	}
 }
 
+// Eigenvalue decomposition of a symmetric matrix
 template<typename Real, unsigned int N>
 void __EigenDecompositionSym(Real A[N*N], Real V[N*N], Real d[N])
 {

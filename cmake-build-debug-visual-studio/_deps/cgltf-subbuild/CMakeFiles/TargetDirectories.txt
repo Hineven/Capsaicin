@@ -1,0 +1,3 @@
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/cgltf-populate.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/edit_cache.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/CMakeFiles/vulkan-headers-populate"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/CMakeFiles/vulkan-headers-populate.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/CMakeFiles/vulkan-headers-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-build.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-download.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-install.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-test.rule"
+		},
+		{
+			"file" : "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/vulkan-headers-subbuild/vulkan-headers-populate-prefix/src/vulkan-headers-populate-stamp/vulkan-headers-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"vulkan-headers-populate"
+		],
+		"name" : "vulkan-headers-populate"
+	}
+}

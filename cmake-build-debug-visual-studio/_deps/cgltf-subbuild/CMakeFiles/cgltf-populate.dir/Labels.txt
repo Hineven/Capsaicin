@@ -1,0 +1,14 @@
+# Target labels
+ cgltf-populate
+# Source files and their labels
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/cgltf-populate
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/cgltf-populate.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/CMakeFiles/cgltf-populate-complete.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-build.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-configure.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-download.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-install.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-mkdir.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-patch.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-test.rule
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/cgltf-subbuild/cgltf-populate-prefix/src/cgltf-populate-stamp/cgltf-populate-update.rule

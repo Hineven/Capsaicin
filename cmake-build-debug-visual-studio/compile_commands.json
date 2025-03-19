@@ -1,0 +1,134 @@
+[
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_averages_and_directions.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_averages_and_directions.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_averages_and_directions.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_averages_and_directions.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_block_sizes.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_block_sizes.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_block_sizes.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_block_sizes.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_color_quantize.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_color_quantize.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_color_quantize.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_color_quantize.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_color_unquantize.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_color_unquantize.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_color_unquantize.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_color_unquantize.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_compress_symbolic.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_compress_symbolic.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_compress_symbolic.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_compress_symbolic.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_compute_variance.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_compute_variance.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_compute_variance.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_compute_variance.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_decompress_symbolic.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_decompress_symbolic.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_decompress_symbolic.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_decompress_symbolic.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_diagnostic_trace.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_diagnostic_trace.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_diagnostic_trace.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_diagnostic_trace.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_entry.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_entry.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_entry.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_entry.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_find_best_partitioning.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_find_best_partitioning.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_find_best_partitioning.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_find_best_partitioning.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_ideal_endpoints_and_weights.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_ideal_endpoints_and_weights.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_ideal_endpoints_and_weights.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_ideal_endpoints_and_weights.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_image.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_image.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_image.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_image.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_integer_sequence.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_integer_sequence.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_integer_sequence.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_integer_sequence.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_mathlib.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_mathlib.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_mathlib.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_mathlib.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_mathlib_softfloat.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_mathlib_softfloat.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_mathlib_softfloat.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_mathlib_softfloat.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_partition_tables.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_partition_tables.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_partition_tables.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_partition_tables.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_percentile_tables.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_percentile_tables.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_percentile_tables.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_percentile_tables.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_pick_best_endpoint_format.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_pick_best_endpoint_format.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_pick_best_endpoint_format.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_pick_best_endpoint_format.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_quantization.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_quantization.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_quantization.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_quantization.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_symbolic_physical.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_symbolic_physical.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_symbolic_physical.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_symbolic_physical.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_weight_align.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_weight_align.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_weight_align.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_weight_align.cpp.obj"
+},
+{
+  "directory": "D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio",
+  "command": "D:\\Coding\\VisualStudio2022\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DASTCENC_AVX=2 -DASTCENC_F16C=1 -DASTCENC_NEON=0 -DASTCENC_POPCNT=1 -DASTCENC_SSE=41 -D_CRT_SECURE_NO_WARNINGS -ID:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++14 -MDd   /MP /W4 /WX /Gz /wd4324 /EHsc /fp:precise /arch:AVX2 /Fo_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_weight_quant_xfer_tables.cpp.obj /Fd_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc-avx2-static.pdb /FS -c D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_weight_quant_xfer_tables.cpp",
+  "file": "D:\\Coding\\C++_Projects\\Capsaicin\\third_party\\gfx\\third_party\\KTX-Software\\lib\\astc-encoder\\Source\\astcenc_weight_quant_xfer_tables.cpp",
+  "output": "_deps\\ktx-build\\lib\\astc-encoder\\Source\\CMakeFiles\\astcenc-avx2-static.dir\\astcenc_weight_quant_xfer_tables.cpp.obj"
+}
+]

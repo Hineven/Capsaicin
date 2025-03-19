@@ -1,0 +1,3 @@
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/imgui-subbuild/CMakeFiles/imgui-populate.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/imgui-subbuild/CMakeFiles/edit_cache.dir
+D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio/_deps/imgui-subbuild/CMakeFiles/rebuild_cache.dir

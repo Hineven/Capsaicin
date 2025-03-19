@@ -35,7 +35,7 @@ struct MIGIRenderOptions {
 
     uint32_t SSRC_max_update_ray_count {4 * 1024 * 1024};
     uint32_t SSRC_max_adaptive_probe_count {32 * 1024};
-    uint32_t SSRC_max_basis_count {4 * 1024 * 1024};
+    uint32_t SSRC_max_basis_count {4 * 1024 * 1024};// TODO:EAJ
     uint32_t SSRC_max_probe_count {};
     uint32_t SSRC_base_update_ray_waves {2};
 
