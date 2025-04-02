@@ -36,7 +36,8 @@ DebugIncidentRadiance_Output DebugSSRC_VisualizeProbeSGDirection (
 ) {
     int2 ProbeIndex = g_RWDebugProbeIndexBuffer[0];
     ProbeHeader Header = GetScreenProbeHeader(ProbeIndex);
-    int BasisCount = GetProbeBasisCountFromClass(Header.Class);
+    //int BasisCount = GetProbeBasisCountFromClass(Header.Class);
+    int BasisCount = Header.SGCount;
     DebugIncidentRadiance_Output Output;
     if(InstanceID < BasisCount) {
         float3 World     = g_RWProbeWorldPositionTexture[ProbeIndex].xyz;

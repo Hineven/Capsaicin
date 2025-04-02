@@ -68,6 +68,6 @@ CMake Deprecation Warning at third_party/CLI11/CMakeLists.txt:1 (cmake_minimum_r
   CMake that the project does not need compatibility with older versions.
 
 
--- Configuring done (24.3s)
+-- Configuring done (5.5s)
 -- Generating done (0.1s)
 -- Build files have been written to: D:/Coding/C++_Projects/Capsaicin/cmake-build-debug-visual-studio

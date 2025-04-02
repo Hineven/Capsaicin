@@ -191,7 +191,9 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeSGBuffer", buf_.probe_SG[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeSGBuffer", buf_.probe_SG[1 - flip]);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdatedProbeSGBuffer", buf_.updated_probe_SG);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWAllocatedProbeSGCountBuffer", buf_.allocated_probe_SG_count);
+        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWAllocatedUpdatedProbeSGCountBuffer", buf_.allocated_updated_probe_SG_count);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeHistoryTrustTexture", tex_.probe_history_trust);
 
@@ -755,6 +757,15 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandBindKernel(gfx_, kernels_.SSRC_UpdateProbes);
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
+
+    // // Update the new adaptive SGs
+    // {
+    //     TimedSection const timed_section(*this, "SSRC_UpdateAdaptiveSGTexture");
+    //     gfxCommandBindKernel(gfx_, kernels_.SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters);
+    //     gfxCommandDispatch(gfx_, 1, 1, 1);
+    //     gfxCommandBindKernel(gfx_, kernels_.SSRC_UpdateAdaptiveSGTexture);
+    //     gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
+    // }
 
     // Update the world cache
     {

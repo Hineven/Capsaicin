@@ -130,7 +130,9 @@ public:
         GfxBuffer draw_indexed_command {};
         GfxBuffer reduce_count {};
         GfxBuffer probe_SG[2] {};
+        GfxBuffer updated_probe_SG {};
         GfxBuffer allocated_probe_SG_count {};
+        GfxBuffer allocated_updated_probe_SG_count {};
         GfxBuffer probe_update_ray_count {};
         GfxBuffer probe_update_ray_offset {};
         GfxBuffer update_ray_count {};

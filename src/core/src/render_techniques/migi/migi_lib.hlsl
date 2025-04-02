@@ -199,6 +199,12 @@ struct SGData {
     float  Depth;
 };
 
+bool SGIsSmallEnough (SGData SG)
+{
+    // TODO:EAJ better threshold
+    return (SG.Lambda < 12.f && SG.Color.x < 0.01f && SG.Color.y < 0.01f && SG.Color.z < 0.01f);
+}
+
 float OneSubExpNeg2Lambda (float lambda) {
     return (lambda < 24.f) ? (1.f - exp(-2.f * lambda)) : 1.f;
 }
@@ -376,6 +382,22 @@ void WriteBasisData (int BasisIndex, SGData SG) {
     g_RWProbeSGBuffer[BasisIndex * 4 + 3] = Packed.w;
 }
 
+void WriteUpdatedBasisData (int BasisIndex, SGData SG)
+{
+    uint4 Packed = PackBasisData(SG);
+    g_RWUpdatedProbeSGBuffer[BasisIndex * 4] = Packed.x;
+    g_RWUpdatedProbeSGBuffer[BasisIndex * 4 + 1] = Packed.y;
+    g_RWUpdatedProbeSGBuffer[BasisIndex * 4 + 2] = Packed.z;
+    g_RWUpdatedProbeSGBuffer[BasisIndex * 4 + 3] = Packed.w;
+}
+
+void TransferBasisData (int BasisIndex)
+{
+    g_RWProbeSGBuffer[BasisIndex * 4] = g_RWUpdatedProbeSGBuffer[BasisIndex * 4];
+    g_RWProbeSGBuffer[BasisIndex * 4 + 1] = g_RWUpdatedProbeSGBuffer[BasisIndex * 4 + 1];
+    g_RWProbeSGBuffer[BasisIndex * 4 + 2] = g_RWUpdatedProbeSGBuffer[BasisIndex * 4 + 2];
+    g_RWProbeSGBuffer[BasisIndex * 4 + 3] = g_RWUpdatedProbeSGBuffer[BasisIndex * 4 + 3];
+}
 
 SGData FetchBasisData (int BasisIndex, bool bPrevious = false) {
     uint4 Packed = FetchBasisData_Packed(BasisIndex, bPrevious);

@@ -168,8 +168,10 @@ RWTexture2D<float4>  g_RWProbeIrradianceTexture;
 // Color : 16*3, Lambda: 16, Normal: 32packed, Linear Depth: 32
 RWStructuredBuffer<uint>   g_RWProbeSGBuffer;
 RWStructuredBuffer<uint>   g_RWPreviousProbeSGBuffer;
+RWStructuredBuffer<uint>   g_RWUpdatedProbeSGBuffer;
 // Used when allocating SGs to probes
 RWStructuredBuffer<uint>   g_RWAllocatedProbeSGCountBuffer;
+RWStructuredBuffer<uint>   g_RWAllocatedUpdatedProbeSGCountBuffer;
 
 // The estimated accuracy of the current probe from temporal reprojection
 // [0, 1], used to guide update ratio

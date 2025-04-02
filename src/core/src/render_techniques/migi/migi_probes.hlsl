@@ -13,13 +13,12 @@ struct ProbeHeader {
     int2 ScreenCoords;
     // The global index of the first SG in this probe
     int BasisOffset;
-    // 0: 0, 1: 1, 2: 2, 3: 4, 4: 8, no larger than 8
-    int  Class;
-    // The number of SGs in this Probe
-    bool bValid;
-    float  LinearDepth;
+    // The number of SGs in this Probe, 0 ~ 2^6-1
+    int SGCount;
+    float LinearDepth;
     float3 Position;
     float3 Normal;
+    bool bValid;
 };  
 
 struct SSRC_SampleData {
@@ -46,11 +45,10 @@ float3 GetScreenProbeNormal (int2 ProbeIndex, bool bPrevious = false) {
 }
 
 ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
-    uint Packed = bPrevious ? g_RWPreviousProbeHeaderPackedTexture[ProbeIndex] : g_RWProbeHeaderPackedTexture[ProbeIndex];
     ProbeHeader Header;
-    Header.BasisOffset  = Packed & 0x00FFFFFF;
-    Header.Class        = (Packed >> 24) & 0x0F;
-    uint   Flags        = (Packed >> 28) & 0x0F;
+    uint Packed = bPrevious ? g_RWPreviousProbeHeaderPackedTexture[ProbeIndex] : g_RWProbeHeaderPackedTexture[ProbeIndex];
+    Header.BasisOffset  = Packed & 0x03FFFFFF;
+    Header.SGCount      = (Packed >> 26) & 0x3F;
     Header.ScreenCoords = UnpackUint16x2(
         bPrevious
         ? g_RWPreviousProbeScreenCoordsTexture[ProbeIndex].x
@@ -61,19 +59,24 @@ ProbeHeader GetScreenProbeHeader (int2 ProbeIndex, bool bPrevious = false) {
     Header.Normal       = GetScreenProbeNormal(ProbeIndex, bPrevious);
     Header.bValid       = Header.LinearDepth > 0;
     // If this is not a valid probe, hint the caller that it has no valid SGs
-    if(!Header.bValid)  Header.Class = 0;
+    if(!Header.bValid)  Header.SGCount = 0;
     return Header;
 }
 
-int   GetScreenProbeBasisOffset (int2 ProbeIndex, bool bPrevious = false) {
+int GetScreenProbeBasisOffset (int2 ProbeIndex, bool bPrevious = false) {
     ProbeHeader Header = GetScreenProbeHeader(ProbeIndex, bPrevious);
     return Header.BasisOffset;
 }
 
+int GetProbeSGCount (int2 ProbeIndex, bool bPrevious = false)
+{
+    ProbeHeader Header = GetScreenProbeHeader(ProbeIndex, bPrevious);
+    return Header.SGCount;
+}
+
 void WriteScreenProbeHeader (int2 ProbeIndex, ProbeHeader Header) {
-    uint Packed;
-    Packed = Header.BasisOffset & 0x00FFFFFF;
-    Packed |= (Header.Class & 0x0F) << 24;
+    uint Packed = Header.BasisOffset & 0x03FFFFFF;
+    Packed |= (Header.SGCount & 0x3F) << 26;
     // Packed |= (Header.bValid ? 1 : 0) << 28;
     g_RWProbeHeaderPackedTexture[ProbeIndex] = Packed;
     g_RWProbeScreenCoordsTexture[ProbeIndex] = PackUint16x2(Header.ScreenCoords);
@@ -102,9 +105,15 @@ int2 GetScreenProbeScreenCoords (int2 ProbeIndex, bool bPrevious = false) {
     return UniformScreenProbeScreenCoords;
 }
 
-int ComputeProbeRankFromSplattedError (int2 ScreenCoords) {
+int ComputeProbeSGCountFromLastFrame (SSRC_SampleData Sample) {
     // TODO: Implement this function and get adaptive number of basis
-    return MI.DisableSG ? 0 : 3;
+    float SGCount = 0.f;
+    for(int i = 0; i < 4; i++)
+    {
+        ProbeHeader Header = GetScreenProbeHeader(Sample.Index[i], true);
+        SGCount += (float)Header.SGCount * Sample.Weights[i];
+    }
+    return MI.DisableSG ? 0 : round(SGCount);
 }
 
 int GetProbeBasisCountFromClass (int ProbeClass) {

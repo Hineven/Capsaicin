@@ -151,6 +151,10 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "WorldCache_MoveProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_UpdateProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.SSRC_UpdateAdaptiveSGTexture = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "SSRC_UpdateAdaptiveSGTexture", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_FilterProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_FilterProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_PadProbeTextureEdges = gfxCreateComputeKernel(
@@ -456,9 +460,13 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     buf_.probe_SG[0].setName("ProbeSG0");
     buf_.probe_SG[1] = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_basis_count);
     buf_.probe_SG[1].setName("ProbeSG1");
+    buf_.updated_probe_SG = gfxCreateBuffer<uint32_t>(gfx_, options_.SSRC_max_basis_count);
+    buf_.updated_probe_SG.setName("UpdatedProbeSG");
 
     buf_.allocated_probe_SG_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.allocated_probe_SG_count.setName("AllocatedProbeSGCount");
+    buf_.allocated_updated_probe_SG_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
+    buf_.allocated_updated_probe_SG_count.setName("AllocatedUpdatedProbeSGCount");
 
     int max_probe_count = options_.SSRC_max_probe_count + options_.world_cache.max_probe_count;
 
@@ -621,6 +629,8 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.WorldCache_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_MoveProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters);
+    gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateAdaptiveSGTexture);
     gfxDestroyKernel(gfx_, kernels_.SSRC_FilterProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_PadProbeTextureEdges);
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);
@@ -711,7 +721,9 @@ void MIGI::releaseResources()
     gfxDestroyBuffer(gfx_, buf_.reduce_count);
     gfxDestroyBuffer(gfx_, buf_.probe_SG[0]);
     gfxDestroyBuffer(gfx_, buf_.probe_SG[1]);
+    gfxDestroyBuffer(gfx_, buf_.updated_probe_SG);
     gfxDestroyBuffer(gfx_, buf_.allocated_probe_SG_count);
+    gfxDestroyBuffer(gfx_, buf_.allocated_updated_probe_SG_count);
     gfxDestroyBuffer(gfx_, buf_.probe_update_ray_count);
     gfxDestroyBuffer(gfx_, buf_.probe_update_ray_offset);
     gfxDestroyBuffer(gfx_, buf_.update_ray_count);
