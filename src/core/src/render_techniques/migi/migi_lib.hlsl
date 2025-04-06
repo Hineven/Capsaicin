@@ -202,7 +202,11 @@ struct SGData {
 bool SGIsSmallEnough (SGData SG)
 {
     // TODO:EAJ better threshold
-    return (SG.Lambda < 12.f && SG.Color.x < 0.01f && SG.Color.y < 0.01f && SG.Color.z < 0.01f);
+    float MaxLambda = 24.f;
+    float MaxColor = 0.0005f;
+    bool LambdaIsSmall = SG.Lambda < MaxLambda;
+    bool ColorIsSmall = SG.Color.x < MaxColor && SG.Color.y < MaxColor && SG.Color.z < MaxColor;
+    return (LambdaIsSmall || ColorIsSmall);
 }
 
 float OneSubExpNeg2Lambda (float lambda) {

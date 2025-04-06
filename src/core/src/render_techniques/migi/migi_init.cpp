@@ -151,10 +151,6 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
             gfx_, kernels_.program, "WorldCache_MoveProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_UpdateProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_UpdateProbes", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters", defines_c.data(), (uint32_t)defines_c.size());
-        kernels_.SSRC_UpdateAdaptiveSGTexture = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_UpdateAdaptiveSGTexture", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_FilterProbes = gfxCreateComputeKernel(
             gfx_, kernels_.program, "SSRC_FilterProbes", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.SSRC_PadProbeTextureEdges = gfxCreateComputeKernel(
@@ -629,8 +625,6 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.WorldCache_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_MoveProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateProbes);
-    gfxDestroyKernel(gfx_, kernels_.SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters);
-    gfxDestroyKernel(gfx_, kernels_.SSRC_UpdateAdaptiveSGTexture);
     gfxDestroyKernel(gfx_, kernels_.SSRC_FilterProbes);
     gfxDestroyKernel(gfx_, kernels_.SSRC_PadProbeTextureEdges);
     gfxDestroyKernel(gfx_, kernels_.SSRC_IntegrateASG);

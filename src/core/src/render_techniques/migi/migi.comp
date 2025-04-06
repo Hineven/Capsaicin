@@ -605,11 +605,11 @@ void SSRC_AllocateUniformProbes (int DispatchID : SV_DispatchThreadID) {
     // Get weighted SGCount from last frame
     if(bValid) {
         SSRC_SampleData Sample;
-        if(false && GetProbeReprojectionSample(Header.Normal, 0.f.xxx, 0.f.xxx, Header.Position, Header.LinearDepth, ProbeIndex, true, Sample)) {
-            Header.SGCount  = ComputeProbeSGCountFromLastFrame(Sample);
+        if(GetProbeReprojectionSample(Header.Normal, 0.f.xxx, 0.f.xxx, Header.Position, Header.LinearDepth, ProbeIndex, true, Sample)) {
+            Header.SGCount = clamp(ComputeProbeSGCountFromLastFrame(Sample), 0, SSRC_MAX_NUM_BASIS_PER_PROBE);
         }
         else {
-            Header.SGCount = MI.DisableSG ? 0 : 8;
+            Header.SGCount = MI.DisableSG ? 0 : 1;
         }
     }
     int BasisCount      = SSRC_MAX_NUM_BASIS_PER_PROBE;
@@ -732,11 +732,11 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
 
         // Get weighted SGCount from last frame
         SSRC_SampleData Sample;
-        if(false && GetProbeReprojectionSample(Header.Normal, 0.f.xxx, 0.f.xxx, Header.Position, Header.LinearDepth, ScreenProbeIndex, true, Sample)) {
-            Header.SGCount  = ComputeProbeSGCountFromLastFrame(Sample);
+        if(GetProbeReprojectionSample(Header.Normal, 0.f.xxx, 0.f.xxx, Header.Position, Header.LinearDepth, ScreenProbeIndex, true, Sample)) {
+            Header.SGCount  = clamp(ComputeProbeSGCountFromLastFrame(Sample), 0, SSRC_MAX_NUM_BASIS_PER_PROBE);
         }
         else {
-            Header.SGCount = MI.DisableSG ? 0 : 8;
+            Header.SGCount = MI.DisableSG ? 0 : 1;
         }
         int BasisCount = SSRC_MAX_NUM_BASIS_PER_PROBE;
         int BasisOffset = WavePrefixSum(BasisCount);
@@ -749,7 +749,6 @@ void SSRC_AllocateAdaptiveProbes (int DispatchID : SV_DispatchThreadID, int Loca
         BasisGroupOffset = WaveReadLaneFirst(BasisGroupOffset);
         Header.BasisOffset   = BasisGroupOffset + BasisOffset;
         // Clip over the maximum basis count
-        // TODO: Obviously MaxBasisCount is not enough for multiple SGs
         if(Header.BasisOffset + BasisCount > MI.MaxBasisCount) {
             Header.SGCount = 0;
         }
@@ -2620,11 +2619,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
         for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
             int RayRank = RayRankBase + LocalID;
-//            int RayIndex = ProbeRayOffset + RayRank;
-//            float4 RayRadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-//            float3 RayDirection      = FetchUpdateRayDirection(RayIndex);
-//            float3 RayRadiance       = RayRadianceInvPdf.xyz;
-//            float  InvPdf            = RayRadianceInvPdf.w;
             float3 RayDirection      = LocalUpdateRayDirection[RayRank];
             float3 RayRadiance       = LocalUpdateRayRadiance[RayRank];
             float  InvPdf            = LocalUpdateRayInvPdf[RayRank];
@@ -2675,7 +2669,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
         if (WaveIsFirstLane()) {
             NewSGDirection = WaveActiveSum(NewSGDirection);
-            if((LocalUpdatedSGCount < SSRC_MAX_NUM_BASIS_PER_PROBE)  && (length(NewSGDirection) > (ProbeRayCount / (LocalUpdatedSGCount + 1)))) {
+            if((LocalUpdatedSGCount < SSRC_MAX_NUM_BASIS_PER_PROBE)
+//                && (dot(NewSGDirection, Header.Normal) > 0)
+//                && (length(NewSGDirection) > (ProbeRayCount / (LocalUpdatedSGCount + 1)))
+                ) {
                 LocalUpdatedSG[LocalUpdatedSGCount].Direction = normalize(NewSGDirection);
                 LocalUpdatedSGCount++;
                 Header.SGCount++;
@@ -2758,13 +2755,13 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 SG.Lambda *= Factor;
                 SG.Lambda    = clamp(SG.Lambda, MIN_SG_LAMBDA, MAX_SG_LAMBDA); // Lambda is in [MIN_SG_LAMBDA, 200.f]
                 float NewLambda = SG.Lambda;
-#ifdef SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
+                #ifdef SG_LAMBDA_UPDATE_PRESERVE_IRRADIANCE
                 float OldRawSize = SGIntegrate(OldLambda);
                 float NewRawSize = SGIntegrate(NewLambda);
                 // Preserve irradiance, but do not massive increase color to ensure stability.
                 float ColorMultiplier = clamp(OldRawSize / NewRawSize, 0, 1);
                 SG.Color = max(SG.Color * ColorMultiplier, MIN_SG_COLOR);
-#endif
+                #endif
             }
             // Update Depth
             {
@@ -2853,19 +2850,17 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 11] = asuint(SGIntegrate(SG.Lambda) * Scale);
             }
 
-            // TODO:EAJ Correctly write basis count
-            if(false && SGIsSmallEnough(SG)) {
-                //LocalSGData[SGRank] = SG;
+            // TODO:EAJ Flow Deleted Radiance to Octahedron radiance when deleting small SGs
+            if(SGIsSmallEnough(SG)) {
                 LocalUpdatedSGCount--;
                 continue;
             }
+
             // Write back
-            //WriteBasisData(Header.BasisOffset + BasisRank, SG);
             WriteBasisData(Header.BasisOffset + (SGRank + LocalUpdatedSGCount - Header.SGCount), SG);
-            // Also write back to shared memory for later use
-            //LocalSGData[SGRank] = SG;
         }
     }
+    // 2.4.Combine similar SGs to decrease SG number
     if(WaveIsFirstLane()) {
         Header.SGCount = LocalUpdatedSGCount;
         WriteScreenProbeHeader(ProbeIndex, Header);
@@ -2997,34 +2992,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         }
     }
 }
-
-//// Write dispatch parameters for SSRC_UpdatedAdaptiveSGTexture
-//[numthreads(1, 1, 1)]
-//void SSRC_WriteUpdatedAdaptiveSGTextureDispatchParameters () {
-//    // Clip the number of allocated adaptive probes
-//    g_RWAllocatedUpdatedProbeSGCountBuffer[0] = min(g_RWAllocatedUpdatedProbeSGCountBuffer[0], MI.MaxBasisCount);
-//
-//    DispatchCommand Command = (DispatchCommand)0;
-//    Command.num_groups_x = g_RWAllocatedUpdatedProbeSGCountBuffer[0];
-//    Command.num_groups_y = 1;
-//    Command.num_groups_z = 1;
-//    g_RWDispatchCommandBuffer[0] = Command;
-//
-//    Command.num_groups_x = (g_RWAllocatedUpdatedProbeSGCountBuffer[0] + WAVE_SIZE - 1) / WAVE_SIZE;
-//    Command.num_groups_y = 1;
-//    Command.num_groups_z = 1;
-//    g_RWPerLaneDispatchCommandBuffer[0] = Command;
-//}
-//
-//[numthreads(WAVE_SIZE, 1, 1)]
-//void SSRC_UpdateAdaptiveSGTexture(int LocalID : SV_GroupThreadID)
-//{
-//    int TransferCount = g_RWAllocatedUpdatedProbeSGCountBuffer[0];
-//    for(int RankBase = 0; RankBase < TransferCount; RankBase += WAVE_SIZE) {
-//        int Rank = RankBase + LocalID;
-//        //TransferBasisData(DispatchID);
-//    }
-//}
 
 // From Lumen
 float GetFilterPositionWeight(float NeighborLinearDepth, float LinearDepth)
