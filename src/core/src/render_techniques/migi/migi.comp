@@ -2114,7 +2114,7 @@ groupshared float  LocalSGCandidateSampleWeight[SSRC_MAX_NUM_BASIS_TO_SAMPLE_PER
 // TODO:EAJ
 // "LocalUpdatedSG" are for adaptive SGs.One Wave is for one Probe.
 // SGs should be loaded here
-groupshared SGData LocalUpdatedSG[SSRC_MAX_NUM_BASIS_PER_PROBE + 1];
+groupshared SGData LocalUpdatedSG[SSRC_MAX_NUM_BASIS_PER_PROBE];
 // SG count under adaptive change and can be modified
 groupshared int LocalUpdatedSGCount;
 // Calculate the weight for the new SG which will be added to the probe
@@ -2190,7 +2190,6 @@ float3 ComputeEstimatedSGColor (
     // Clamp by maximum value to avoid outflares caused by too few rays
     return min(Result, ChannelMaximums * SG_MAXIMUM_CLAMP_MULTIPLIER);
 }
-
 
 // TODO classify the number of update rays to completely unroll many loops
 [numthreads(WAVE_SIZE, 1, 1)]
@@ -2660,6 +2659,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         // TODO:EAJ better initialization solution
         // Initialize new SG's direction
         float3 NewSGDirection = 0.f.xxx;
+        LocalUpdateRayWeightForNewAddedSGMAX = WaveActiveMax(LocalUpdateRayWeightForNewAddedSGMAX);
         [unroll(SSRC_MAX_NUM_UPDATE_RAY_PER_PROBE / WAVE_SIZE)]
         for(int RayRankBase = 0; RayRankBase < ProbeRayCount; RayRankBase += WAVE_SIZE) {
             int RayRank = RayRankBase + LocalID;
@@ -2896,6 +2896,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         Header.SGCount = LocalUpdatedSGCount;
         WriteScreenProbeHeader(ProbeIndex, Header);
     }
+    Header.SGCount = WaveReadLaneFirst(Header.SGCount);
 
     GroupMemoryBarrierWithGroupSync();
     // 3. Update probe octahedron radiance
