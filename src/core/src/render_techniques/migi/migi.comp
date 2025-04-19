@@ -2679,6 +2679,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             }
         }
         LocalUpdatedSGCount = WaveReadLaneFirst(LocalUpdatedSGCount);
+        Header.SGCount = WaveReadLaneFirst(Header.SGCount);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -2851,17 +2852,47 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             }
 
             // TODO:EAJ Flow Deleted Radiance to Octahedron radiance when deleting small SGs
-            if(SGIsSmallEnough(SG)) {
-                LocalUpdatedSGCount--;
-                continue;
-            }
+//            if(SGIsSmallEnough(SG)) {
+//                LocalUpdatedSGCount--;
+//                continue;
+//            }
 
             // Write back
-            WriteBasisData(Header.BasisOffset + (SGRank + LocalUpdatedSGCount - Header.SGCount), SG);
+//            WriteBasisData(Header.BasisOffset + (SGRank + LocalUpdatedSGCount - Header.SGCount), SG);
+
+            LocalSGData[SGRank] = SG;
         }
     }
+//    if(WaveIsFirstLane()) {
+//        Header.SGCount = LocalUpdatedSGCount;
+//        WriteScreenProbeHeader(ProbeIndex, Header);
+//    }
+    GroupMemoryBarrierWithGroupSync();
     // 2.4.Combine similar SGs to decrease SG number
+    //TODO:EAJ Wave op needed
     if(WaveIsFirstLane()) {
+        [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+        for(int SGRank = 0; SGRank < Header.SGCount; SGRank ++) {
+            float MaxScore = MI.SGMergingThresholdWhenDecreasing;
+            int   MaxIndex = -1;
+            SGData CurrentSG = LocalSGData[SGRank];
+            [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+            for(int SelectedSGRank = SGRank + 1; SelectedSGRank < Header.SGCount; SelectedSGRank ++) {
+                SGData SelectedSG = LocalSGData[SelectedSGRank];
+                float Score = SGMergeTrust(SelectedSG, CurrentSG);
+                if(Score > MaxScore) {
+                    MaxScore = Score;
+                    MaxIndex = SelectedSGRank;
+                }
+            }
+            if(MaxIndex >= 0) {
+                LocalSGData[MaxIndex] = CombineSG(LocalSGData[MaxIndex], CurrentSG);
+                LocalUpdatedSGCount--;
+            }
+            else {
+                WriteBasisData(Header.BasisOffset + (SGRank + LocalUpdatedSGCount - Header.SGCount), CurrentSG);
+            }
+        }
         Header.SGCount = LocalUpdatedSGCount;
         WriteScreenProbeHeader(ProbeIndex, Header);
     }
@@ -3222,7 +3253,6 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
 
     // TODO filter SG
     // TODO:EAJ
-/*
     if(MI.ProbeFiltering) {
         int2 Offsets[4];
         Offsets[0] = int2(-1, 0);
@@ -3289,7 +3319,7 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
             }
         }
     }
-    */
+
 }
 
 
