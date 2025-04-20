@@ -843,7 +843,7 @@ float SGSimilarity (SGData A, SGData B) {
 // When decreasing SG count, decide weather two SGs are close enough
 float SGMergeTrust (SGData A, SGData B)
 {
-    float Score1 = dot(A.Direction, B.Direction);
+    float Score1 = 1 - (acos(dot(A.Direction, B.Direction)) / PI);
     float Score2 = dot(normalize(A.Color), normalize(B.Color));
     //float Score3 = 1.f / (length(A.Direction * A.Depth - B.Direction * B.Depth) + 1.f);
     float Score3 = 1.f;

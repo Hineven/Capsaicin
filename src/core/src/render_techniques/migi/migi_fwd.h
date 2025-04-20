@@ -79,7 +79,7 @@ struct MIGIRenderOptions {
     float SSRC_SG_merging_threshold = 0.5f;
 
     // Merging threshold required when doing adaptive SG count decreasing
-    float SSRC_SG_merging_threshold_when_decreasing = 0.5f;
+    //float SSRC_SG_merging_threshold_when_decreasing = 0.5f;
 
     // Alpha for measuring SG similarities when comparing lambdas
     // Larger values make the weight smaller when lambda variates

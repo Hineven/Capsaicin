@@ -348,7 +348,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.ProbeFiltering          = !options_.no_probe_filtering;
         C.SquaredSGDirectionalRadianceWeight = options_.SSRC_squared_SG_directional_weight;
         C.SGMergingThreshold      = options_.SSRC_SG_merging_threshold;
-        C.SGMergingThresholdWhenDecreasing = options_.SSRC_SG_merging_threshold_when_decreasing;
+        //C.SGMergingThresholdWhenDecreasing = options_.SSRC_SG_merging_threshold_when_decreasing;
 
         C.SGSimilarityAlpha       = options_.SSRC_SG_similarity_alpha;
         C.UEHemiOctahedronLutPrecomputeGroupCount = cfg_.multiprocessing_core_count;

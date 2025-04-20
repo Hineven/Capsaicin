@@ -2873,7 +2873,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     if(WaveIsFirstLane()) {
         [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
         for(int SGRank = 0; SGRank < Header.SGCount; SGRank ++) {
-            float MaxScore = MI.SGMergingThresholdWhenDecreasing;
+            float MaxScore = MI.SGMergingThreshold;
             int   MaxIndex = -1;
             SGData CurrentSG = LocalSGData[SGRank];
             [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]

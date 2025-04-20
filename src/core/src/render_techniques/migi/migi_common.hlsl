@@ -180,7 +180,6 @@ struct MIGI_Constants {
     uint   SquaredSGDirectionalRadianceWeight;
     float  SGMergingThreshold;
     float  SGSimilarityAlpha;
-    float  SGMergingThresholdWhenDecreasing;
     int    UEHemiOctahedronLutPrecomputeGroupCount;
 
     uint   NumIcoSphereTriangles;
