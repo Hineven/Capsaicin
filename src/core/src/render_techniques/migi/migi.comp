@@ -2873,7 +2873,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     if(WaveIsFirstLane()) {
         [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
         for(int SGRank = 0; SGRank < Header.SGCount; SGRank ++) {
-            float MaxScore = MI.SGMergingThreshold;
+            float MaxScore = MI.SGMergingThresholdWhenDecreasing;
             int   MaxIndex = -1;
             SGData CurrentSG = LocalSGData[SGRank];
             [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
@@ -4733,3 +4733,41 @@ void DebugSSRC_EvalOctOnly (int LocalID : SV_GroupThreadID, int GroupID : SV_Gro
 }
 
 // New line required for termination.
+[numthreads(1, 1, 1)]
+void DebugSSRC_ShowProbeSGCount (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
+    int2 ProbeIndex = GroupID;
+    int SGCount = GetProbeSGCount(ProbeIndex);
+    float T = (float)SGCount / (float)SSRC_MAX_NUM_BASIS_PER_PROBE;
+    float3 Color;
+    if (T < 0.25)
+        Color = lerp(float3(0,0,1), float3(0,1,1), T / 0.25);
+    else if (T < 0.5)
+        Color = lerp(float3(0,1,1), float3(0,1,0), (T - 0.25) / 0.25);
+    else if (T < 0.75)
+        Color = lerp(float3(0,1,0), float3(1,1,0), (T - 0.5) / 0.25);
+    else
+        Color = lerp(float3(1,1,0), float3(1,0,0), (T - 0.75) / 0.25);
+
+    if(ProbeIndex.x >= MI.TileDimensions.x || ProbeIndex.y >= MI.TileDimensions.y) {
+        return;
+    }
+    int2 ProbeScreenCoords = ProbeIndex * SSRC_TILE_SIZE;
+
+    if(all(ProbeScreenCoords >= 0) && all(ProbeScreenCoords < MI.ScreenDimensions) && IsScreenProbeValid(ProbeIndex)) {
+        for(int i = 0; i < 16; i++) {
+            for(int j = 0;j < 16; j++) {
+                if((i + j) % 4 == 0) {
+                    g_RWDebugOutput[ProbeScreenCoords + int2( i,  j)] = float4(Color, 1.f);
+                }
+            }
+        }
+//        g_RWDebugOutput[ProbeScreenCoords + int2( 0,  0)] = float4(Color, 1.f);
+//        g_RWDebugOutput[ProbeScreenCoords + int2( 0,  8)] = float4(Color, 1.f);
+//        g_RWDebugOutput[ProbeScreenCoords + int2( 8,  0)] = float4(Color, 1.f);
+//        g_RWDebugOutput[ProbeScreenCoords + int2( 8,  8)] = float4(Color, 1.f);
+//        g_RWDebugOutput[ProbeScreenCoords + int2( 4,  4)] = float4(Color, 1.f);
+//        g_RWDebugOutput[ProbeScreenCoords + int2( 4, 12)] = float4(Color, 1.f);
+//        g_RWDebugOutput[ProbeScreenCoords + int2(12,  4)] = float4(Color, 1.f);
+//        g_RWDebugOutput[ProbeScreenCoords + int2(12, 12)] = float4(Color, 1.f);
+    }
+}

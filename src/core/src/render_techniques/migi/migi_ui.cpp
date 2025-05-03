@@ -84,8 +84,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             ImGui::EndCombo();
         }
         std::vector<std::string> debug_visualize_channel_names;
-        if (options_.active_debug_view == "SSRC_ProbeAllocation")
-        {
+        if (options_.active_debug_view == "SSRC_ProbeAllocation") {
             debug_visualize_channel_names = {"Allocation"};
         } else if(options_.active_debug_view == "SSRC_IncidentRadiance") {
             debug_visualize_channel_names = {"SH+SG", "Oct+SG", "Oct Only"};
@@ -97,6 +96,8 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
             debug_visualize_channel_names = {"Irradiance2P", "Momentum"};
         } else if(options_.active_debug_view == "SSRC_ProbeInspection") {
             debug_visualize_channel_names = {"Inspection"};
+        } else if(options_.active_debug_view == "SSRC_ProbeSGCount") {
+            debug_visualize_channel_names = {"AdaptiveSGCount"};
         }
         if (debug_visualize_channel_names.empty())
         {
@@ -146,7 +147,7 @@ void MIGI::renderGUI(CapsaicinInternal &capsaicin) const noexcept
         ImGui::Checkbox("Disable SG", &options_.disable_SG);
         ImGui::Checkbox("Squared radiance weight for SG direction", &options_.SSRC_squared_SG_directional_weight);
         ImGui::SliderFloat("SG Merging Threshold", &options_.SSRC_SG_merging_threshold, 0.1f, 1.f);
-        //ImGui::SliderFloat("SG Merging Threshold When Decreasing", &options_.SSRC_SG_merging_threshold_when_decreasing, 0.0f, 1.0f);
+        ImGui::SliderFloat("SG Merging Threshold When Decreasing", &options_.SSRC_SG_merging_threshold_when_decreasing, 0.0f, 1.0f);
         ImGui::SliderFloat("SG Similarity Alpha", &options_.SSRC_SG_similarity_alpha, 0.002f, 0.5f);
         ImGui::SliderFloat("SG Lambda Learning Bonus", &options_.SSRC_SG_lambda_learning_bonus, 0.1f, 50.f);
         ImGui::SliderFloat("SG Color  Learning Bonus", &options_.SSRC_SG_color_learning_bonus, 0.05f, 5.f);

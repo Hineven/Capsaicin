@@ -190,6 +190,8 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
 
         kernels_.DebugSSRC_EvalProbe = gfxCreateComputeKernel(
             gfx_, kernels_.program, "DebugSSRC_EvalProbe", defines_c.data(), (uint32_t)defines_c.size());
+        kernels_.DebugSSRC_ShowProbeSGCount = gfxCreateComputeKernel(
+            gfx_, kernels_.program, "DebugSSRC_ShowProbeSGCount", defines_c.data(), (uint32_t)defines_c.size());
 
         if (options_.use_dxr10)
         {
@@ -645,6 +647,7 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.DebugWorldCache_GenerateDraw);
     gfxDestroyKernel(gfx_, kernels_.DebugWorldCache_VisualizeProbes);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_EvalProbe);
+    gfxDestroyKernel(gfx_, kernels_.DebugSSRC_ShowProbeSGCount);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbe);
     gfxDestroyKernel(gfx_, kernels_.DebugSSRC_VisualizeProbeRays);
     gfxDestroyKernel(gfx_, kernels_.Export);

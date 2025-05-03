@@ -348,7 +348,7 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         C.ProbeFiltering          = !options_.no_probe_filtering;
         C.SquaredSGDirectionalRadianceWeight = options_.SSRC_squared_SG_directional_weight;
         C.SGMergingThreshold      = options_.SSRC_SG_merging_threshold;
-        //C.SGMergingThresholdWhenDecreasing = options_.SSRC_SG_merging_threshold_when_decreasing;
+        C.SGMergingThresholdWhenDecreasing = options_.SSRC_SG_merging_threshold_when_decreasing;
 
         C.SGSimilarityAlpha       = options_.SSRC_SG_similarity_alpha;
         C.UEHemiOctahedronLutPrecomputeGroupCount = cfg_.multiprocessing_core_count;
@@ -957,7 +957,20 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
             __override_primitive_topology = false;
             __override_primitive_topology_draw = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         }
+    } else if(options_.active_debug_view == "SSRC_ProbeSGCount") {
+        const TimedSection timed_section(*this, "DebugSSRC_ShowProbeSGCount");
 
+        if(!debug_buffer_copied)
+        {
+            // Copy the depth buffer to the depth buffer for debug visualization
+            gfxCommandCopyTexture(gfx_, tex_.depth, capsaicin.getAOVBuffer("VisibilityDepth"));
+            gfxCommandCopyTexture(gfx_, capsaicin.getAOVBuffer("Debug"), gi_output_aov);
+            debug_buffer_copied = true;
+        }
+
+        gfxCommandBindKernel(gfx_, kernels_.DebugSSRC_ShowProbeSGCount);
+        uint32_t dispatch_size[] = {options_.width / SSRC_TILE_SIZE, options_.height / SSRC_TILE_SIZE};
+        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
 
     if(options_.debug_light && options_.active_debug_view != "SSRC_ProbeInspection") {

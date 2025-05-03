@@ -227,7 +227,7 @@ public:
         GfxKernel  DebugSSRC_VisualizeProbeRays {};
 
         GfxKernel  DebugSSRC_EvalProbe {};
-
+        GfxKernel  DebugSSRC_ShowProbeSGCount {};
 
         GfxKernel  GenerateDispatch {};
         GfxKernel  GenerateDispatchRays {};

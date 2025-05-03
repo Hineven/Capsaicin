@@ -198,6 +198,11 @@ struct MIGI_Constants {
     uint   NoCompensation;
     uint   Padding1;
     uint   Padding2;
+
+    float  SGMergingThresholdWhenDecreasing;
+    float  AAA;
+    float  BBB;
+    float  CCC;
 };
 
 

@@ -115,6 +115,7 @@ DebugViewList MIGI::getDebugViews() const noexcept
     ret.emplace_back("SSRC_ProbeColor");
     ret.emplace_back("WorldCache");
     ret.emplace_back("SSRC_ProbeInspection");
+    ret.emplace_back("SSRC_ProbeSGCount");
     return ret;
 }
 
