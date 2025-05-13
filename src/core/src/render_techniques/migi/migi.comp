@@ -2309,7 +2309,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
         // LSM 
         for(int BasisRank = 0; BasisRank < NumBasis; BasisRank ++) {
             SGData SG = LocalSGData[BasisRank];
-#ifndef REPROJECTION_NO_INTENSITY_GUESSING
+            #ifndef REPROJECTION_NO_INTENSITY_GUESSING
             float  SumAFactor = 0;
             float3 SumBFactor = 0;
             float3 Maximums = 0.f.xxx;
@@ -2328,11 +2328,11 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                     // Evaluate reprojected mixed radiance for each ray
                     int2 TexCoords  = floor(UnitVectorToHemiOctahedron01(LocalRayDirection) * SSRC_PROBE_TEXTURE_SIZE);
                     int  TexelIndex = TexCoords.y * SSRC_PROBE_TEXTURE_SIZE + TexCoords.x;
-#ifndef REPROJECTION_PRIORITIZE_SG
+                    #ifndef REPROJECTION_PRIORITIZE_SG
                     float3 BaseRadiance   = LocalProbeTexels[TexelIndex];
-#else
+                    #else
                     float3 BaseRadiance   = 0.f;
-#endif
+                    #endif
                     float3 DiffRadiance   = RayRadiance - BaseRadiance;
                     float3 TargetRadiance = DiffRadiance;
                     float3 X = -2.f * DiffRadiance;
@@ -2972,6 +2972,7 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 LocalReprojectedOctDepth[ProbeTexelIndex]
             );
 
+            // FIXME:EAJ think this must be wrong!Compensation is always Zero!
             int    QuantilizedWeight = LocalProbeTexelSampleWeightQuantilized[ProbeTexelIndex];
             float  Weight   = QuantilizedWeight == 0 ? 1.f : RecoverWeight(QuantilizedWeight);
             // Overwrite the radiance depth with backup values if the texel is not traced in current update
@@ -4761,13 +4762,5 @@ void DebugSSRC_ShowProbeSGCount (int2 GroupID : SV_GroupID, int LocalID : SV_Gro
                 }
             }
         }
-//        g_RWDebugOutput[ProbeScreenCoords + int2( 0,  0)] = float4(Color, 1.f);
-//        g_RWDebugOutput[ProbeScreenCoords + int2( 0,  8)] = float4(Color, 1.f);
-//        g_RWDebugOutput[ProbeScreenCoords + int2( 8,  0)] = float4(Color, 1.f);
-//        g_RWDebugOutput[ProbeScreenCoords + int2( 8,  8)] = float4(Color, 1.f);
-//        g_RWDebugOutput[ProbeScreenCoords + int2( 4,  4)] = float4(Color, 1.f);
-//        g_RWDebugOutput[ProbeScreenCoords + int2( 4, 12)] = float4(Color, 1.f);
-//        g_RWDebugOutput[ProbeScreenCoords + int2(12,  4)] = float4(Color, 1.f);
-//        g_RWDebugOutput[ProbeScreenCoords + int2(12, 12)] = float4(Color, 1.f);
     }
 }
