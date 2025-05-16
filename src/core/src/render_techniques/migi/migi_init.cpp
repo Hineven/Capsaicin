@@ -141,8 +141,6 @@ bool MIGI::initKernels (const CapsaicinInternal & capsaicin) {
         kernels_.MIGI_GenerateTraceUpdateRays = gfxCreateComputeKernel(
             gfx_, kernels_.program, "MIGI_GenerateTraceUpdateRays", defines_c.data(), (uint32_t)defines_c.size());
         // MIGI_TraceUpdateRaysMain may be a DXR kernel, so it is created later
-        kernels_.SSRC_ReprojectPreviousUpdateError = gfxCreateComputeKernel(
-            gfx_, kernels_.program, "SSRC_ReprojectPreviousUpdateError", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_ShadeQueries = gfxCreateComputeKernel(
             gfx_, kernels_.program, "WorldCache_ShadeQueries", defines_c.data(), (uint32_t)defines_c.size());
         kernels_.WorldCache_UpdateProbes = gfxCreateComputeKernel(
@@ -377,11 +375,6 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.probe_history_trust = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R32_FLOAT);
     tex_.probe_history_trust.setName("ProbeHistoryTrust");
 
-    tex_.probe_compensation[0] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    tex_.probe_compensation[0].setName("ProbeCompensation0");
-    tex_.probe_compensation[1] = gfxCreateTexture2D(gfx_, probe_texture_width, probe_texture_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    tex_.probe_compensation[1].setName("ProbeCompensation1");
-
     int tile_texture_width = divideAndRoundUp(capsaicin.getWidth(), SSRC_TILE_SIZE);
     int tile_texture_height = divideAndRoundUp(capsaicin.getHeight(), SSRC_TILE_SIZE);
 
@@ -401,10 +394,6 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
     tex_.tile_adaptive_probe_index[1].setName("TileAdaptiveProbeIndex1");
 
     assert(capsaicin.getWidth() % 8 == 0 && capsaicin.getHeight() % 8 == 0);
-    tex_.update_error_splat[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, SSRC_TILE_SIZE_L2 + 1);
-    tex_.update_error_splat[0].setName("UpdateErrorSplat0");
-    tex_.update_error_splat[1] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16_FLOAT, SSRC_TILE_SIZE_L2 + 1);
-    tex_.update_error_splat[1].setName("UpdateErrorSplat1");
 
     tex_.irradiance[0] = gfxCreateTexture2D(gfx_, capsaicin.getWidth(), capsaicin.getHeight(), DXGI_FORMAT_R16G16B16A16_FLOAT);
     tex_.irradiance[0].setName("Irradiance0");
@@ -489,8 +478,6 @@ bool MIGI::initResources (const CapsaicinInternal & capsaicin) {
 
     buf_.adaptive_probe_count = gfxCreateBuffer<uint32_t>(gfx_, 1);
     buf_.adaptive_probe_count.setName("AdaptiveProbeCount");
-//    buf_.probe_update_error = gfxCreateBuffer<float>(gfx_, options_.SSRC_max_probe_count);
-//    buf_.probe_update_error.setName("ProbeUpdateError");
 
     buf_.UE_hemi_octahedron_correction_lut_temp = gfxCreateBuffer<float>(gfx_, SSRC_PROBE_TEXTURE_TEXEL_COUNT * cfg_.multiprocessing_core_count);
 
@@ -622,7 +609,6 @@ void MIGI::releaseKernels()
     gfxDestroyKernel(gfx_, kernels_.WorldCache_SampleUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.MIGI_GenerateTraceUpdateRays);
     gfxDestroyKernel(gfx_, kernels_.MIGI_TraceUpdateRaysMain);
-    gfxDestroyKernel(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_ShadeQueries);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_UpdateProbes);
     gfxDestroyKernel(gfx_, kernels_.WorldCache_MoveProbes);
@@ -689,15 +675,11 @@ void MIGI::releaseResources()
     gfxDestroyTexture(gfx_, tex_.probe_SH_coefficients_B);
     gfxDestroyTexture(gfx_, tex_.probe_irradiance);
     gfxDestroyTexture(gfx_, tex_.probe_history_trust);
-    gfxDestroyTexture(gfx_, tex_.probe_compensation[0]);
-    gfxDestroyTexture(gfx_, tex_.probe_compensation[1]);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[0]);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_count[1]);
     gfxDestroyTexture(gfx_, tex_.next_tile_adaptive_probe_count);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_index[0]);
     gfxDestroyTexture(gfx_, tex_.tile_adaptive_probe_index[1]);
-    gfxDestroyTexture(gfx_, tex_.update_error_splat[0]);
-    gfxDestroyTexture(gfx_, tex_.update_error_splat[1]);
     gfxDestroyTexture(gfx_, tex_.history_accumulation[0]);
     gfxDestroyTexture(gfx_, tex_.history_accumulation[1]);
     gfxDestroyTexture(gfx_, tex_.previous_global_illumination);

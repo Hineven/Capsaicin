@@ -63,7 +63,6 @@ public:
 
     struct MIGIResources
     {
-
         // Probe header, uint32 per probe
         GfxTexture   probe_header_packed [2];
         // Probe screen position, 2xuint16 packed in uint32
@@ -87,18 +86,12 @@ public:
         GfxTexture   probe_irradiance;
         // Used to measure the trust of reprojected result from last frame [0, 1]
         GfxTexture   probe_history_trust;
-        // Used to compensate SGs to mitigate bias in the final gather step
-        GfxTexture   probe_compensation[2];
 
         // Tile adaptive probe count  uint32 (Don't use R16, there are silent bugs)
         GfxTexture   tile_adaptive_probe_count [2];
         GfxTexture   next_tile_adaptive_probe_count;
         // Tile adaptive probe index  uint16
         GfxTexture   tile_adaptive_probe_index [2];
-
-        // Update error used to guide update ray spawnning
-        // fp16x2
-        GfxTexture   update_error_splat [2] {};
 
         // Global illumination denoising
         GfxTexture   irradiance[2];
@@ -194,7 +187,6 @@ public:
         GfxKernel  WorldCache_SampleUpdateRays {};
         GfxKernel  MIGI_GenerateTraceUpdateRays {};
         GfxKernel  MIGI_TraceUpdateRaysMain {};
-        GfxKernel  SSRC_ReprojectPreviousUpdateError {};
         GfxKernel  WorldCache_ShadeQueries {};
         GfxKernel  WorldCache_UpdateProbes {};
         GfxKernel  WorldCache_MoveProbes {};
@@ -265,7 +257,7 @@ protected:
     std::vector<SGData> vis_sg_;
     float vis_sh_[27];
     glm::vec3 vis_oct_[SSRC_PROBE_TEXTURE_SIZE][SSRC_PROBE_TEXTURE_SIZE];
-    void                   unpackExportedBinaryToMemory(const void * exported_binary);
+    void unpackExportedBinaryToMemory(const void * exported_binary);
 
     // We need to modify it in the GUI rendering
     mutable MIGIRenderOptions options_ {};

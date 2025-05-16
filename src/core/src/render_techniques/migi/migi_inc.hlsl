@@ -177,10 +177,6 @@ RWStructuredBuffer<uint>   g_RWAllocatedUpdatedProbeSGCountBuffer;
 // [0, 1], used to guide update ratio
 RWTexture2D<float>  g_RWProbeHistoryTrustTexture;
 
-// The amount of estimated bias that SGs introduced for each probe. (irradiance)
-RWTexture2D<float4> g_RWProbeCompensationTexture;
-RWTexture2D<float4> g_RWPreviousProbeCompensationTexture;
-
 // Number of update rays allocated for each probe
 // Must be a multiple of WAVE_SIZE
 RWStructuredBuffer<uint>  g_RWProbeUpdateRayCountBuffer;
@@ -206,12 +202,6 @@ RWTexture2D<uint>          g_RWPreviousTileAdaptiveProbeIndexTexture;
 RWStructuredBuffer<uint>   g_RWAdaptiveProbeCountBuffer;
 // Error for probe updates. Used to splat onto the screen error texture to guide ray allocation.
 RWStructuredBuffer<float>  g_RWProbeUpdateErrorBuffer;
-
-// The splatted error texture for probes. Used to allocate update rays for probes.
-RWTexture2D<float>  g_RWUpdateErrorSplatTexture;
-Texture2D<float>    g_UpdateErrorSplatTexture;
-// Used for reprojection
-Texture2D<float>    g_PreviousUpdateErrorSplatTexture;
 
 // GI Denoising
 RWTexture2D<float4>  g_RWIrradianceTexture;

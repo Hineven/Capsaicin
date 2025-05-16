@@ -974,20 +974,6 @@ void SSRC_ReprojectProbeHistory (int LocalID : SV_GroupThreadID, int GroupID : S
             WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, RadianceDepth);
         }
     }
-
-    // Reproject compensation values
-    {
-        float3 PreviousCompensation = 0.f;
-        for(int CornerIndex = 0; CornerIndex < 4; CornerIndex ++) {
-            if(Sample.Weights[CornerIndex] > 0) {
-                int2 SrcProbeIndex = Sample.Index[CornerIndex];
-                float3 Compensation = g_RWPreviousProbeCompensationTexture[SrcProbeIndex].rgb;
-                PreviousCompensation += Sample.Weights[CornerIndex] * Compensation;
-            }
-        }
-        float3 Compensation = PreviousCompensation;
-        g_RWProbeCompensationTexture[ProbeIndex] = float4(Compensation, all(Compensation == 0) ? 0 : 1);
-    }
 }
 
 #define SCREEN_PROBE_TRUST_THRESHOLD 0.5f
@@ -1614,86 +1600,6 @@ void PrecomputeHiZ (int2 DispatchID : SV_DispatchThreadID) {
     g_RWHiZ_Out[DispatchID] = X;
 }
 
-
-[numthreads(SSRC_TILE_SIZE, SSRC_TILE_SIZE, 1)]
-void SSRC_ReprojectPreviousUpdateError (int2 DispatchID : SV_DispatchThreadID) {
-    if(any(DispatchID >= MI.ScreenDimensions)) {
-        return;
-    }
-
-    float3 NormalPrev = g_GeometryNormalTexture.Load(int3(DispatchID, 0)).xyz;
-    bool   IsSkyPixel = (dot(NormalPrev, NormalPrev) == 0.0f ? true : false);
-
-    if (IsSkyPixel)
-    {
-        g_RWUpdateErrorSplatTexture[DispatchID] = 0.f;
-        return;
-    }
-    float3 Normal = normalize(2.f * NormalPrev - 1.f);
-
-    // Reproject the update error texture from previous frame to current frame
-    float4 Visibility = g_VisibilityTexture.Load(int3(DispatchID, 0));
-    float2 Barycentrics      = Visibility.xy;
-    int   InstanceIndex      = asint(Visibility.z);
-    int   PrimitiveIndex      = asint(Visibility.w);
-
-    // Reconstruct world-space position and normal
-    Instance instance  = g_InstanceBuffer[InstanceIndex];
-    Mesh     mesh      = g_MeshBuffer[instance.mesh_index];
-    float3x4 transform = g_TransformBuffer[instance.transform_index];
-
-    TriangleNormUV vertices = fetchVerticesNormUV(mesh, PrimitiveIndex);
-
-    vertices.v0 = transformPoint(vertices.v0, transform);
-    vertices.v1 = transformPoint(vertices.v1, transform);
-    vertices.v2 = transformPoint(vertices.v2, transform);
-
-    vertices.n0 = transformNormal(vertices.n0, transform);
-    vertices.n1 = transformNormal(vertices.n1, transform);
-    vertices.n2 = transformNormal(vertices.n2, transform);
-
-    float3   world    = interpolate(vertices.v0, vertices.v1, vertices.v2, Barycentrics);
-
-    float3 homogeneous = transformPointProjection(world, MI.CameraProjView);
-
-    float2 UV          = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
-    float  Depth       = homogeneous.z;
-
-    // Severe precision loss here if we use the following reprojection method
-    // float2 UV = (float2(DispatchID) + 0.5f) * MI.ScreenDimensionsInv;
-    // float Depth = g_DepthTexture.Load(int3(UV, 0)).x;
-    // float3 Normal = normalize(2.f * g_GeometryNormalTexture.Load(int3(UV, 0)).xyz - 1.f);
-    // float3 homogeneous = float3(UV2NDC2(UV), Depth);
-
-    if (all(UV > 0.0f) && all(UV < 1.0f) && Depth > 0.0f && Depth < 1.0f)
-    {
-        float2 previous_uv = UV - g_VelocityTexture.SampleLevel(g_NearestSampler, UV, 0.0f).xy;
-
-        if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
-        {
-            float3 homogeneous2 = transformPointProjection(homogeneous, MI.Reprojection);
-            homogeneous2.z      = GetLinearDepth(homogeneous2.z);
-
-            float  previous_depth  = GetLinearDepth(g_PreviousDepthTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x);
-            float3 previous_normal = normalize(2.0f * g_PreviousGeometryNormalTexture.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
-
-            if (dot(previous_normal, Normal) > 0.5f && abs(previous_depth - homogeneous2.z) / homogeneous2.z < 5e-2f)
-            {
-                // Using linear sampler in reprojection can significantly increase the reprojected error, why?
-                float PreviousError = g_PreviousUpdateErrorSplatTexture.SampleLevel(g_NearestSampler, previous_uv, 0).x;
-                g_RWUpdateErrorSplatTexture[DispatchID] = PreviousError;
-                return; 
-            }
-        }
-    }
-    
-    // TODO allocate a initial weight for the update error
-    // TODO
-    g_RWUpdateErrorSplatTexture[DispatchID] = 0.f;
-}
-
-// UpdateErrorSplatTexture is later mipmapped.
-
 [numthreads(WAVE_SIZE, 1, 1)]
 void WorldCache_ShadeQueries(in uint DispatchID : SV_DispatchThreadID, in uint GroupID : SV_GroupID)
 {
@@ -2212,10 +2118,9 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
     int  ProbeRayOffset  = g_RWProbeUpdateRayOffsetBuffer[GroupID];
     
     float  ReprojectionTrust = g_RWProbeHistoryTrustTexture[ProbeIndex].x;
-
     // Re-initialize the probe if it is not trusted at all
     [branch]
-    if(ReprojectionTrust == 0) {
+    if(ReprojectionTrust < Epsilon) {
         // TODO heuristic initialization for probe octahedron radiances
         ResetProbe(GroupID, LocalID, ProbeIndex, BasisCount, Header.BasisOffset, Header.Normal);
     }
@@ -2957,8 +2862,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float  empty_cell_count = NumUntracedTexels;
             BackupRadiance = BackupRadiance / max(NumUntracedTexels, 1.0f);
         }
-        float3 CompensationIrradiance = 0.f;
-        float  CompensationWeightSum  = 0.f;
         [unroll(SSRC_PROBE_TEXTURE_TEXEL_COUNT / WAVE_SIZE)]
         for(int BaseProbeTexelIndex = 0; BaseProbeTexelIndex < SSRC_PROBE_TEXTURE_TEXEL_COUNT; BaseProbeTexelIndex += WAVE_SIZE) {
             int  ProbeTexelIndex = BaseProbeTexelIndex + LocalID;
@@ -2978,8 +2881,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             // Overwrite the radiance depth with backup values if the texel is not traced in current update
             if(QuantilizedWeight == 0) RadianceDepthSum = float4(BackupRadiance, MI.CameraFar);
             float4 RadianceDepth = RadianceDepthSum / Weight;
-            // Accumulate the compensation radiance for over-lit caused by LSM method.
-            float3 TexelCompensation = min(RadianceDepth.xyz, 0);
 
             float  LumaA = luminance(max(RadianceDepth.xyz, 0.f));
             float  LumaB = luminance(OldRadianceDepth.xyz);
@@ -2994,34 +2895,6 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
             float4 UpdatedRadianceDepth = lerp(RadianceDepth, OldRadianceDepth, TemporalBlend);
             UpdatedRadianceDepth = max(UpdatedRadianceDepth, 0.f);
             WriteScreenProbeOctahedronRadianceDepth(ProbeIndex, ProbeTexelCoords, UpdatedRadianceDepth);
-            float CompensationWeight = 1.f - TemporalBlend;
-            CompensationIrradiance += CompensationWeight * TexelCompensation / HemiOctahedronIrradianceToTexelRadiance(ProbeTexelCoords);
-            // We want the weighted sum of all texels, not the weighted average.
-            CompensationWeightSum  += CompensationWeight / SSRC_PROBE_TEXTURE_TEXEL_COUNT;
-        }
-        CompensationIrradiance = WaveActiveSum(CompensationIrradiance);
-        CompensationWeightSum  = WaveActiveSum(CompensationWeightSum);
-        CompensationIrradiance /= max(CompensationWeightSum, 1e-4f);
-        // Write back compensation for the probe
-        if(WaveIsFirstLane()) {
-            float4 OldCompensationW = g_RWProbeCompensationTexture[ProbeIndex];
-            float3 OldCompensation = OldCompensationW.xyz;
-            float Alpha = CompensationWeightSum;
-            // If reprojection failed, we should just replace the old compensation with the new one.
-            if(OldCompensationW.w == 0) Alpha = 1;
-            CompensationIrradiance = lerp(OldCompensation, CompensationIrradiance, CompensationWeightSum);
-            if(MI.NoCompensation) {
-                CompensationIrradiance = 0.f;
-            }
-            g_RWProbeCompensationTexture[ProbeIndex] = float4(CompensationIrradiance, 1.f);
-        }
-        if(WaveIsFirstLane()) {
-            if(DebugSSRC_IsProbeSelected(ProbeIndex)) {
-                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 4] = asuint(CompensationIrradiance.x);
-                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 5] = asuint(CompensationIrradiance.y);
-                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 6] = asuint(CompensationIrradiance.z);
-                g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 7] = asuint(-1.f);
-            }
         }
     }
 }
@@ -3321,7 +3194,6 @@ void SSRC_FilterProbes (int GroupID : SV_GroupID, int LocalID : SV_GroupThreadID
             }
         }
     }
-
 }
 
 
@@ -3398,14 +3270,6 @@ float4 SampleScreenProbeRadianceDepth (int2 ProbeIndex, float3 LocalDirection) {
     float2 AtlasUV = AtlasPosition / Dimensions;
     return g_ProbeSampleColorTexture.SampleLevel(g_LinearSampler, AtlasUV, 0);
 }
-
-// TODO: EAJ don't know why should do this
-void CompensateSG (inout SGData SG, float3 Compensation) {
-    float  SGRawInt = SGIntegrate(SG.Lambda);
-    float3 DeltaColor = Compensation / SGRawInt;
-    SG.Color = max(SG.Color + DeltaColor, MIN_SG_COLOR);
-}
-
 
 [numthreads(WAVE_SIZE, 1, 1)]
 void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
@@ -3506,10 +3370,6 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
 
                 float3 HighFreq_Diffuse = 0.f.xxx;
                 float3 HighFreq_Glossy  = 0.f.xxx;
-                float3 Compensations[4];
-                for(int i = 0; i < 4; i++) {
-                    Compensations[i] = g_RWProbeCompensationTexture[Sample.Index[i]].rgb;
-                }
                 // HighFreq-AllFreq shading
                 [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE * 4)]
                 for(int BasisRank = 0; BasisRank < BasisCount; BasisRank++) {
@@ -3524,9 +3384,6 @@ void SSRC_IntegrateASG (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadI
                     }
                     int BasisIndex = Headers[ProbeRank].BasisOffset + ProbeBasisIndex;
                     SGData SG = FetchBasisData(BasisIndex);
-                    // Correct the SG's irradiance with compensation previously calculated
-                    float3 Compensation = Compensations[ProbeRank];
-                    CompensateSG(SG, Compensation);
                     float3 LightDirection = SG.Direction;                    
                     float3 HalfVector = normalize(LightDirection + ViewDirection);
                     float dotNL = saturate(dot(LightDirection, ShadingNormal));
@@ -3984,105 +3841,9 @@ void SSRC_Denoise (int2 GroupID : SV_GroupID, int LocalID : SV_GroupThreadID) {
     }
 }
 
-// [numthreads(WAVE_SIZE, 1, 1)]
-// void SSRC_AccumulateUpdateError (int DispatchID : SV_DispatchThreadID) {
-//     // >= 96 registers for each thread (meanwhile < 128)
-//     // anyway that's not big deal
-//     float ThreadErrorAccumulation[SSRC_TILE_SIZE][SSRC_TILE_SIZE];
-//     float ThreadErrorAccumulationWeight[SSRC_TILE_SIZE][SSRC_TILE_SIZE];
-//     for(int i = 0; i<SSRC_TILE_SIZE; i++) 
-//         for(int j = 0; j<SSRC_TILE_SIZE; j++) {
-//             ThreadErrorAccumulation[i][j] = 0;
-//         }
-//     for(int i = 0; i<SSRC_TILE_SIZE; i++) 
-//         for(int j = 0; j<SSRC_TILE_SIZE; j++) {
-//             ThreadErrorAccumulationWeight[i][j] = 0;
-//         }
-//     int2 TileCoords = int2(DispatchID % g_TileDimensions.x, DispatchID / g_TileDimensions.x);
-//     int2 TexOffset = TileCoords * SSRC_TILE_SIZE;
-//     int TileID = DispatchID;
-//     int TileRayCount = g_RWTileRayCountBuffer[TileID];
-//     int TileRayOffset = g_RWTileRayOffsetBuffer[TileID];
-//     for(int TileRayRank = 0; TileRayRank < TileRayCount; TileRayRank++) {
-//         int RayIndex = TileRayOffset + TileRayRank;
-//         int2 TexCoords  = UnpackUint16x2(g_RWUpdateRayOriginBuffer[RayIndex]);
-//         float4 RadianceInvPdf = UnpackFp16x4(g_RWUpdateRayRadianceInvPdfBuffer[RayIndex]);
-//         if(RadianceInvPdf.w > 0) {
-//             float3 Error    = RadianceInvPdf.xyz;
-//             float  InvPdf   = RadianceInvPdf.w;
-
-//             float  Contrib  = (dot(Error, Error) ) * InvPdf;
-
-//             // Accumulate the error
-//             int2  PixelCoords = TexCoords - TexOffset;
-//             ThreadErrorAccumulation[PixelCoords.y][PixelCoords.x] += Contrib;
-//             ThreadErrorAccumulationWeight[PixelCoords.y][PixelCoords.x] += InvPdf;
-//         }
-//     }
-//     for(int j = 0; j<SSRC_TILE_SIZE; j++) {
-//         for(int i = 0; i<SSRC_TILE_SIZE; i++) {
-//             int2 TexCoords = TexOffset + int2(i, j);
-//             float Error  = ThreadErrorAccumulation[j][i];
-//             float Weight = ThreadErrorAccumulationWeight[j][i];
-//             float PrevError = g_RWUpdateErrorSplatTexture[TexCoords];
-//             if(Weight > 0) {
-//                 g_RWUpdateErrorSplatTexture[TexCoords] = lerp(PrevError, Error / Weight, 0.005f);
-//             } else {
-//                 g_RWUpdateErrorSplatTexture[TexCoords] = lerp(PrevError, 0.f,  0.005f);
-//             }
-//         }
-//     }
-// }
-
-// [numthreads(8, 8, 1)]
-// void DebugSSRC_ShowDifference (uint2 DispatchID : SV_DispatchThreadID) {
-//     if(any(DispatchID >= MI.ScreenDimensions)) {
-//         return;
-//     }
-//     if(g_DebugVisualizeMode == 0) {
-//         float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
-//         if(Depth < 1.f) {
-//             float2 UV = (DispatchID + 0.5f.xx) / MI.ScreenDimensions;
-//             float Difference = g_UpdateErrorSplatTexture.SampleLevel(g_LinearSampler, UV, ERROR_BLUR_LOD).x;
-//             g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(Difference * g_DebugTonemapExposure), 1.f);
-//         } else {
-//             g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
-//         }
-//     } else if(g_DebugVisualizeMode == 1) {
-//         int2 TileCoords = DispatchID / SSRC_TILE_SIZE;
-//         int TileID = TileCoords.x + TileCoords.y * g_TileDimensions.x;
-//         int TileRayCount = g_RWTileRayCountBuffer[TileID];
-//         if(TileRayCount == 0) {
-//             g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
-//         } else {
-//             g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(TileRayCount / 128.f), 1.f);
-//         }
-//     } else if(g_DebugVisualizeMode == 2) {
-//         float Depth = g_DepthTexture.Load(int3(DispatchID, 0)).x;
-//         if(Depth < 1.f) {
-//             float Difference = g_UpdateErrorSplatTexture.Load(int3(DispatchID, 0)).x;
-//             g_RWDebugOutput[DispatchID] = float4(ColorHeatMap(Difference * g_DebugTonemapExposure), 1.f);
-//         } else {
-//             g_RWDebugOutput[DispatchID] = float4(0.f, 0.f, 0.f, 0.0f);
-//         }
-//     }
-// }
-
 // ***********************************************
 // *                 Misc                        *
 // ***********************************************
-
-
-// [numthreads(1, 1, 1)]
-// void DebugSSRC_GenerateDrawIndexed (uint DispatchID : SV_DispatchThreadID) {
-//     DrawIndexedCommand draw_command;
-//     draw_command.index_count_per_instance = 3;
-//     draw_command.instance_count  = g_RWActiveBasisCountBuffer[0];
-//     draw_command.index_offset    = 0;
-//     draw_command.vertex_offset   = 0;
-//     draw_command.instance_offset = 0;
-//     g_RWDrawIndexedCommandBuffer[0] = draw_command;
-// }
 
 [numthreads(1, 1, 1)]
 void DebugSSRC_FetchCursorPos (uint DipspatchID : SV_DispatchThreadID) {

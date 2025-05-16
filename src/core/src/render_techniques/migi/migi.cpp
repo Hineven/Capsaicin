@@ -197,9 +197,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeHistoryTrustTexture", tex_.probe_history_trust);
 
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeCompensationTexture", tex_.probe_compensation[flip]);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousProbeCompensationTexture", tex_.probe_compensation[1-flip]);
-
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayCountBuffer", buf_.probe_update_ray_count);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateRayOffsetBuffer", buf_.probe_update_ray_offset);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateRayCountBuffer", buf_.update_ray_count);
@@ -215,11 +212,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWTileAdaptiveProbeIndexTexture", tex_.tile_adaptive_probe_index[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWPreviousTileAdaptiveProbeIndexTexture", tex_.tile_adaptive_probe_index[1 - flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWAdaptiveProbeCountBuffer", buf_.adaptive_probe_count);
-//        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWProbeUpdateErrorBuffer", buf_.probe_update_error);
-
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_RWUpdateErrorSplatTexture", tex_.update_error_splat[flip]);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_UpdateErrorSplatTexture", tex_.update_error_splat[flip]);
-        gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousUpdateErrorSplatTexture", tex_.update_error_splat[1 - flip]);
 
         gfxProgramSetParameter(gfx_, kernels_.program, "g_RWIrradianceTexture", tex_.irradiance[flip]);
         gfxProgramSetParameter(gfx_, kernels_.program, "g_PreviousIrradianceTexture", tex_.irradiance[1 - flip]);
@@ -455,9 +447,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
     // ***********************************************************
 
     if(capsaicin.getFrameIndex() == 0) {
-        // Clear error texture
-        gfxCommandClearTexture(gfx_, tex_.update_error_splat[0]);
-        gfxCommandClearTexture(gfx_, tex_.update_error_splat[1]);
         // Clear history accumulation texture
         gfxCommandClearTexture(gfx_, tex_.history_accumulation[0]);
         gfxCommandClearTexture(gfx_, tex_.history_accumulation[1]);
@@ -649,23 +638,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatchIndirect(gfx_, buf_.dispatch_command);
     }
 
-    // Reproject update error to guide update ray allocation
-    {
-        const TimedSection timed_section(*this, "SSRC_ReprojectPreviousUpdateError");
-        gfxCommandBindKernel(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
-        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_ReprojectPreviousUpdateError);
-        uint32_t dispatch_size[] = {
-            static_cast<uint32_t>(divideAndRoundUp(options_.width,  threads[0])),
-            static_cast<uint32_t>(divideAndRoundUp(options_.height, threads[1]))};
-        gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
-    }
-
-    // Mipmapping the UpdateErrorSplatTexture
-    {
-        const TimedSection timed_section(*this, "SSRC_MipMapUpdateErrorSplat");
-        gfxCommandGenerateMips(gfx_, tex_.update_error_splat[internal_frame_index_ & 1]);
-    }
-
     {
         const TimedSection timed_section(*this, "SSRC_InitializeFailedProbes");
         gfxCommandBindKernel(gfx_, kernels_.SSRC_InitializeFailedProbes);
@@ -814,16 +786,6 @@ void MIGI::render(CapsaicinInternal &capsaicin) noexcept
         assert(dispatch_size[0] * SSRC_TILE_SIZE == options_.width && dispatch_size[1] * SSRC_TILE_SIZE == options_.height);
         gfxCommandDispatch(gfx_, dispatch_size[0], dispatch_size[1], 1);
     }
-
-    // Accumulate the update error for next frame
-//    {
-//        const TimedSection timed_section(*this, "SSRC_AccumulateUpdateError");
-//        gfxCommandBindKernel(gfx_, kernels_.SSRC_accumulate_update_error);
-//        auto num_tiles = options_.width * options_.height / SSRC_TILE_SIZE / SSRC_TILE_SIZE;
-//        auto threads = gfxKernelGetNumThreads(gfx_, kernels_.SSRC_accumulate_update_error);
-//        // Use 1 thread per tile to avoid atomic operations at the cost of allocation many registers for each thread
-//        gfxCommandDispatch(gfx_, divideAndRoundUp(num_tiles, threads[0]), 1, 1);
-//    }
 
     // Denoise and copy the result to the output buffer
     {
