@@ -805,6 +805,29 @@ SGData SGInterpolate (in SGData X00, in SGData X01, in SGData X10, in SGData X11
     return Result;
 }
 
+float SGUpdateRayRangeCosine(SGData SG, float RangeThres)
+{
+    float result;
+    result = 1.f + (log(RangeThres) / SG.Lambda);
+    return result;
+}
+
+float FastLambdaForNewSG(float CosineMean, float Tolerance=1e-6, int MaxIter=10)
+{
+    float LambdaGuess = 1.f;
+    for(int i = 0; i < MaxIter; i++)
+    {
+        float f = (1.f / tanh(LambdaGuess)) - (1.0 / LambdaGuess) - CosineMean;
+        float df = (1.f / (LambdaGuess * LambdaGuess)) - (1.0 / (sinh(LambdaGuess) * sinh(LambdaGuess)));
+        LambdaGuess -= (f / df);
+        if (abs(f) < Tolerance)
+        {
+            break;
+        }
+    }
+    return LambdaGuess;
+}
+
 // TODO improve this
 SGData CombineSG (SGData SG1, SGData SG2) {
     float W1 = max(SGIntegrate(SG1.Lambda) * dot(SG1.Color, 1.f.xxx), 0) + 1e-8f;
