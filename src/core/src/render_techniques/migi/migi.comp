@@ -2616,6 +2616,10 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 float ExpectedCosine = TargetCosine / (SumRadiance + Epsilon);
                 SGLambda = FastLambdaForNewSG(ExpectedCosine);
                 LocalUpdatedSG[LocalUpdatedSGCount].Lambda = SGLambda;
+                // Calculate new SG's Ray Range Cosine
+                // TODO:EAJ make this into ImGui
+                float RangeThres = 1e-2f;
+                LocalSGUpdateRayRangeCosine[LocalUpdatedSGCount] = SGUpdateRayRangeCosine(LocalUpdatedSG[LocalUpdatedSGCount], RangeThres);
             }
             GroupMemoryBarrierWithGroupSync();
 
@@ -2817,53 +2821,69 @@ void SSRC_UpdateProbes (int LocalID : SV_GroupThreadID, int GroupID : SV_GroupID
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 10] = asuint(Scale);
                 g_RWExportBuffer[MIGI_DEBUG_EXPORT_OFFSET_WORD + 11] = asuint(SGIntegrate(SG.Lambda) * Scale);
             }
-
-            // TODO:EAJ Flow Deleted Radiance to Octahedron radiance when deleting small SGs
-//            if(SGIsSmallEnough(SG)) {
-//                LocalUpdatedSGCount--;
-//                continue;
-//            }
-
-            // Write back
-//            WriteBasisData(Header.BasisOffset + (SGRank + LocalUpdatedSGCount - Header.SGCount), SG);
-
-            LocalSGData[SGRank] = SG;
+            LocalUpdatedSG[SGRank] = SG;
         }
     }
+    GroupMemoryBarrierWithGroupSync();
+
+    // 2.4.Decrease SG number
+    {
+        float MaxLambdaColor = 0.f;
+        int IsFinalSG = 0;
+        if(LocalID < LocalUpdatedSGCount) {
+            SGData SG = LocalUpdatedSG[LocalID];
+            MaxLambdaColor = max(MaxLambdaColor, hmax(SG.Lambda * SG.Color));
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        MaxLambdaColor = WaveActiveMax(MaxLambdaColor);
+        if(LocalID < LocalUpdatedSGCount) {
+            SGData SG = LocalUpdatedSG[LocalID];
+            // TODO:EAJ make this into ImGui
+            float SGSmallThres = 1e-2f;
+            if(SG.Lambda * hmax(SG.Color) > MaxLambdaColor * SGSmallThres) {
+                IsFinalSG = 1;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        int FinalSGOffset = WavePrefixSum(IsFinalSG);
+        int FinalSGCount = WaveActiveSum(IsFinalSG);
+        // Write the reserved SGs
+        if(LocalID < LocalUpdatedSGCount && IsFinalSG == 1) {
+            SGData SG = LocalUpdatedSG[LocalID];
+            WriteBasisData(Header.BasisOffset + FinalSGOffset, SG);
+        }
+        Header.SGCount = FinalSGCount;
+        WriteScreenProbeHeader(ProbeIndex, Header);
+    }
 //    if(WaveIsFirstLane()) {
+//        [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+//        for(int SGRank = 0; SGRank < Header.SGCount; SGRank ++) {
+//            float MaxScore = MI.SGMergingThresholdWhenDecreasing;
+//            int   MaxIndex = -1;
+//            SGData CurrentSG = LocalSGData[SGRank];
+//            [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
+//            for(int SelectedSGRank = SGRank + 1; SelectedSGRank < Header.SGCount; SelectedSGRank ++) {
+//                SGData SelectedSG = LocalSGData[SelectedSGRank];
+//                float Score = SGMergeTrust(SelectedSG, CurrentSG);
+//                if(Score > MaxScore) {
+//                    MaxScore = Score;
+//                    MaxIndex = SelectedSGRank;
+//                }
+//            }
+//            if(MaxIndex >= 0) {
+//                LocalSGData[MaxIndex] = CombineSG(LocalSGData[MaxIndex], CurrentSG);
+//                LocalUpdatedSGCount--;
+//            }
+//            else {
+//                WriteBasisData(Header.BasisOffset + (SGRank + LocalUpdatedSGCount - Header.SGCount), CurrentSG);
+//            }
+//        }
 //        Header.SGCount = LocalUpdatedSGCount;
 //        WriteScreenProbeHeader(ProbeIndex, Header);
 //    }
-    GroupMemoryBarrierWithGroupSync();
-    // 2.4.Combine similar SGs to decrease SG number
-    //TODO:EAJ Wave op needed
-    if(WaveIsFirstLane()) {
-        [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
-        for(int SGRank = 0; SGRank < Header.SGCount; SGRank ++) {
-            float MaxScore = MI.SGMergingThresholdWhenDecreasing;
-            int   MaxIndex = -1;
-            SGData CurrentSG = LocalSGData[SGRank];
-            [unroll(SSRC_MAX_NUM_BASIS_PER_PROBE)]
-            for(int SelectedSGRank = SGRank + 1; SelectedSGRank < Header.SGCount; SelectedSGRank ++) {
-                SGData SelectedSG = LocalSGData[SelectedSGRank];
-                float Score = SGMergeTrust(SelectedSG, CurrentSG);
-                if(Score > MaxScore) {
-                    MaxScore = Score;
-                    MaxIndex = SelectedSGRank;
-                }
-            }
-            if(MaxIndex >= 0) {
-                LocalSGData[MaxIndex] = CombineSG(LocalSGData[MaxIndex], CurrentSG);
-                LocalUpdatedSGCount--;
-            }
-            else {
-                WriteBasisData(Header.BasisOffset + (SGRank + LocalUpdatedSGCount - Header.SGCount), CurrentSG);
-            }
-        }
-        Header.SGCount = LocalUpdatedSGCount;
-        WriteScreenProbeHeader(ProbeIndex, Header);
-    }
-    Header.SGCount = WaveReadLaneFirst(Header.SGCount);
+//    Header.SGCount = WaveReadLaneFirst(Header.SGCount);
 
     GroupMemoryBarrierWithGroupSync();
     // 3. Update probe octahedron radiance
